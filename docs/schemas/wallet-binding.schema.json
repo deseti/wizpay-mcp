@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcp.wizpay.xyz/schemas/wallet-binding.schema.json",
+  "title": "Circle user-controlled wallet binding metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["binding_id", "version", "user_id", "circle_user_ref", "circle_wallet_id", "wallet_address", "chain_id", "blockchain", "account_type", "binding_status", "verification_status", "created_at"],
+  "properties": {
+    "binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "version": {"type": "integer", "minimum": 1},
+    "user_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "circle_user_ref": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$"},
+    "circle_wallet_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$"},
+    "wallet_address": {"$ref": "common.schema.json#/$defs/evmAddress"},
+    "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+    "blockchain": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+    "account_type": {"enum": ["EOA", "SCA", "UNVERIFIED"]},
+    "binding_status": {"enum": ["PENDING", "ACTIVE", "REVOKED"]},
+    "verification_status": {"enum": ["UNVERIFIED", "VERIFIED", "FAILED", "STALE"]},
+    "evidence_ref": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{8,256}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "verified_at": {"type": "string", "format": "date-time"},
+    "revoked_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {"if": {"properties": {"binding_status": {"const": "ACTIVE"}}}, "then": {"properties": {"verification_status": {"const": "VERIFIED"}}, "required": ["verified_at", "evidence_ref"]}},
+    {"if": {"properties": {"binding_status": {"const": "REVOKED"}}}, "then": {"required": ["revoked_at"]}}
+  ]
+}
+

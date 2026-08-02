@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcp.wizpay.xyz/schemas/public-responses.schema.json",
+  "title": "WizPay MCP successful public tool responses",
+  "oneOf": [
+    {"$ref": "#/$defs/balanceResponse"},
+    {"$ref": "#/$defs/observationResponse"},
+    {"$ref": "#/$defs/previewResponse"},
+    {"$ref": "#/$defs/quoteResponse"},
+    {"$ref": "#/$defs/intentResponse"},
+    {"$ref": "#/$defs/executionResponse"},
+    {"$ref": "#/$defs/statusResponse"},
+    {"$ref": "#/$defs/ansAvailabilityResponse"},
+    {"$ref": "#/$defs/ansRecordResponse"}
+  ],
+  "$defs": {
+    "verificationStatus": {"enum": ["UNVERIFIED", "OBSERVED", "CONFIRMED", "VERIFIED", "FAILED"]},
+    "balanceResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "wallet_binding_id", "chain_id", "balances", "observed_at", "verification_status"],
+      "properties": {
+        "tool": {"const": "wallet_get_balances"},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "balances": {"type": "array", "maxItems": 50, "items": {"type": "object", "additionalProperties": false, "required": ["token", "amount"], "properties": {"token": {"$ref": "common.schema.json#/$defs/token"}, "amount": {"$ref": "common.schema.json#/$defs/amount"}}}},
+        "observation_block": {"$ref": "common.schema.json#/$defs/uintString"},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "verification_status": {"$ref": "#/$defs/verificationStatus"}
+      }
+    },
+    "observationResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "chain_id", "transaction_hash", "observed_at", "verification_status"],
+      "properties": {
+        "tool": {"const": "deposit_get_status"},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "transaction_hash": {"$ref": "common.schema.json#/$defs/transactionHash"},
+        "confirmations": {"type": "integer", "minimum": 0},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "verification_status": {"$ref": "#/$defs/verificationStatus"}
+      }
+    },
+    "previewResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "preview_id", "valid", "warnings", "expires_at"],
+      "properties": {
+        "tool": {"enum": ["withdrawal_preview", "payroll_preview"]},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "preview_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "valid": {"type": "boolean"},
+        "total": {"$ref": "common.schema.json#/$defs/amount"},
+        "fee_total": {"$ref": "common.schema.json#/$defs/amount"},
+        "warnings": {"type": "array", "maxItems": 50, "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$"}},
+        "expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "quoteResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "quote_id", "route_id", "input_amount", "expected_output", "expires_at"],
+      "properties": {
+        "tool": {"enum": ["swap_get_quote", "bridge_get_quote"]},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "quote_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "route_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"},
+        "input_amount": {"$ref": "common.schema.json#/$defs/amount"},
+        "expected_output": {"$ref": "common.schema.json#/$defs/amount"},
+        "minimum_output": {"$ref": "common.schema.json#/$defs/amount"},
+        "fee_total": {"$ref": "common.schema.json#/$defs/amount"},
+        "expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "intentResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "intent_id", "intent_version", "intent_digest", "state", "expires_at", "policy_evaluation", "approval"],
+      "properties": {
+        "tool": {"enum": ["withdrawal_create_intent", "payroll_create_intent", "swap_create_intent", "bridge_create_intent", "ans_create_registration_intent"]},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "intent_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "intent_version": {"type": "integer", "minimum": 1},
+        "intent_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "state": {"const": "approval_required"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "policy_evaluation": {"type": "object", "additionalProperties": false, "required": ["decision", "policy_version_ids"], "properties": {"decision": {"const": "ALLOW_WITH_APPROVAL"}, "policy_version_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/opaqueId"}}}},
+        "approval": {"type": "object", "additionalProperties": false, "required": ["required", "approval_request_id"], "properties": {"required": {"const": true}, "approval_request_id": {"$ref": "common.schema.json#/$defs/opaqueId"}}}
+      }
+    },
+    "executionResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "intent_id", "execution_id", "state", "submission_status", "verification_status"],
+      "properties": {
+        "tool": {"enum": ["withdrawal_execute", "payroll_execute", "swap_execute", "bridge_execute", "ans_register"]},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "intent_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "execution_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "state": {"enum": ["execution_queued", "executing", "submitted", "confirming", "verified", "completed", "recovery_required", "failed"]},
+        "submission_status": {"enum": ["NOT_STARTED", "ATTEMPT_RECORDED", "OBSERVED", "AMBIGUOUS", "FAILED"]},
+        "verification_status": {"$ref": "#/$defs/verificationStatus"}
+      }
+    },
+    "statusResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "intent_id", "state", "updated_at", "verification_status"],
+      "properties": {
+        "tool": {"const": "transaction_get_status"},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "intent_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "execution_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "state": {"type": "string", "pattern": "^[a-z_]{1,64}$"},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "verification_status": {"$ref": "#/$defs/verificationStatus"},
+        "recovery_reason": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$"}
+      }
+    },
+    "ansAvailabilityResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "chain_id", "normalized_name", "normalization_version", "availability", "observed_at"],
+      "properties": {
+        "tool": {"const": "ans_check_name"},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "normalized_name": {"type": "string", "minLength": 1, "maxLength": 255},
+        "normalization_version": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"},
+        "availability": {"enum": ["AVAILABLE", "UNAVAILABLE", "UNKNOWN"]},
+        "observed_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "ansRecordResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tool", "request_id", "chain_id", "normalized_name", "owner", "records", "observed_at", "verification_status"],
+      "properties": {
+        "tool": {"const": "ans_get_record"},
+        "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "normalized_name": {"type": "string", "minLength": 1, "maxLength": 255},
+        "owner": {"$ref": "common.schema.json#/$defs/evmAddress"},
+        "records": {"type": "array", "maxItems": 100, "items": {"type": "object", "additionalProperties": false, "required": ["key", "value"], "properties": {"key": {"type": "string", "minLength": 1, "maxLength": 64}, "value": {"type": "string", "maxLength": 2048}}}},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "verification_status": {"$ref": "#/$defs/verificationStatus"}
+      }
+    }
+  }
+}
+

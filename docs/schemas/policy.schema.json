@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcp.wizpay.xyz/schemas/policy.schema.json",
+  "title": "Future-safe policy model; never an MVP approval bypass",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["policy_id", "version", "owner_id", "status", "effect", "constraints", "valid_from", "created_at"],
+  "properties": {
+    "policy_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "version": {"type": "integer", "minimum": 1},
+    "owner_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "status": {"enum": ["DRAFT", "ACTIVE", "REVOKED", "EXPIRED"]},
+    "effect": {"const": "ALLOW_WITH_EXPLICIT_APPROVAL"},
+    "constraints": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "operation_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["PAYROLL", "SWAP", "BRIDGE", "ANS_REGISTRATION", "WITHDRAWAL"]}},
+        "chain_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/chainId"}},
+        "tokens": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "common.schema.json#/$defs/token"}},
+        "per_transaction_limits": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/tokenLimit"}},
+        "daily_limits": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/tokenLimit"}},
+        "allowed_recipients": {"type": "array", "maxItems": 1000, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evmAddress"}},
+        "recipient_list_version_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "payroll_max_recipients": {"type": "integer", "minimum": 1, "maximum": 500},
+        "swap_max_slippage_bps": {"$ref": "common.schema.json#/$defs/basisPoints"},
+        "allowed_route_ids": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"}},
+        "bridge_destination_chain_ids": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/chainId"}},
+        "bridge_destination_recipients": {"type": "array", "maxItems": 1000, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/evmAddress"}},
+        "ans_max_term_seconds": {"type": "integer", "minimum": 1, "maximum": 315360000}
+      },
+      "minProperties": 1
+    },
+    "valid_from": {"type": "string", "format": "date-time"},
+    "valid_until": {"type": "string", "format": "date-time"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "revoked_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "tokenLimit": {
+      "type": "object", "additionalProperties": false,
+      "required": ["token", "maximum"],
+      "properties": {
+        "token": {"$ref": "common.schema.json#/$defs/token"},
+        "maximum": {"$ref": "common.schema.json#/$defs/amount"}
+      }
+    }
+  }
+}
+

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcp.wizpay.xyz/schemas/approval.schema.json",
+  "title": "WizPay MCP approval artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["approval_id", "approval_version", "approval_request_id", "intent_id", "intent_version", "intent_digest", "user_id", "wallet", "decision", "created_at", "expires_at", "status"],
+  "properties": {
+    "approval_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "approval_version": {"const": 1},
+    "approval_request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "intent_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "intent_version": {"type": "integer", "minimum": 1},
+    "intent_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "user_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "wallet": {
+      "type": "object", "additionalProperties": false,
+      "required": ["binding_id", "binding_version", "circle_wallet_id", "wallet_address", "chain_id"],
+      "properties": {
+        "binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "binding_version": {"type": "integer", "minimum": 1},
+        "circle_wallet_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "wallet_address": {"$ref": "common.schema.json#/$defs/evmAddress"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"}
+      }
+    },
+    "decision": {"enum": ["APPROVED", "REJECTED"]},
+    "authorization_method": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"},
+    "evidence_ref": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{8,256}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "decided_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "revoked_at": {"type": "string", "format": "date-time"},
+    "consumed_at": {"type": "string", "format": "date-time"},
+    "execution_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+    "status": {"enum": ["PENDING", "EFFECTIVE", "REJECTED", "EXPIRED", "REVOKED", "CONSUMED"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "CONSUMED"}}}, "then": {"required": ["consumed_at", "execution_id"]}},
+    {"if": {"properties": {"status": {"const": "REVOKED"}}}, "then": {"required": ["revoked_at"]}}
+  ]
+}
+

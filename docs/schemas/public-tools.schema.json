@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcp.wizpay.xyz/schemas/public-tools.schema.json",
+  "title": "WizPay MCP public tool call inputs",
+  "oneOf": [
+    {"$ref": "#/$defs/walletGetBalances"},
+    {"$ref": "#/$defs/depositGetStatus"},
+    {"$ref": "#/$defs/withdrawalPreview"},
+    {"$ref": "#/$defs/withdrawalCreateIntent"},
+    {"$ref": "#/$defs/withdrawalExecute"},
+    {"$ref": "#/$defs/payrollPreview"},
+    {"$ref": "#/$defs/payrollCreateIntent"},
+    {"$ref": "#/$defs/payrollExecute"},
+    {"$ref": "#/$defs/swapGetQuote"},
+    {"$ref": "#/$defs/swapCreateIntent"},
+    {"$ref": "#/$defs/swapExecute"},
+    {"$ref": "#/$defs/bridgeGetQuote"},
+    {"$ref": "#/$defs/bridgeCreateIntent"},
+    {"$ref": "#/$defs/bridgeExecute"},
+    {"$ref": "#/$defs/ansCheckName"},
+    {"$ref": "#/$defs/ansGetRecord"},
+    {"$ref": "#/$defs/ansCreateIntent"},
+    {"$ref": "#/$defs/ansRegister"},
+    {"$ref": "#/$defs/transactionGetStatus"}
+  ],
+  "$defs": {
+    "callBaseProperties": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "arguments": {"type": "object"}
+      }
+    },
+    "executeArguments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["intent_id", "approval_id", "idempotency_key"],
+      "properties": {
+        "intent_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "approval_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "idempotency_key": {"$ref": "common.schema.json#/$defs/uuid"}
+      }
+    },
+    "withdrawalArguments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wallet_binding_id", "chain_id", "token", "amount", "recipient", "deadline"],
+      "properties": {
+        "wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "token": {"$ref": "common.schema.json#/$defs/token"},
+        "amount": {"$ref": "common.schema.json#/$defs/amount"},
+        "recipient": {"$ref": "common.schema.json#/$defs/evmAddress"},
+        "memo": {"type": "string", "minLength": 1, "maxLength": 140},
+        "deadline": {"$ref": "common.schema.json#/$defs/deadline"},
+        "client_request_id": {"$ref": "common.schema.json#/$defs/uuid"}
+      }
+    },
+    "payrollArguments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wallet_binding_id", "chain_id", "token", "recipients", "deadline"],
+      "properties": {
+        "wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "token": {"$ref": "common.schema.json#/$defs/token"},
+        "recipients": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"$ref": "common.schema.json#/$defs/recipient"}},
+        "route_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$"},
+        "deadline": {"$ref": "common.schema.json#/$defs/deadline"},
+        "client_request_id": {"$ref": "common.schema.json#/$defs/uuid"}
+      }
+    },
+    "swapQuoteArguments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wallet_binding_id", "chain_id", "input_token", "output_token", "input_amount", "max_slippage_bps", "deadline"],
+      "properties": {
+        "wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "input_token": {"$ref": "common.schema.json#/$defs/token"},
+        "output_token": {"$ref": "common.schema.json#/$defs/token"},
+        "input_amount": {"$ref": "common.schema.json#/$defs/amount"},
+        "max_slippage_bps": {"$ref": "common.schema.json#/$defs/basisPoints"},
+        "deadline": {"$ref": "common.schema.json#/$defs/deadline"}
+      }
+    },
+    "quoteIntentArguments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["quote_id", "wallet_binding_id", "client_request_id", "deadline"],
+      "properties": {
+        "quote_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "client_request_id": {"$ref": "common.schema.json#/$defs/uuid"},
+        "deadline": {"$ref": "common.schema.json#/$defs/deadline"}
+      }
+    },
+    "bridgeQuoteArguments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wallet_binding_id", "source_chain_id", "destination_chain_id", "token", "amount", "destination_recipient", "deadline"],
+      "properties": {
+        "wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "source_chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "destination_chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "token": {"$ref": "common.schema.json#/$defs/token"},
+        "amount": {"$ref": "common.schema.json#/$defs/amount"},
+        "destination_recipient": {"$ref": "common.schema.json#/$defs/evmAddress"},
+        "deadline": {"$ref": "common.schema.json#/$defs/deadline"}
+      },
+      "not": {"properties": {"source_chain_id": {"const": "0"}}}
+    },
+    "ansCreateArguments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wallet_binding_id", "chain_id", "normalized_name", "normalization_version", "term_seconds", "controller", "quote_id", "client_request_id", "deadline"],
+      "properties": {
+        "wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "chain_id": {"$ref": "common.schema.json#/$defs/chainId"},
+        "normalized_name": {"type": "string", "minLength": 1, "maxLength": 255},
+        "normalization_version": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"},
+        "term_seconds": {"type": "integer", "minimum": 1, "maximum": 315360000},
+        "controller": {"$ref": "common.schema.json#/$defs/evmAddress"},
+        "quote_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
+        "client_request_id": {"$ref": "common.schema.json#/$defs/uuid"},
+        "deadline": {"$ref": "common.schema.json#/$defs/deadline"}
+      }
+    },
+    "walletGetBalances": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "wallet_get_balances"}, "arguments": {"type": "object", "additionalProperties": false, "required": ["wallet_binding_id", "chain_id"], "properties": {"wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"}, "chain_id": {"$ref": "common.schema.json#/$defs/chainId"}, "tokens": {"type": "array", "maxItems": 50, "uniqueItems": true, "items": {"$ref": "common.schema.json#/$defs/token"}}}}}},
+    "depositGetStatus": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "deposit_get_status"}, "arguments": {"type": "object", "additionalProperties": false, "required": ["wallet_binding_id", "chain_id", "transaction_hash"], "properties": {"wallet_binding_id": {"$ref": "common.schema.json#/$defs/opaqueId"}, "chain_id": {"$ref": "common.schema.json#/$defs/chainId"}, "transaction_hash": {"$ref": "common.schema.json#/$defs/transactionHash"}}}}},
+    "withdrawalPreview": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "withdrawal_preview"}, "arguments": {"$ref": "#/$defs/withdrawalArguments"}}},
+    "withdrawalCreateIntent": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "withdrawal_create_intent"}, "arguments": {"allOf": [{"$ref": "#/$defs/withdrawalArguments"}, {"required": ["client_request_id"]}]}}},
+    "withdrawalExecute": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "withdrawal_execute"}, "arguments": {"$ref": "#/$defs/executeArguments"}}},
+    "payrollPreview": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "payroll_preview"}, "arguments": {"$ref": "#/$defs/payrollArguments"}}},
+    "payrollCreateIntent": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "payroll_create_intent"}, "arguments": {"allOf": [{"$ref": "#/$defs/payrollArguments"}, {"required": ["client_request_id", "route_id"]}]}}},
+    "payrollExecute": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "payroll_execute"}, "arguments": {"$ref": "#/$defs/executeArguments"}}},
+    "swapGetQuote": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "swap_get_quote"}, "arguments": {"$ref": "#/$defs/swapQuoteArguments"}}},
+    "swapCreateIntent": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "swap_create_intent"}, "arguments": {"$ref": "#/$defs/quoteIntentArguments"}}},
+    "swapExecute": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "swap_execute"}, "arguments": {"$ref": "#/$defs/executeArguments"}}},
+    "bridgeGetQuote": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "bridge_get_quote"}, "arguments": {"$ref": "#/$defs/bridgeQuoteArguments"}}},
+    "bridgeCreateIntent": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "bridge_create_intent"}, "arguments": {"$ref": "#/$defs/quoteIntentArguments"}}},
+    "bridgeExecute": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "bridge_execute"}, "arguments": {"$ref": "#/$defs/executeArguments"}}},
+    "ansCheckName": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "ans_check_name"}, "arguments": {"type": "object", "additionalProperties": false, "required": ["chain_id", "name"], "properties": {"chain_id": {"$ref": "common.schema.json#/$defs/chainId"}, "name": {"type": "string", "minLength": 1, "maxLength": 255}}}}},
+    "ansGetRecord": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "ans_get_record"}, "arguments": {"type": "object", "additionalProperties": false, "required": ["chain_id"], "properties": {"chain_id": {"$ref": "common.schema.json#/$defs/chainId"}, "normalized_name": {"type": "string", "minLength": 1, "maxLength": 255}, "node_id": {"type": "string", "pattern": "^0x[0-9a-fA-F]{64}$"}}, "oneOf": [{"required": ["normalized_name"]}, {"required": ["node_id"]}]}}},
+    "ansCreateIntent": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "ans_create_registration_intent"}, "arguments": {"$ref": "#/$defs/ansCreateArguments"}}},
+    "ansRegister": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "ans_register"}, "arguments": {"$ref": "#/$defs/executeArguments"}}},
+    "transactionGetStatus": {"type": "object", "additionalProperties": false, "required": ["name", "arguments"], "properties": {"name": {"const": "transaction_get_status"}, "arguments": {"type": "object", "additionalProperties": false, "properties": {"intent_id": {"$ref": "common.schema.json#/$defs/opaqueId"}, "execution_id": {"$ref": "common.schema.json#/$defs/opaqueId"}}, "oneOf": [{"required": ["intent_id"]}, {"required": ["execution_id"]}]}}}
+  }
+}
