@@ -44,6 +44,9 @@ Retryability is a default hint; callers must honor `retry_after_seconds` and que
 | `policy_expired` | Policy is past its authorization window | no | yes | yes |
 | `policy_disabled` | Policy is not active and cannot authorize | no | yes | yes |
 | `review_required` | Policy requires an explicit review decision | no | yes | no |
+| `execution_not_found` | Referenced execution does not exist or is not visible | no | yes | yes |
+| `execution_invalid` | Execution request, result, or lifecycle metadata is invalid | no | yes | yes |
+| `execution_not_authorized` | Approval or policy references do not authorize the execution request | no | yes | yes |
 | `wallet_not_bound` | User has no active verified binding | no | yes | no |
 | `wallet_mismatch` | User, wallet ID/address, chain, or binding differs | no | yes | yes |
 | `wallet_revoked` | Wallet binding is terminally revoked | no | yes | yes |
@@ -55,6 +58,7 @@ Retryability is a default hint; callers must honor `retry_after_seconds` and que
 | `execution_conflict` | Idempotency/intent references conflict or another execution owns the intent | no | yes if key misuse | yes for conflicting request |
 | `execution_pending` | Same execution exists and is not terminal | yes (status only) | no | no |
 | `execution_failed` | Domain execution reached a proven failure | condition-specific | maybe | condition-specific |
+| `execution_recoverable` | Same execution requires explicit recovery before progress | no (status/recovery only) | maybe | no |
 | `receipt_not_confirmed` | Submission observed but required confirmation/finality absent | yes (poll/status) | no | no |
 | `receipt_verification_failed` | Evidence contradicts approved intent or cannot satisfy verifier | no | yes/support | yes |
 | `provider_unavailable` | Required provider/RPC temporarily unavailable | yes | no | no |

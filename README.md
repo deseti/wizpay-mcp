@@ -4,11 +4,11 @@ WizPay MCP is an independent, MCP-native payment orchestration service. It is no
 
 ## Current implementation status
 
-Phase 0 established the behavioral and security contracts. Phase 1 added the minimal Go runtime foundation. Phase 2 added provider-neutral identity and wallet-binding contracts. Phase 3 added typed intents and explicit approvals. Phase 4 adds typed policy rules, policy lifecycle values, deterministic `ALLOW`/`DENY`/`REQUIRE_REVIEW` evaluation, audit definitions, and repository interfaces only.
+Phase 0 established the behavioral and security contracts. Phase 1 added the minimal Go runtime foundation. Phase 2 added provider-neutral identity and wallet-binding contracts. Phase 3 added typed intents and explicit approvals. Phase 4 added deterministic policy evaluation. Phase 5 adds validated execution references, deterministic execution identity, lifecycle and recovery values, a provider-neutral adapter interface, result contracts, audit definitions, and repository interfaces only.
 
-The application still registers no MCP tools. Phase 4 does not wire these domains into HTTP/MCP and contains no authentication provider, wallet creation/control, signing, broadcasting, payment execution, persistence implementation, job processing, blockchain client, provider adapter, compliance integration, risk scoring, or approval UI implementation.
+The application still registers no MCP tools. Phase 5 does not wire these domains into HTTP/MCP and contains no authentication provider, wallet creation/control, signing, broadcasting, payment execution, persistence implementation, workers, schedulers, queues, blockchain client, adapter implementation, compliance integration, risk scoring, or approval UI implementation.
 
-The future persistence stack remains PostgreSQL as source of truth, Redis only for cache/locks/rate limits, River for durable jobs, and go-ethereum for EVM interaction. The future approval application remains React + Vite. None of those dependencies are activated through Phase 4.
+The future persistence stack remains PostgreSQL as source of truth, Redis only for cache/locks/rate limits, River for durable jobs, and go-ethereum for EVM interaction. The future approval application remains React + Vite. None of those dependencies are activated through Phase 5.
 
 Future public endpoint: `https://mcp.wizpay.xyz/mcp` (not deployed).
 

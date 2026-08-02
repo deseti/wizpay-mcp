@@ -56,6 +56,12 @@ func TestToPublicDomainCodes(t *testing.T) {
 		CodePolicyExpired,
 		CodePolicyDisabled,
 		CodeReviewRequired,
+		CodeExecutionNotFound,
+		CodeExecutionInvalid,
+		CodeExecutionNotAuthorized,
+		CodeExecutionConflict,
+		CodeExecutionFailed,
+		CodeExecutionRecoverable,
 	}
 	for _, code := range codes {
 		t.Run(string(code), func(t *testing.T) {
