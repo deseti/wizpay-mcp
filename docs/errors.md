@@ -27,12 +27,16 @@ Retryability is a default hint; callers must honor `retry_after_seconds` and que
 | `validation_error` | Input violates schema or semantic limits | no | yes | no |
 | `authentication_required` | No valid application user session | no | yes | no |
 | `authorization_required` | Principal cannot access the resource/action | no | yes | yes |
+| `identity_not_found` | Resolved identity is not established/active | no | yes | no |
+| `identity_suspended` | Identity is temporarily ineligible to authorize | no | yes | no |
+| `identity_revoked` | Identity is permanently revoked | no | yes | yes |
 | `approval_required` | Matching explicit approval does not exist | no | yes | no |
 | `approval_expired` | Approval or its intent expired before consumption | no | yes (new intent/approval) | yes |
 | `approval_rejected` | User rejected the approval request | no | yes (new intent) | yes |
 | `policy_denied` | Active policy forbids the proposed intent | no | yes | yes |
 | `wallet_not_bound` | User has no active verified binding | no | yes | no |
 | `wallet_mismatch` | User, wallet ID/address, chain, or binding differs | no | yes | yes |
+| `wallet_revoked` | Wallet binding is terminally revoked | no | yes | yes |
 | `unsupported_chain` | Chain is not allowlisted | no | yes | yes |
 | `unsupported_token` | Token identity/configuration is not allowlisted | no | yes | yes |
 | `insufficient_balance` | Observed spendable balance is too low | conditional | yes | no |
@@ -55,4 +59,3 @@ Retryability is a default hint; callers must honor `retry_after_seconds` and que
 - Ambiguous provider/RPC outcomes become `execution_pending` or `recovery_required` internally, never `execution_failed` unless non-submission/failure is proven.
 - A transaction hash alone never changes an error to success.
 - Internal diagnostics use a restricted correlation ID linked to redacted audit records.
-

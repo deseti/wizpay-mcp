@@ -13,6 +13,12 @@ const (
 	CodeAuthenticationRequired Code = "authentication_required"
 	CodeAuthorizationRequired  Code = "authorization_required"
 	CodeApprovalRequired       Code = "approval_required"
+	CodeIdentityNotFound       Code = "identity_not_found"
+	CodeIdentitySuspended      Code = "identity_suspended"
+	CodeIdentityRevoked        Code = "identity_revoked"
+	CodeWalletNotBound         Code = "wallet_not_bound"
+	CodeWalletMismatch         Code = "wallet_mismatch"
+	CodeWalletRevoked          Code = "wallet_revoked"
 	CodeInternalError          Code = "internal_error"
 )
 
@@ -97,6 +103,12 @@ func (c Code) valid() bool {
 		CodeAuthenticationRequired,
 		CodeAuthorizationRequired,
 		CodeApprovalRequired,
+		CodeIdentityNotFound,
+		CodeIdentitySuspended,
+		CodeIdentityRevoked,
+		CodeWalletNotBound,
+		CodeWalletMismatch,
+		CodeWalletRevoked,
 		CodeInternalError:
 		return true
 	default:

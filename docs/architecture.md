@@ -79,6 +79,21 @@ environment configuration
 
 The HTTP surface is `/mcp`, `/health`, and `/readiness`. Streamable HTTP is configured as stateless with JSON responses. No authentication, provider, chain, persistence, approval, wallet, job, or domain runtime is wired.
 
+## Phase 2 identity and wallet foundation
+
+Phase 2 adds domain contracts without runtime wiring:
+
+```text
+resolved identity metadata
+  + provider-neutral wallet binding metadata
+  -> future Authorizer interface
+  -> future intent and approval application layer
+```
+
+`internal/auth` owns identity lifecycle, transport-neutral request context, and the future authorization interface. `internal/wallet` owns validated wallet metadata, `PENDING -> ACTIVE -> REVOKED` lifecycle rules, mismatch checks, and the future provider interface. A pending binding may also be revoked directly; the absence of a binding record represents `UNBOUND`, and every revoked binding is terminal. `internal/storage` contains repository interfaces only and performs no I/O.
+
+These domains are not connected to MCP handlers or HTTP middleware. They cannot authenticate, query a wallet provider, hold credentials, sign, submit, approve, or execute anything.
+
 ## Explicit non-goals
 
 No microservices, production database/Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval execution, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 1.

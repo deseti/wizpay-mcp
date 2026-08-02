@@ -34,3 +34,22 @@ func TestToPublicUnknownCodeHidesDetails(t *testing.T) {
 		t.Fatalf("ToPublic() = %+v, want safe internal error", public)
 	}
 }
+
+func TestToPublicIdentityAndWalletCodes(t *testing.T) {
+	codes := []Code{
+		CodeIdentityNotFound,
+		CodeIdentitySuspended,
+		CodeIdentityRevoked,
+		CodeWalletNotBound,
+		CodeWalletMismatch,
+		CodeWalletRevoked,
+	}
+	for _, code := range codes {
+		t.Run(string(code), func(t *testing.T) {
+			public := ToPublic(New(code, "Safe domain error.", false, true, false))
+			if public.Code != code || public.Message != "Safe domain error." {
+				t.Fatalf("ToPublic() = %+v, want code %q", public, code)
+			}
+		})
+	}
+}
