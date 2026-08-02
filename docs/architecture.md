@@ -144,6 +144,22 @@ The ordinary lifecycle preserves the Phase 0 evidence boundaries: `CREATED -> AU
 
 `internal/storage` adds interfaces for atomic create/load-by-operation-key and optimistic lifecycle updates. Future persistence must consume approval and create the one execution atomically. Phase 5 supplies no persistence or I/O.
 
+## Phase 6 MCP tool layer foundation
+
+Phase 6 adds a transport boundary over the existing domain contracts without adding application-service implementations:
+
+```text
+typed MCP input + semantic validation
+  -> narrow domain service interface
+  -> safe typed result or redacted public error
+```
+
+`internal/mcp/tools` owns the registry, unique metadata, inferred draft-2020-12 input/output schemas, semantic reference and discriminated-union validation, official SDK registration, handler adaptation, and safe response mapping. The foundation registry contains exactly `wizpay.create_intent`, `wizpay.get_intent`, `wizpay.request_approval`, `wizpay.get_approval`, `wizpay.evaluate_policy`, and `wizpay.prepare_execution`. It rejects incomplete and duplicate definitions.
+
+`internal/services` contains transport-neutral orchestration interfaces only. Implementations must later resolve authenticated identity and wallet authority, enforce ownership, and coordinate persistence and domain objects. No MCP input can supply identity ownership metadata. Execution preparation accepts only intent, approval, and policy references; it cannot accept replacement financial data and has no method for invoking an adapter.
+
+Errors pass through the Phase 0 public error mapper, add the caller's request correlation ID, and never serialize unknown causes. The main application remains intentionally unwired until authenticated service implementations exist, so the live `/mcp` route still advertises zero tools.
+
 ## Explicit non-goals
 
-No microservices, production database/Redis/River behavior, workers, schedulers, queues, adapter implementations, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 5.
+No microservices, production database/Redis/River behavior, workers, schedulers, queues, adapter implementations, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 6.
