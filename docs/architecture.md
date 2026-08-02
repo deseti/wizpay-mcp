@@ -94,6 +94,24 @@ resolved identity metadata
 
 These domains are not connected to MCP handlers or HTTP middleware. They cannot authenticate, query a wallet provider, hold credentials, sign, submit, approve, or execute anything.
 
+## Phase 3 intent and approval foundation
+
+Phase 3 implements the pre-execution domain boundary without runtime wiring:
+
+```text
+typed DRAFT intent
+  -> CREATED (material fields frozen; RFC 8785 digest assigned)
+  -> APPROVAL_REQUIRED
+  -> APPROVED (exact intent/digest/user/wallet-binding artifact)
+  -> READY_FOR_EXECUTION (handoff boundary only)
+```
+
+`internal/intents` owns a closed financial union for `PAYROLL`, `SWAP`, `BRIDGE`, and `ANS_REGISTRATION`; exact decimal/base-unit amounts; ownership, route, and constraint values; lifecycle rules; immutable revisions after `CREATED`; and a deterministic logical-operation key. `READY_FOR_EXECUTION` is a handoff boundary and remains cancellable or expirable because no execution state or implementation exists yet. It does not mean submitted, settled, or completed. `EXPIRED` and `CANCELLED` are terminal.
+
+`internal/approvals` owns explicit approval artifacts in `PENDING`, `APPROVED`, `REJECTED`, `EXPIRED`, or `CONSUMED`. An artifact derives and retains the exact intent ID/version/digest, user ID, wallet binding ID/version, wallet ID/address, and chain ID. Consumption reserves only the deterministic logical-operation identity; it performs no financial action.
+
+`internal/storage` contains interfaces for future intent and approval persistence with optimistic lifecycle updates and exact replay semantics. `internal/audit` contains event names and typed reference metadata only. Neither package has an implementation or performs I/O.
+
 ## Explicit non-goals
 
-No microservices, production database/Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval execution, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 1.
+No microservices, production database/Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 3.

@@ -4,11 +4,11 @@ WizPay MCP is an independent, MCP-native payment orchestration service. It is no
 
 ## Current implementation status
 
-Phase 0 established the behavioral and security contracts. Phase 1 added the minimal Go runtime foundation. Phase 2 adds provider-neutral identity lifecycle values, request identity context, wallet-binding metadata and state transitions, a future authorization interface, wallet-provider interfaces, and storage interfaces only.
+Phase 0 established the behavioral and security contracts. Phase 1 added the minimal Go runtime foundation. Phase 2 added provider-neutral identity and wallet-binding contracts. Phase 3 adds typed financial intents, their pre-execution lifecycle and canonical digest, deterministic logical-operation identity, explicit approval artifacts, audit event definitions, and repository interfaces only.
 
-The application still registers no MCP tools. Phase 2 does not wire identity or wallet types into HTTP/MCP and contains no authentication, wallet creation/control, verification provider, signing, broadcasting, payment execution, persistence implementation, job processing, blockchain client, or approval UI implementation.
+The application still registers no MCP tools. Phase 3 does not wire these domains into HTTP/MCP and contains no authentication provider, wallet creation/control, signing, broadcasting, payment execution, persistence implementation, job processing, blockchain client, provider adapter, or approval UI implementation.
 
-The future persistence stack remains PostgreSQL as source of truth, Redis only for cache/locks/rate limits, River for durable jobs, and go-ethereum for EVM interaction. The future approval application remains React + Vite. None of those dependencies are activated in Phase 1.
+The future persistence stack remains PostgreSQL as source of truth, Redis only for cache/locks/rate limits, River for durable jobs, and go-ethereum for EVM interaction. The future approval application remains React + Vite. None of those dependencies are activated through Phase 3.
 
 Future public endpoint: `https://mcp.wizpay.xyz/mcp` (not deployed).
 

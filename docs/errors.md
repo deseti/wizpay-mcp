@@ -30,9 +30,14 @@ Retryability is a default hint; callers must honor `retry_after_seconds` and que
 | `identity_not_found` | Resolved identity is not established/active | no | yes | no |
 | `identity_suspended` | Identity is temporarily ineligible to authorize | no | yes | no |
 | `identity_revoked` | Identity is permanently revoked | no | yes | yes |
+| `intent_not_found` | Referenced intent does not exist or is not visible | no | yes | yes |
+| `intent_expired` | Intent expired before reaching the next pre-execution gate | no | yes (new intent) | yes |
+| `intent_mutated` | Material fields differ from the frozen intent digest | no | yes (new intent/approval) | yes |
 | `approval_required` | Matching explicit approval does not exist | no | yes | no |
+| `approval_not_found` | Referenced approval does not exist or is not visible | no | yes | yes |
 | `approval_expired` | Approval or its intent expired before consumption | no | yes (new intent/approval) | yes |
 | `approval_rejected` | User rejected the approval request | no | yes (new intent) | yes |
+| `approval_already_consumed` | Approval is already reserved for its logical operation | no | no | yes |
 | `policy_denied` | Active policy forbids the proposed intent | no | yes | yes |
 | `wallet_not_bound` | User has no active verified binding | no | yes | no |
 | `wallet_mismatch` | User, wallet ID/address, chain, or binding differs | no | yes | yes |

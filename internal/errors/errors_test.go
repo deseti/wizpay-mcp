@@ -35,7 +35,7 @@ func TestToPublicUnknownCodeHidesDetails(t *testing.T) {
 	}
 }
 
-func TestToPublicIdentityAndWalletCodes(t *testing.T) {
+func TestToPublicDomainCodes(t *testing.T) {
 	codes := []Code{
 		CodeIdentityNotFound,
 		CodeIdentitySuspended,
@@ -43,6 +43,13 @@ func TestToPublicIdentityAndWalletCodes(t *testing.T) {
 		CodeWalletNotBound,
 		CodeWalletMismatch,
 		CodeWalletRevoked,
+		CodeIntentNotFound,
+		CodeIntentExpired,
+		CodeIntentMutated,
+		CodeApprovalNotFound,
+		CodeApprovalExpired,
+		CodeApprovalRejected,
+		CodeApprovalAlreadyConsumed,
 	}
 	for _, code := range codes {
 		t.Run(string(code), func(t *testing.T) {

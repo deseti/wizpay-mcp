@@ -10,7 +10,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["code", "message", "request_id", "retryable", "user_action_required", "terminal"],
       "properties": {
-        "code": {"enum": ["validation_error", "authentication_required", "authorization_required", "identity_not_found", "identity_suspended", "identity_revoked", "approval_required", "approval_expired", "approval_rejected", "policy_denied", "wallet_not_bound", "wallet_mismatch", "wallet_revoked", "unsupported_chain", "unsupported_token", "insufficient_balance", "quote_expired", "route_unavailable", "execution_conflict", "execution_pending", "execution_failed", "receipt_not_confirmed", "receipt_verification_failed", "provider_unavailable", "rate_limited", "internal_error"]},
+        "code": {"enum": ["validation_error", "authentication_required", "authorization_required", "identity_not_found", "identity_suspended", "identity_revoked", "intent_not_found", "intent_expired", "intent_mutated", "approval_required", "approval_not_found", "approval_expired", "approval_rejected", "approval_already_consumed", "policy_denied", "wallet_not_bound", "wallet_mismatch", "wallet_revoked", "unsupported_chain", "unsupported_token", "insufficient_balance", "quote_expired", "route_unavailable", "execution_conflict", "execution_pending", "execution_failed", "receipt_not_confirmed", "receipt_verification_failed", "provider_unavailable", "rate_limited", "internal_error"]},
         "message": {"type": "string", "minLength": 1, "maxLength": 300},
         "request_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
         "retryable": {"type": "boolean"},

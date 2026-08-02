@@ -9,17 +9,24 @@ import (
 type Code string
 
 const (
-	CodeValidationError        Code = "validation_error"
-	CodeAuthenticationRequired Code = "authentication_required"
-	CodeAuthorizationRequired  Code = "authorization_required"
-	CodeApprovalRequired       Code = "approval_required"
-	CodeIdentityNotFound       Code = "identity_not_found"
-	CodeIdentitySuspended      Code = "identity_suspended"
-	CodeIdentityRevoked        Code = "identity_revoked"
-	CodeWalletNotBound         Code = "wallet_not_bound"
-	CodeWalletMismatch         Code = "wallet_mismatch"
-	CodeWalletRevoked          Code = "wallet_revoked"
-	CodeInternalError          Code = "internal_error"
+	CodeValidationError         Code = "validation_error"
+	CodeAuthenticationRequired  Code = "authentication_required"
+	CodeAuthorizationRequired   Code = "authorization_required"
+	CodeApprovalRequired        Code = "approval_required"
+	CodeIdentityNotFound        Code = "identity_not_found"
+	CodeIdentitySuspended       Code = "identity_suspended"
+	CodeIdentityRevoked         Code = "identity_revoked"
+	CodeWalletNotBound          Code = "wallet_not_bound"
+	CodeWalletMismatch          Code = "wallet_mismatch"
+	CodeWalletRevoked           Code = "wallet_revoked"
+	CodeIntentNotFound          Code = "intent_not_found"
+	CodeIntentExpired           Code = "intent_expired"
+	CodeIntentMutated           Code = "intent_mutated"
+	CodeApprovalNotFound        Code = "approval_not_found"
+	CodeApprovalExpired         Code = "approval_expired"
+	CodeApprovalRejected        Code = "approval_rejected"
+	CodeApprovalAlreadyConsumed Code = "approval_already_consumed"
+	CodeInternalError           Code = "internal_error"
 )
 
 const internalMessage = "An internal error occurred."
@@ -109,6 +116,13 @@ func (c Code) valid() bool {
 		CodeWalletNotBound,
 		CodeWalletMismatch,
 		CodeWalletRevoked,
+		CodeIntentNotFound,
+		CodeIntentExpired,
+		CodeIntentMutated,
+		CodeApprovalNotFound,
+		CodeApprovalExpired,
+		CodeApprovalRejected,
+		CodeApprovalAlreadyConsumed,
 		CodeInternalError:
 		return true
 	default:
