@@ -63,7 +63,22 @@ No generic arbitrary-call executor is permitted. Shared code is limited to value
 - go-ethereum adapters operate only on allowlisted chains/contracts/functions defined by verified inventories.
 - Circle adapters use user-controlled wallet flows only. WizPay MCP cannot obtain unilateral signing capability.
 
+## Phase 1 runtime foundation
+
+The implemented process dependency order is:
+
+```text
+environment configuration
+  -> structured logger
+  -> empty official-SDK MCP server
+  -> Streamable HTTP transport
+  -> HTTP routes and lifecycle
+```
+
+`cmd/server` performs bootstrap and signal handling only. `internal/app` owns dependency order, the HTTP server, readiness state, context cancellation, and graceful shutdown. `internal/mcp` owns official SDK initialization and transport binding. `internal/mcp/tools` exposes a registration interface but Phase 1 supplies no tools. `internal/config`, `internal/logging`, and `internal/errors` remain provider- and domain-neutral.
+
+The HTTP surface is `/mcp`, `/health`, and `/readiness`. Streamable HTTP is configured as stateless with JSON responses. No authentication, provider, chain, persistence, approval, wallet, job, or domain runtime is wired.
+
 ## Explicit non-goals
 
-No microservices, production database/Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval execution, fee logic, treasury routing, complex UI, or autonomous spending exists in Phase 0.
-
+No microservices, production database/Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval execution, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 1.

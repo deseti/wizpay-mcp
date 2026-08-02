@@ -2,13 +2,41 @@
 
 WizPay MCP is an independent, MCP-native payment orchestration service. It is not a proxy for WizPay Core or Nano WizPay. Static, verified facts such as ABIs, deployments, event signatures, token metadata, network parameters, and documented on-chain rules may be reused; runtime business logic and service coupling may not.
 
-## Phase 0 status
+## Current implementation status
 
-This repository currently contains behavioral contracts, security contracts, formal schemas, and a structural modular-monolith scaffold only. It contains no payment execution, wallet creation, transaction signing or broadcasting, provider integration, production persistence, background processing, or approval UI implementation.
+Phase 0 established the behavioral and security contracts. Phase 1 adds a minimal Go runtime foundation: validated environment configuration, structured logging, safe application errors, signal-aware lifecycle management, health/readiness endpoints, and an empty MCP server using the official Go SDK over Streamable HTTP.
 
-The planned backend is Go with the official MCP Go SDK and Streamable HTTP transport. The future persistence stack is PostgreSQL as source of truth, Redis only for cache/locks/rate limits, River for durable jobs, and go-ethereum for EVM interaction. The future approval application is React + Vite. None of those runtime dependencies are activated in Phase 0.
+The application intentionally registers no MCP tools and contains no payment execution, wallet creation, authentication, signing, broadcasting, provider integration, persistence, job processing, blockchain client, or approval UI implementation.
+
+The future persistence stack remains PostgreSQL as source of truth, Redis only for cache/locks/rate limits, River for durable jobs, and go-ethereum for EVM interaction. The future approval application remains React + Vite. None of those dependencies are activated in Phase 1.
 
 Future public endpoint: `https://mcp.wizpay.xyz/mcp` (not deployed).
+
+## Run the Phase 1 foundation
+
+Requirements: Go 1.25 or newer.
+
+```bash
+cp .env.example .env
+set -a
+. ./.env
+set +a
+go run ./cmd/server
+```
+
+Local routes:
+
+- `POST /mcp` — official MCP Streamable HTTP transport; no tools are registered.
+- `GET /health` — process liveness.
+- `GET /readiness` — serving readiness.
+
+The worker entry point is signal-aware but registers zero jobs:
+
+```bash
+go run ./cmd/worker
+```
+
+Required structured lifecycle events include `configuration_loaded`, `server_started`, and `server_shutdown`.
 
 ## Security baseline
 
