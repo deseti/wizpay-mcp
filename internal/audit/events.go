@@ -1,4 +1,4 @@
-// Package audit defines event names and metadata contracts only. Phase 3 does
+// Package audit defines event names and metadata contracts only. Phase 4 does
 // not persist or emit audit records.
 package audit
 
@@ -18,6 +18,10 @@ const (
 	EventApprovalRejected       EventType = "approval_rejected"
 	EventApprovalExpired        EventType = "approval_expired"
 	EventApprovalConsumed       EventType = "approval_consumed"
+	EventPolicyEvaluated        EventType = "policy_evaluated"
+	EventPolicyAllowed          EventType = "policy_allowed"
+	EventPolicyDenied           EventType = "policy_denied"
+	EventPolicyReviewRequired   EventType = "policy_review_required"
 )
 
 // Event is a provider-neutral reference envelope. Details intentionally remain
@@ -30,6 +34,9 @@ type Event struct {
 	IntentVersion        uint64
 	IntentDigest         string
 	ApprovalID           string
+	PolicyID             string
+	PolicyVersion        uint64
+	PolicyDecision       string
 	WalletBindingID      string
 	WalletBindingVersion uint64
 	UserID               string

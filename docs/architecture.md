@@ -112,6 +112,21 @@ typed DRAFT intent
 
 `internal/storage` contains interfaces for future intent and approval persistence with optimistic lifecycle updates and exact replay semantics. `internal/audit` contains event names and typed reference metadata only. Neither package has an implementation or performs I/O.
 
+## Phase 4 policy engine foundation
+
+Phase 4 adds a pure authorization boundary after explicit intent approval:
+
+```text
+active identity + active wallet binding + approved intent
+  -> exact policy scope and version reference
+  -> typed deterministic rules
+  -> ALLOW | DENY | REQUIRE_REVIEW
+```
+
+`internal/policies` owns immutable policy values, `DRAFT -> ACTIVE -> DISABLED` lifecycle behavior, expiry, typed rules for spending limits, operations, chains, tokens, recipients, and intent lifetime, plus deterministic evaluation. `DISABLED` and `EXPIRED` are terminal. Denial dominates review, and review dominates allow when multiple rules apply. Rule inputs and findings are canonically ordered so repeated evaluation with identical values and time produces identical output.
+
+The pre-execution entry point accepts only an `APPROVED` intent and exact matching active identity and wallet-binding context. A separate pre-approval entry point accepts only `CREATED`; its `ALLOW` result means only that explicit approval may be requested and never performs or bypasses approval. The intent's frozen policy reference must match the policy ID and version. Evaluation reads only supplied in-memory values; it has no transport, persistence, provider, compliance, risk-model, or blockchain dependency. `READY_FOR_EXECUTION` remains a future application-layer transition and is not produced by the policy package.
+
 ## Explicit non-goals
 
-No microservices, production database/Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 3.
+No microservices, production database/Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 4.

@@ -26,6 +26,12 @@ const (
 	CodeApprovalExpired         Code = "approval_expired"
 	CodeApprovalRejected        Code = "approval_rejected"
 	CodeApprovalAlreadyConsumed Code = "approval_already_consumed"
+	CodePolicyNotFound          Code = "policy_not_found"
+	CodePolicyInvalid           Code = "policy_invalid"
+	CodePolicyDenied            Code = "policy_denied"
+	CodePolicyExpired           Code = "policy_expired"
+	CodePolicyDisabled          Code = "policy_disabled"
+	CodeReviewRequired          Code = "review_required"
 	CodeInternalError           Code = "internal_error"
 )
 
@@ -123,6 +129,12 @@ func (c Code) valid() bool {
 		CodeApprovalExpired,
 		CodeApprovalRejected,
 		CodeApprovalAlreadyConsumed,
+		CodePolicyNotFound,
+		CodePolicyInvalid,
+		CodePolicyDenied,
+		CodePolicyExpired,
+		CodePolicyDisabled,
+		CodeReviewRequired,
 		CodeInternalError:
 		return true
 	default:

@@ -38,7 +38,12 @@ Retryability is a default hint; callers must honor `retry_after_seconds` and que
 | `approval_expired` | Approval or its intent expired before consumption | no | yes (new intent/approval) | yes |
 | `approval_rejected` | User rejected the approval request | no | yes (new intent) | yes |
 | `approval_already_consumed` | Approval is already reserved for its logical operation | no | no | yes |
+| `policy_not_found` | Referenced policy does not exist or is not visible | no | yes | yes |
+| `policy_invalid` | Policy structure, rule, scope, or lifecycle data is invalid | no | yes | yes |
 | `policy_denied` | Active policy forbids the proposed intent | no | yes | yes |
+| `policy_expired` | Policy is past its authorization window | no | yes | yes |
+| `policy_disabled` | Policy is not active and cannot authorize | no | yes | yes |
+| `review_required` | Policy requires an explicit review decision | no | yes | no |
 | `wallet_not_bound` | User has no active verified binding | no | yes | no |
 | `wallet_mismatch` | User, wallet ID/address, chain, or binding differs | no | yes | yes |
 | `wallet_revoked` | Wallet binding is terminally revoked | no | yes | yes |
