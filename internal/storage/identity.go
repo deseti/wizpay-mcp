@@ -11,5 +11,6 @@ import (
 // IdentityRepository resolves previously established application identities.
 // Implementations must preserve auth.Identity validation and lifecycle rules.
 type IdentityRepository interface {
-	FindIdentityByID(context.Context, string) (auth.Identity, error)
+	CreateIdentity(context.Context, Scope, auth.Identity) (auth.Identity, error)
+	FindIdentityByID(context.Context, Scope, string) (auth.Identity, error)
 }

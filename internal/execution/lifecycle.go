@@ -233,4 +233,5 @@ func (e Execution) Revision() uint64           { return e.revision }
 func (e Execution) CreatedAt() time.Time       { return e.createdAt }
 func (e Execution) UpdatedAt() time.Time       { return e.updatedAt }
 func (e Execution) Failure() (Failure, bool)   { return e.failure, e.failure.Code != "" }
+func (e Execution) FailedFrom() Status         { return e.failedFrom }
 func (e Execution) Recovery() (Recovery, bool) { return e.recovery, e.recovery.ReasonCode != "" }

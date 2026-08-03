@@ -2,6 +2,8 @@ package app
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,10 @@ import (
 
 	"github.com/deseti/wizpay-mcp/internal/config"
 )
+
+type failingReadiness struct{}
+
+func (failingReadiness) Ping(context.Context) error { return errors.New("database unavailable") }
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
@@ -56,5 +62,19 @@ func TestHealthRejectsUnsupportedMethod(t *testing.T) {
 	server.httpServer.Handler.ServeHTTP(response, request)
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("health POST = %d, want %d", response.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestReadinessFailsClosedWhenDependencyIsUnavailable(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
+	server, err := NewServerWithReadiness(config.Config{AppEnv: "test", ServerPort: 8080, LogLevel: "info"}, logger, failingReadiness{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.ready.Store(true)
+	response := httptest.NewRecorder()
+	server.httpServer.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readiness", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readiness = %d", response.Code)
 	}
 }

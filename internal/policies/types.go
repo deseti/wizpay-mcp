@@ -185,6 +185,7 @@ type Applicability struct {
 	UserID          string
 	WalletBindingID string
 	IntentType      intents.Type
+	EvaluatedAt     time.Time
 }
 
 func validateText(name, value string) error {

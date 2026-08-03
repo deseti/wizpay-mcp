@@ -15,8 +15,8 @@ type CreateApprovalResult struct {
 // preserve the exact intent digest and wallet-binding version and update state
 // using optimistic lifecycle checks.
 type ApprovalRepository interface {
-	FindApprovalByID(context.Context, string) (approvals.Approval, error)
-	FindApprovalByIntent(context.Context, string, uint64, string) (approvals.Approval, error)
-	CreateApproval(context.Context, approvals.Approval) (CreateApprovalResult, error)
-	UpdateApproval(ctx context.Context, approval approvals.Approval, expectedStatus approvals.Status) (approvals.Approval, error)
+	FindApprovalByID(context.Context, Scope, string) (approvals.Approval, error)
+	FindApprovalByIntent(context.Context, Scope, string, uint64, string) (approvals.Approval, error)
+	CreateApproval(context.Context, Scope, approvals.Approval) (CreateApprovalResult, error)
+	UpdateApproval(ctx context.Context, scope Scope, approval approvals.Approval, expectedRevision uint64) (approvals.Approval, error)
 }

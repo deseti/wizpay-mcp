@@ -160,6 +160,21 @@ typed MCP input + semantic validation
 
 Errors pass through the Phase 0 public error mapper, add the caller's request correlation ID, and never serialize unknown causes. The main application remains intentionally unwired until authenticated service implementations exist, so the live `/mcp` route still advertises zero tools.
 
+## Phase 7 persistence foundation
+
+Phase 7 makes PostgreSQL the sole durable source of truth while preserving inward dependency direction:
+
+```text
+application/domain services -> tenant-scoped repository interfaces
+PostgreSQL + pgx/sqlc       -> repository implementations
+```
+
+All tenant-owned SQL predicates and composite foreign keys include `tenant_id`. Domain packages remain independent of pgx, sqlc, PostgreSQL, and generated types. Explicit mappers reconstruct persisted values through validated domain restoration constructors, including recomputation checks for intent digests and execution request keys.
+
+The database preserves current wallet projections plus immutable wallet-version evidence, intent material, exact composite approval and policy-evaluation bindings, one execution request per operation identity, strict lifecycle revisions and immutable execution-revision snapshots, revision-bound verification observations, and append-only audit records. Serializable multi-record operations and database constraints enforce atomicity, optimistic concurrency, and full immutable retry identity. A migration-owner connection is separate from the restricted application connection; audit update/delete and trigger administration are denied by privileges, with immutability triggers and the insert/read-only repository surface as additional defenses.
+
+The process validates database configuration, opens and pings a bounded pgx pool, applies embedded forward migrations, includes PostgreSQL in readiness checks, and closes the pool on shutdown. It still registers no MCP tools because authentication and application-service implementations remain future phases. See [Phase 7 PostgreSQL persistence](persistence.md).
+
 ## Explicit non-goals
 
-No microservices, production database/Redis/River behavior, workers, schedulers, queues, adapter implementations, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 6.
+No microservices, Redis/River behavior, workers, schedulers, queues, adapter implementations, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 7.

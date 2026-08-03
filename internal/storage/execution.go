@@ -15,9 +15,9 @@ type CreateExecutionResult struct {
 // enforce one execution per operation key and return the existing record for an
 // exact request replay. UpdateExecution uses optimistic revision checks.
 type ExecutionRepository interface {
-	FindExecutionByID(context.Context, string) (execution.Execution, error)
-	FindExecutionByRequestKey(context.Context, string, uint64) (execution.Execution, error)
-	FindExecutionByOperationKey(context.Context, string, uint64) (execution.Execution, error)
-	CreateExecution(context.Context, execution.Execution) (CreateExecutionResult, error)
-	UpdateExecution(ctx context.Context, value execution.Execution, expectedRevision uint64) (execution.Execution, error)
+	FindExecutionByID(context.Context, Scope, string) (execution.Execution, error)
+	FindExecutionByRequestKey(context.Context, Scope, string, uint64) (execution.Execution, error)
+	FindExecutionByOperationKey(context.Context, Scope, string, uint64) (execution.Execution, error)
+	CreateExecution(context.Context, Scope, execution.Execution) (CreateExecutionResult, error)
+	UpdateExecution(ctx context.Context, scope Scope, value execution.Execution, expectedRevision uint64) (execution.Execution, error)
 }

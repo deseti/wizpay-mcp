@@ -85,10 +85,7 @@ func NewRequest(intent intents.Intent, approval approvals.Approval, policyResult
 	}
 
 	executionID := "exec_" + hash(executionIdentityDomain, operation.OperationKey(), fmt.Sprint(operation.Version()))
-	policyEvaluationKey := hash(policyEvaluationDomain,
-		policyResult.PolicyID, fmt.Sprint(policyResult.PolicyVersion), policyResult.IntentID,
-		fmt.Sprint(policyResult.IntentVersion), policyResult.IntentDigest, string(policyResult.Stage),
-		policyResult.EvaluatedAt.UTC().Format(time.RFC3339Nano), string(policyResult.Decision))
+	policyEvaluationKey := PolicyEvaluationKey(policyResult)
 	requestKey := hash(executionRequestDomain,
 		operation.OperationKey(), fmt.Sprint(operation.Version()), approval.ApprovalID(), fmt.Sprint(approval.Version()),
 		policyEvaluationKey)
@@ -105,6 +102,15 @@ func NewRequest(intent intents.Intent, approval approvals.Approval, policyResult
 		return Request{}, err
 	}
 	return request, nil
+}
+
+// PolicyEvaluationKey returns the deterministic reference used by execution
+// requests and durable policy-evaluation storage.
+func PolicyEvaluationKey(result policies.Result) string {
+	return hash(policyEvaluationDomain,
+		result.PolicyID, fmt.Sprint(result.PolicyVersion), result.IntentID,
+		fmt.Sprint(result.IntentVersion), result.IntentDigest, string(result.Stage),
+		result.EvaluatedAt.UTC().Format(time.RFC3339Nano), string(result.Decision))
 }
 
 func (r Request) Validate() error {

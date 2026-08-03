@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wizpay_mcp}
+      POSTGRES_USER: ${POSTGRES_USER:-wizpay_mcp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in an untracked .env file}
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - wizpay_mcp_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  wizpay_mcp_postgres_data:
+    name: wizpay_mcp_postgres_data

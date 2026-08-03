@@ -58,5 +58,6 @@ func (p Policy) Transition(next Status, at time.Time) (Policy, error) {
 	}
 	nextPolicy := p
 	nextPolicy.status = next
+	nextPolicy.lifecycleRevision++
 	return nextPolicy, nextPolicy.Validate()
 }

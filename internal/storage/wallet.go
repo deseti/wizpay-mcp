@@ -18,8 +18,8 @@ type CreateBindingResult struct {
 // replay returns the existing binding with Created=false; conflicting
 // ownership fails closed.
 type WalletBindingRepository interface {
-	FindBindingByID(context.Context, string) (wallet.Binding, error)
-	FindBindingByWallet(ctx context.Context, chainID, network, address string) (wallet.Binding, error)
-	CreateBinding(context.Context, wallet.Binding) (CreateBindingResult, error)
-	UpdateBinding(ctx context.Context, binding wallet.Binding, expectedVersion uint64) (wallet.Binding, error)
+	FindBindingByID(context.Context, Scope, string) (wallet.Binding, error)
+	FindBindingByWallet(ctx context.Context, scope Scope, chainID, network, address string) (wallet.Binding, error)
+	CreateBinding(context.Context, Scope, wallet.Binding) (CreateBindingResult, error)
+	UpdateBinding(ctx context.Context, scope Scope, binding wallet.Binding, expectedVersion uint64) (wallet.Binding, error)
 }

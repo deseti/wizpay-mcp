@@ -4,20 +4,22 @@ WizPay MCP is an independent, MCP-native payment orchestration service. It is no
 
 ## Current implementation status
 
-Phase 0 established the behavioral and security contracts. Phase 1 added the minimal Go runtime foundation. Phase 2 added provider-neutral identity and wallet-binding contracts. Phase 3 added typed intents and explicit approvals. Phase 4 added deterministic policy evaluation. Phase 5 added validated execution references and a provider-neutral adapter boundary. Phase 6 adds a typed MCP tool registry, schemas, validation, safe handlers, and domain-service ports for exactly six foundation tools.
+Phase 0 established the behavioral and security contracts. Phases 1–6 added the runtime, identity/wallet, intent/approval, policy, execution-control, and safe MCP tool boundaries. Phase 7 adds tenant-isolated PostgreSQL persistence using pgx/v5, sqlc, forward migrations, optimistic concurrency, atomic control-plane transactions, verification evidence, and database-enforced append-only audit.
 
-The six available definitions are `wizpay.create_intent`, `wizpay.get_intent`, `wizpay.request_approval`, `wizpay.get_approval`, `wizpay.evaluate_policy`, and `wizpay.prepare_execution`. `prepare_execution` creates only a reference-bound execution request and cannot invoke an execution adapter. The application bootstrap still registers no tools because no application-service implementations or authentication context are wired. Phase 6 contains no authentication provider, wallet creation/control, signing, broadcasting, payment execution, persistence implementation, workers, schedulers, queues, blockchain client, adapter implementation, compliance integration, risk scoring, or approval UI implementation.
+The six available definitions remain `wizpay.create_intent`, `wizpay.get_intent`, `wizpay.request_approval`, `wizpay.get_approval`, `wizpay.evaluate_policy`, and `wizpay.prepare_execution`. The application bootstrap still registers no tools because no authenticated application-service implementations exist. Phase 7 adds no authentication provider, wallet creation/control, signing, broadcasting, payment execution, workers, schedulers, queues, blockchain client, adapter implementation, compliance integration, risk scoring, or approval UI.
 
-The future persistence stack remains PostgreSQL as source of truth, Redis only for cache/locks/rate limits, River for durable jobs, and go-ethereum for EVM interaction. The future approval application remains React + Vite. None of those dependencies are activated through Phase 6.
+PostgreSQL is now the only persistence source of truth. Redis, River, go-ethereum, provider runtimes, and the future React approval application remain inactive.
 
 Future public endpoint: `https://mcp.wizpay.xyz/mcp` (not deployed).
 
-## Run the Phase 1 foundation
+## Run the Phase 7 foundation
 
 Requirements: Go 1.25 or newer.
 
 ```bash
 cp .env.example .env
+# Replace the local-only PostgreSQL password placeholders in .env.
+docker compose up -d postgres
 set -a
 . ./.env
 set +a
@@ -63,6 +65,7 @@ Required structured lifecycle events include `configuration_loaded`, `server_sta
 - [Data classification, retention, and audit](docs/data-audit.md)
 - [Official Circle and Arc sources](docs/official-sources.md)
 - [Phase 0 completion map](docs/phase-0-checklist.md)
+- [Phase 7 PostgreSQL persistence](docs/persistence.md)
 - [JSON schemas](docs/schemas/)
 
 ## Later implementation flow

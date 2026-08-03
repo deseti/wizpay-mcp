@@ -14,8 +14,8 @@ type CreatePolicyResult struct {
 // PolicyRepository is a persistence contract only. Implementations must return
 // policies in stable ID/version order and use optimistic lifecycle updates.
 type PolicyRepository interface {
-	FindPolicyByID(context.Context, string, uint64) (policies.Policy, error)
-	FindApplicablePolicies(context.Context, policies.Applicability) ([]policies.Policy, error)
-	CreatePolicy(context.Context, policies.Policy) (CreatePolicyResult, error)
-	UpdatePolicy(ctx context.Context, policy policies.Policy, expectedStatus policies.Status) (policies.Policy, error)
+	FindPolicyByID(context.Context, Scope, string, uint64) (policies.Policy, error)
+	FindApplicablePolicies(context.Context, Scope, policies.Applicability) ([]policies.Policy, error)
+	CreatePolicy(context.Context, Scope, policies.Policy) (CreatePolicyResult, error)
+	UpdatePolicy(ctx context.Context, scope Scope, policy policies.Policy, expectedRevision uint64) (policies.Policy, error)
 }

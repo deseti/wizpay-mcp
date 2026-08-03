@@ -1,5 +1,4 @@
-// Package audit defines event names and metadata contracts only. Phase 5 does
-// not persist or emit audit records.
+// Package audit defines safe append-only audit contracts.
 package audit
 
 import "time"
@@ -61,4 +60,21 @@ type Event struct {
 	UserID               string
 	OperationKey         string
 	OperationVersion     uint64
+}
+
+// Record adds tenant-independent actor and correlation context to a typed
+// event. Metadata is intentionally an allowlisted struct rather than an
+// arbitrary map that could capture secrets or unsafe errors.
+type Record struct {
+	Event           Event
+	ActorType       string
+	ActorID         string
+	RequestID       string
+	TraceID         string
+	ResourceType    string
+	ResourceID      string
+	PreviousState   string
+	NewState        string
+	SafeReasonCode  string
+	SourceComponent string
 }

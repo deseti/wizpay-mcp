@@ -69,6 +69,7 @@ func (i Intent) Transition(next Status, at time.Time) (Intent, error) {
 		nextIntent.digest = digestBytes(canonical)
 	}
 	nextIntent.status = next
+	nextIntent.lifecycleRevision++
 	if err := nextIntent.Validate(); err != nil {
 		return Intent{}, err
 	}
@@ -108,6 +109,7 @@ func (i Intent) Approve(artifact ApprovalArtifact, at time.Time) (Intent, error)
 	}
 	next := i
 	next.status = StatusApproved
+	next.lifecycleRevision++
 	return next, next.Validate()
 }
 

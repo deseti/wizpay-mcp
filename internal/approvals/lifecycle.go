@@ -57,6 +57,7 @@ func (a Approval) Approve(at time.Time) (Approval, error) {
 	}
 	next := a
 	next.status, next.decision, next.decidedAt = StatusApproved, DecisionApproved, at.UTC()
+	next.lifecycleRevision++
 	return next, next.Validate()
 }
 
@@ -75,6 +76,7 @@ func (a Approval) Reject(at time.Time) (Approval, error) {
 	}
 	next := a
 	next.status, next.decision, next.decidedAt = StatusRejected, DecisionRejected, at.UTC()
+	next.lifecycleRevision++
 	return next, next.Validate()
 }
 
@@ -93,6 +95,7 @@ func (a Approval) Expire(at time.Time) (Approval, error) {
 	}
 	next := a
 	next.status = StatusExpired
+	next.lifecycleRevision++
 	return next, next.Validate()
 }
 
@@ -122,6 +125,7 @@ func (a Approval) Consume(at time.Time, operation intents.OperationIdentity) (Ap
 	}
 	next := a
 	next.status, next.consumedAt, next.operationKey, next.operationVersion = StatusConsumed, at.UTC(), operation.OperationKey(), operation.Version()
+	next.lifecycleRevision++
 	return next, next.Validate()
 }
 

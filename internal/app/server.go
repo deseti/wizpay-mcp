@@ -29,11 +29,18 @@ type Server struct {
 	logger     *slog.Logger
 	httpServer *http.Server
 	ready      atomic.Bool
+	readiness  ReadinessChecker
 }
+
+type ReadinessChecker interface{ Ping(context.Context) error }
 
 // NewServer initializes dependencies in configuration, MCP, transport, then
 // HTTP routing order. It does not open a network listener.
 func NewServer(cfg config.Config, logger *slog.Logger, registrations ...tools.Tool) (*Server, error) {
+	return NewServerWithReadiness(cfg, logger, nil, registrations...)
+}
+
+func NewServerWithReadiness(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, registrations ...tools.Tool) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate application configuration: %w", err)
 	}
@@ -50,7 +57,7 @@ func NewServer(cfg config.Config, logger *slog.Logger, registrations ...tools.To
 		return nil, fmt.Errorf("initialize MCP transport: %w", err)
 	}
 
-	server := &Server{config: cfg, logger: logger}
+	server := &Server{config: cfg, logger: logger, readiness: readiness}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpHandler)
 	mux.HandleFunc("/health", server.healthHandler)
@@ -114,6 +121,14 @@ func (s *Server) readinessHandler(response http.ResponseWriter, request *http.Re
 	if !s.ready.Load() {
 		writeStatus(response, request, http.StatusServiceUnavailable, "not_ready")
 		return
+	}
+	if s.readiness != nil {
+		ctx, cancel := context.WithTimeout(request.Context(), time.Second)
+		defer cancel()
+		if err := s.readiness.Ping(ctx); err != nil {
+			writeStatus(response, request, http.StatusServiceUnavailable, "not_ready")
+			return
+		}
 	}
 	writeStatus(response, request, http.StatusOK, "ok")
 }

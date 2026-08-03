@@ -110,9 +110,10 @@ type Params struct {
 // Intent is an immutable value. Draft revisions and lifecycle transitions
 // return a new value rather than mutating the receiver.
 type Intent struct {
-	params Params
-	status Status
-	digest string
+	params            Params
+	status            Status
+	digest            string
+	lifecycleRevision uint64
 }
 
 // NewDraft validates a typed intent before its material fields are frozen.
@@ -121,7 +122,7 @@ func NewDraft(params Params) (Intent, error) {
 	if err := validateParams(params); err != nil {
 		return Intent{}, apperrors.Wrap(apperrors.CodeValidationError, "Intent is invalid.", false, true, true, err)
 	}
-	return Intent{params: params, status: StatusDraft}, nil
+	return Intent{params: params, status: StatusDraft, lifecycleRevision: 1}, nil
 }
 
 // ReviseDraft replaces material fields only while the intent remains DRAFT.
@@ -139,7 +140,7 @@ func (i Intent) ReviseDraft(params Params) (Intent, error) {
 		return Intent{}, apperrors.New(apperrors.CodeIntentMutated, "A material intent change requires a new intent and approval.", false, true, true)
 	}
 	if i.status == StatusDraft {
-		return Intent{params: params, status: StatusDraft}, nil
+		return Intent{params: params, status: StatusDraft, lifecycleRevision: i.lifecycleRevision + 1}, nil
 	}
 	canonical, err := canonicalMaterial(params)
 	if err != nil {
@@ -157,6 +158,9 @@ func (i Intent) Validate() error {
 	}
 	if !i.status.Valid() {
 		return apperrors.New(apperrors.CodeValidationError, "Intent status is invalid.", false, true, true)
+	}
+	if i.lifecycleRevision == 0 {
+		return apperrors.New(apperrors.CodeValidationError, "Intent lifecycle revision must be at least 1.", false, true, true)
 	}
 	if i.status == StatusDraft {
 		if i.digest != "" {
@@ -269,6 +273,7 @@ func digestBytes(material []byte) string {
 func (i Intent) IntentID() string               { return i.params.IntentID }
 func (i Intent) Version() uint64                { return i.params.Version }
 func (i Intent) ClientRequestID() string        { return i.params.ClientRequestID }
+func (i Intent) Nonce() string                  { return i.params.Nonce }
 func (i Intent) Type() Type                     { return i.params.Type }
 func (i Intent) Ownership() Ownership           { return i.params.Ownership }
 func (i Intent) Financial() FinancialParameters { return cloneFinancial(i.params.Financial) }
@@ -278,3 +283,4 @@ func (i Intent) CreatedAt() time.Time           { return i.params.CreatedAt }
 func (i Intent) ExpiresAt() time.Time           { return i.params.ExpiresAt }
 func (i Intent) Status() Status                 { return i.status }
 func (i Intent) Digest() string                 { return i.digest }
+func (i Intent) LifecycleRevision() uint64      { return i.lifecycleRevision }

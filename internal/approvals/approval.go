@@ -45,6 +45,7 @@ type Approval struct {
 	consumedAt           time.Time
 	operationKey         string
 	operationVersion     uint64
+	lifecycleRevision    uint64
 }
 
 func New(params Params, intent intents.Intent) (Approval, error) {
@@ -66,7 +67,7 @@ func New(params Params, intent intents.Intent) (Approval, error) {
 		walletBindingVersion: owner.WalletBindingVersion, walletID: owner.WalletID,
 		walletAddress: owner.WalletAddress, chainID: owner.ChainID,
 		status: StatusPending, decision: DecisionPending,
-		createdAt: params.CreatedAt, expiresAt: params.ExpiresAt,
+		createdAt: params.CreatedAt, expiresAt: params.ExpiresAt, lifecycleRevision: 1,
 	}
 	if err := a.Validate(); err != nil {
 		return Approval{}, err
@@ -88,7 +89,7 @@ func (a Approval) Validate() error {
 			return apperrors.Wrap(apperrors.CodeValidationError, "Approval is invalid.", false, true, true, err)
 		}
 	}
-	if a.version == 0 || a.intentVersion == 0 || a.walletBindingVersion == 0 {
+	if a.version == 0 || a.intentVersion == 0 || a.walletBindingVersion == 0 || a.lifecycleRevision == 0 {
 		return apperrors.New(apperrors.CodeValidationError, "Approval versions must be at least 1.", false, true, true)
 	}
 	if !a.status.Valid() || !a.decision.Valid() {
@@ -190,3 +191,4 @@ func (a Approval) DecidedAt() time.Time         { return a.decidedAt }
 func (a Approval) ConsumedAt() time.Time        { return a.consumedAt }
 func (a Approval) OperationKey() string         { return a.operationKey }
 func (a Approval) OperationVersion() uint64     { return a.operationVersion }
+func (a Approval) LifecycleRevision() uint64    { return a.lifecycleRevision }
