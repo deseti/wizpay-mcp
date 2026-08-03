@@ -178,3 +178,9 @@ The process validates database configuration, opens and pings a bounded pgx pool
 ## Explicit non-goals
 
 No microservices, Redis/River behavior, workers, schedulers, queues, adapter implementations, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 7.
+
+## Phase 8 authentication and authorization foundation
+
+Phase 8 protects the control-plane boundary with provider-neutral verified principals, persisted ACTIVE identity resolution, typed capability permissions, private typed context keys, and one canonical trusted-context-to-`storage.Scope` mapping. Authentication, capability authorization, financial approval, policy evaluation, and execution permission remain separate gates. The RSA JWT adapter is a narrow local-key verifier behind `auth.TokenVerifier`; it performs no discovery, provisioning, refresh, session storage, or provider execution. `/mcp` can be protected while `/health` and `/readiness` remain unauthenticated. The bootstrap continues to register zero live tools until authenticated application services exist. See [Phase 8 authentication and authorization](authentication-authorization.md).
+
+No Phase 9 runtime, provider/chain integration, workers, Redis, River, capability registry, wallet creation, signing, broadcasting, receipt polling, approval UI, or domain execution is added by Phase 8.

@@ -124,6 +124,7 @@ type Identity struct {
 	LifecycleVersion int64              `json:"lifecycle_version"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	ProviderSubject  string             `json:"provider_subject"`
 }
 
 type Intent struct {

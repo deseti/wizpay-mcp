@@ -37,10 +37,23 @@ type ReadinessChecker interface{ Ping(context.Context) error }
 // NewServer initializes dependencies in configuration, MCP, transport, then
 // HTTP routing order. It does not open a network listener.
 func NewServer(cfg config.Config, logger *slog.Logger, registrations ...tools.Tool) (*Server, error) {
-	return NewServerWithReadiness(cfg, logger, nil, registrations...)
+	return newServer(cfg, logger, nil, nil, registrations...)
 }
 
 func NewServerWithReadiness(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, registrations ...tools.Tool) (*Server, error) {
+	return newServer(cfg, logger, readiness, nil, registrations...)
+}
+
+// NewAuthenticatedServer wires authentication only around the MCP endpoint.
+// Health and readiness remain unauthenticated.
+func NewAuthenticatedServer(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, authentication func(http.Handler) http.Handler, registrations ...tools.Tool) (*Server, error) {
+	if !cfg.Auth.Required || authentication == nil {
+		return nil, fmt.Errorf("required authentication middleware is missing")
+	}
+	return newServer(cfg, logger, readiness, authentication, registrations...)
+}
+
+func newServer(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, authentication func(http.Handler) http.Handler, registrations ...tools.Tool) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate application configuration: %w", err)
 	}
@@ -59,6 +72,12 @@ func NewServerWithReadiness(cfg config.Config, logger *slog.Logger, readiness Re
 
 	server := &Server{config: cfg, logger: logger, readiness: readiness}
 	mux := http.NewServeMux()
+	if cfg.Auth.Required {
+		if authentication == nil {
+			return nil, fmt.Errorf("required authentication middleware is missing")
+		}
+		mcpHandler = authentication(mcpHandler)
+	}
 	mux.Handle("/mcp", mcpHandler)
 	mux.HandleFunc("/health", server.healthHandler)
 	mux.HandleFunc("/readiness", server.readinessHandler)

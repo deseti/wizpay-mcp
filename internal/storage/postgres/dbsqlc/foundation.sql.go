@@ -345,17 +345,18 @@ func (q *Queries) CreateExecutionRequest(ctx context.Context, arg CreateExecutio
 }
 
 const createIdentity = `-- name: CreateIdentity :one
-INSERT INTO identities (tenant_id, user_id, provider, status, lifecycle_version, created_at, updated_at)
-VALUES ($1, $2, $3, $4, 1, $5, $5)
-RETURNING tenant_id, user_id, provider, status, lifecycle_version, created_at, updated_at
+INSERT INTO identities (tenant_id, user_id, provider, provider_subject, status, lifecycle_version, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, 1, $6, $6)
+RETURNING tenant_id, user_id, provider, status, lifecycle_version, created_at, updated_at, provider_subject
 `
 
 type CreateIdentityParams struct {
-	TenantID  string             `json:"tenant_id"`
-	UserID    string             `json:"user_id"`
-	Provider  string             `json:"provider"`
-	Status    string             `json:"status"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	TenantID        string             `json:"tenant_id"`
+	UserID          string             `json:"user_id"`
+	Provider        string             `json:"provider"`
+	ProviderSubject string             `json:"provider_subject"`
+	Status          string             `json:"status"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 func (q *Queries) CreateIdentity(ctx context.Context, arg CreateIdentityParams) (Identity, error) {
@@ -363,6 +364,7 @@ func (q *Queries) CreateIdentity(ctx context.Context, arg CreateIdentityParams) 
 		arg.TenantID,
 		arg.UserID,
 		arg.Provider,
+		arg.ProviderSubject,
 		arg.Status,
 		arg.CreatedAt,
 	)
@@ -375,6 +377,7 @@ func (q *Queries) CreateIdentity(ctx context.Context, arg CreateIdentityParams) 
 		&i.LifecycleVersion,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ProviderSubject,
 	)
 	return i, err
 }
@@ -1184,7 +1187,7 @@ func (q *Queries) FindExecutionByRequestKey(ctx context.Context, arg FindExecuti
 }
 
 const findIdentityByID = `-- name: FindIdentityByID :one
-SELECT tenant_id, user_id, provider, status, lifecycle_version, created_at, updated_at FROM identities WHERE tenant_id = $1 AND user_id = $2 AND user_id = $3
+SELECT tenant_id, user_id, provider, status, lifecycle_version, created_at, updated_at, provider_subject FROM identities WHERE tenant_id = $1 AND user_id = $2 AND user_id = $3
 `
 
 type FindIdentityByIDParams struct {
@@ -1204,6 +1207,7 @@ func (q *Queries) FindIdentityByID(ctx context.Context, arg FindIdentityByIDPara
 		&i.LifecycleVersion,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ProviderSubject,
 	)
 	return i, err
 }

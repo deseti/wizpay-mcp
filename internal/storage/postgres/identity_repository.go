@@ -43,7 +43,7 @@ func (s *Store) CreateIdentity(ctx context.Context, scope storage.Scope, identit
 		return auth.Identity{}, err
 	}
 	defer cancel()
-	_, err = s.queries.CreateIdentity(bounded, dbsqlc.CreateIdentityParams{TenantID: scope.TenantID(), UserID: identity.UserID(), Provider: identity.Provider(), Status: string(identity.Status()), CreatedAt: dbTime(s.now().UTC())})
+	_, err = s.queries.CreateIdentity(bounded, dbsqlc.CreateIdentityParams{TenantID: scope.TenantID(), UserID: identity.UserID(), Provider: identity.Provider(), ProviderSubject: identity.ProviderSubject(), Status: string(identity.Status()), CreatedAt: dbTime(s.now().UTC())})
 	if err != nil {
 		var appErr *apperrors.Error
 		mapped := mapDatabaseError(err)
@@ -54,7 +54,7 @@ func (s *Store) CreateIdentity(ctx context.Context, scope storage.Scope, identit
 		if findErr != nil {
 			return auth.Identity{}, mapped
 		}
-		if existing.Provider() != identity.Provider() || existing.Status() != identity.Status() {
+		if existing.Provider() != identity.Provider() || existing.ProviderSubject() != identity.ProviderSubject() || existing.Status() != identity.Status() {
 			return auth.Identity{}, mapped
 		}
 		return existing, nil
@@ -78,7 +78,7 @@ func (s *Store) FindIdentityByID(ctx context.Context, scope storage.Scope, userI
 	if err != nil {
 		return auth.Identity{}, mapDatabaseError(err)
 	}
-	return auth.NewIdentity(row.UserID, row.Provider, auth.IdentityStatus(row.Status))
+	return auth.NewIdentityWithSubject(row.UserID, row.Provider, row.ProviderSubject, auth.IdentityStatus(row.Status))
 }
 
 var _ storage.TenantRepository = (*Store)(nil)

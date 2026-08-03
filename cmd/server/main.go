@@ -6,10 +6,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/app"
+	authjwt "github.com/deseti/wizpay-mcp/internal/auth/jwt"
 	"github.com/deseti/wizpay-mcp/internal/config"
 	"github.com/deseti/wizpay-mcp/internal/logging"
+	"github.com/deseti/wizpay-mcp/internal/requestauth"
 	storagepostgres "github.com/deseti/wizpay-mcp/internal/storage/postgres"
 )
 
@@ -57,7 +60,28 @@ func run() error {
 	}
 	defer database.Close()
 
-	server, err := app.NewServerWithReadiness(cfg, logger, database)
+	var server *app.Server
+	if cfg.Auth.Required {
+		publicKeyPEM, readErr := os.ReadFile(cfg.Auth.PublicKeyFile)
+		if readErr != nil {
+			return readErr
+		}
+		publicKey, parseErr := authjwt.ParseRSAPublicKey(publicKeyPEM)
+		if parseErr != nil {
+			return parseErr
+		}
+		verifier, verifierErr := authjwt.NewVerifier(authjwt.Config{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, PublicKey: publicKey, AllowedAlgorithms: []string{"RS256"}, ClockSkew: cfg.Auth.ClockSkew}, time.Now)
+		if verifierErr != nil {
+			return verifierErr
+		}
+		middleware, middlewareErr := requestauth.NewMiddleware(verifier, requestauth.RepositoryResolver{Repository: database})
+		if middlewareErr != nil {
+			return middlewareErr
+		}
+		server, err = app.NewAuthenticatedServer(cfg, logger, database, middleware.Wrap)
+	} else {
+		server, err = app.NewServerWithReadiness(cfg, logger, database)
+	}
 	if err != nil {
 		return err
 	}

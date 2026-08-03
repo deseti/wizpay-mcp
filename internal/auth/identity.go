@@ -25,17 +25,23 @@ const (
 
 // Identity is a validated, provider-neutral application user identity.
 type Identity struct {
-	userID   string
-	provider string
-	status   IdentityStatus
+	userID          string
+	provider        string
+	providerSubject string
+	status          IdentityStatus
 }
 
 // NewIdentity validates and creates an identity value.
 func NewIdentity(userID, provider string, status IdentityStatus) (Identity, error) {
+	return NewIdentityWithSubject(userID, provider, "legacy-unmapped:"+strings.TrimSpace(userID), status)
+}
+
+func NewIdentityWithSubject(userID, provider, providerSubject string, status IdentityStatus) (Identity, error) {
 	identity := Identity{
-		userID:   strings.TrimSpace(userID),
-		provider: strings.TrimSpace(provider),
-		status:   status,
+		userID:          strings.TrimSpace(userID),
+		provider:        strings.TrimSpace(provider),
+		providerSubject: strings.TrimSpace(providerSubject),
+		status:          status,
 	}
 	if err := identity.Validate(); err != nil {
 		return Identity{}, err
@@ -49,6 +55,9 @@ func (i Identity) Validate() error {
 		return err
 	}
 	if err := validateIdentityField("identity provider", i.provider); err != nil {
+		return err
+	}
+	if err := validateIdentityField("provider subject", i.providerSubject); err != nil {
 		return err
 	}
 	if !i.status.Valid() {
@@ -110,9 +119,10 @@ func (i Identity) EnsureAuthorizable() error {
 	}
 }
 
-func (i Identity) UserID() string         { return i.userID }
-func (i Identity) Provider() string       { return i.provider }
-func (i Identity) Status() IdentityStatus { return i.status }
+func (i Identity) UserID() string          { return i.userID }
+func (i Identity) Provider() string        { return i.provider }
+func (i Identity) ProviderSubject() string { return i.providerSubject }
+func (i Identity) Status() IdentityStatus  { return i.status }
 func (s IdentityStatus) Valid() bool {
 	switch s {
 	case IdentityStatusUnknown, IdentityStatusActive, IdentityStatusSuspended, IdentityStatusRevoked:

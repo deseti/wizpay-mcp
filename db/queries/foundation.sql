@@ -4,8 +4,8 @@ ON CONFLICT (tenant_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id
 RETURNING *;
 
 -- name: CreateIdentity :one
-INSERT INTO identities (tenant_id, user_id, provider, status, lifecycle_version, created_at, updated_at)
-VALUES ($1, $2, $3, $4, 1, $5, $5)
+INSERT INTO identities (tenant_id, user_id, provider, provider_subject, status, lifecycle_version, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, 1, $6, $6)
 RETURNING *;
 
 -- name: FindIdentityByID :one
