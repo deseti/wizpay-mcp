@@ -91,6 +91,11 @@ func (s *Service) ProcessClaim(ctx context.Context, claim storage.ExecutionClaim
 }
 
 func (s *Service) processClaim(ctx context.Context, claim storage.ExecutionClaim, now time.Time) (execution.Execution, error) {
+	// The adapter and verifier boundaries identify work by execution ID alone.
+	// Publishing the claim's scope lets a provider implementation read its own
+	// persisted reference without widening those interfaces or escaping the
+	// tenant boundary. It changes no state, lease, or fencing behaviour.
+	ctx = storage.WithScope(ctx, claim.Scope)
 	value := claim.Execution
 	switch value.Status() {
 	case execution.StatusCreated:

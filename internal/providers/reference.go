@@ -1,0 +1,208 @@
+package providers
+
+import (
+	"fmt"
+	"strings"
+	"unicode"
+)
+
+const (
+	maxReferenceLength = 256
+	maxSafeTextLength  = 256
+	maxChainIDLength   = 20
+	// referencePrefix versions the encoding so a future reference shape can be
+	// distinguished from this one without ambiguity.
+	referencePrefix = "wzp1"
+)
+
+// Reference is the safe, non-secret provider reference persisted as the Phase 9
+// execution.Result adapter reference. It carries reconciliation identifiers
+// only: never an API key, user token, request body, or response body.
+type Reference struct {
+	Provider ProviderID
+	ChainID  string
+	// WalletID is the user's non-secret provider wallet identifier. It is
+	// persisted because reconciliation cannot locate the transaction without
+	// it after a restart. It confers no authority over the wallet.
+	WalletID string
+	// ChallengeID is a non-secret provider challenge identifier. A created
+	// challenge is not a financial submission.
+	ChallengeID string
+	// ProviderTransactionID is the provider's transaction identifier.
+	ProviderTransactionID string
+	// TransactionHash is the on-chain transaction hash, once the provider
+	// reports one. Only this field can lead to on-chain verification.
+	TransactionHash string
+}
+
+func (r Reference) Validate() error {
+	if !r.Provider.Valid() {
+		return fmt.Errorf("provider reference has an invalid provider")
+	}
+	if !validChainID(r.ChainID) {
+		return fmt.Errorf("provider reference has an invalid chain ID")
+	}
+	if r.ChallengeID == "" && r.ProviderTransactionID == "" && r.TransactionHash == "" {
+		return fmt.Errorf("provider reference requires at least one provider identifier")
+	}
+	for name, value := range map[string]string{"challenge ID": r.ChallengeID, "provider transaction ID": r.ProviderTransactionID, "wallet ID": r.WalletID} {
+		if value != "" && !validProviderIdentifier(value) {
+			return fmt.Errorf("provider reference has an invalid %s", name)
+		}
+	}
+	if r.TransactionHash != "" && !ValidTransactionHash(r.TransactionHash) {
+		return fmt.Errorf("provider reference has an invalid transaction hash")
+	}
+	return nil
+}
+
+// Encode returns the canonical single-line encoding stored as the adapter
+// reference. Empty optional fields are omitted so the encoding stays stable.
+func (r Reference) Encode() (string, error) {
+	if err := r.Validate(); err != nil {
+		return "", err
+	}
+	parts := []string{referencePrefix, "p=" + string(r.Provider), "chain=" + r.ChainID}
+	if r.WalletID != "" {
+		parts = append(parts, "w="+r.WalletID)
+	}
+	if r.ChallengeID != "" {
+		parts = append(parts, "ch="+r.ChallengeID)
+	}
+	if r.ProviderTransactionID != "" {
+		parts = append(parts, "tx="+r.ProviderTransactionID)
+	}
+	if r.TransactionHash != "" {
+		parts = append(parts, "hash="+r.TransactionHash)
+	}
+	encoded := strings.Join(parts, ";")
+	if len(encoded) > maxReferenceLength {
+		return "", fmt.Errorf("provider reference exceeds %d characters", maxReferenceLength)
+	}
+	return encoded, nil
+}
+
+// WithTransaction returns a copy carrying provider transaction identifiers. It
+// never clears an identifier that is already known.
+func (r Reference) WithTransaction(providerTransactionID, transactionHash string) Reference {
+	next := r
+	if providerTransactionID != "" {
+		next.ProviderTransactionID = providerTransactionID
+	}
+	if transactionHash != "" {
+		next.TransactionHash = strings.ToLower(transactionHash)
+	}
+	return next
+}
+
+// ParseReference decodes a persisted adapter reference. It fails closed on any
+// unknown prefix, unknown field, duplicate field, or malformed identifier.
+func ParseReference(value string) (Reference, error) {
+	if value == "" || len(value) > maxReferenceLength {
+		return Reference{}, fmt.Errorf("provider reference is malformed")
+	}
+	segments := strings.Split(value, ";")
+	if segments[0] != referencePrefix {
+		return Reference{}, fmt.Errorf("provider reference has an unsupported encoding")
+	}
+	var reference Reference
+	seen := make(map[string]struct{}, len(segments))
+	for _, segment := range segments[1:] {
+		key, fieldValue, found := strings.Cut(segment, "=")
+		if !found || fieldValue == "" {
+			return Reference{}, fmt.Errorf("provider reference is malformed")
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return Reference{}, fmt.Errorf("provider reference repeats field %q", key)
+		}
+		seen[key] = struct{}{}
+		switch key {
+		case "p":
+			reference.Provider = ProviderID(fieldValue)
+		case "chain":
+			reference.ChainID = fieldValue
+		case "w":
+			reference.WalletID = fieldValue
+		case "ch":
+			reference.ChallengeID = fieldValue
+		case "tx":
+			reference.ProviderTransactionID = fieldValue
+		case "hash":
+			reference.TransactionHash = fieldValue
+		default:
+			return Reference{}, fmt.Errorf("provider reference has an unknown field %q", key)
+		}
+	}
+	if err := reference.Validate(); err != nil {
+		return Reference{}, err
+	}
+	return reference, nil
+}
+
+// ValidTransactionHash reports whether the value is a lowercase 32-byte
+// 0x-prefixed EVM transaction hash.
+func ValidTransactionHash(value string) bool {
+	if len(value) != 66 || !strings.HasPrefix(value, "0x") {
+		return false
+	}
+	return lowerHex(value[2:])
+}
+
+// ValidAddress reports whether the value is a 20-byte 0x-prefixed EVM address.
+// Comparison elsewhere must be case-insensitive because checksum casing is
+// address metadata, not identity.
+func ValidAddress(value string) bool {
+	if len(value) != 42 || !strings.HasPrefix(value, "0x") {
+		return false
+	}
+	for _, character := range value[2:] {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') && (character < 'A' || character > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerHex(value string) bool {
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// validProviderIdentifier accepts the conservative character set shared by
+// provider-assigned UUID identifiers. It rejects separators used by the
+// reference encoding so a hostile identifier cannot forge extra fields.
+func validProviderIdentifier(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'z') &&
+			(character < 'A' || character > 'Z') && character != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func validChainID(value string) bool {
+	if value == "" || len(value) > maxChainIDLength || value[0] == '0' {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validSafeText(value string) bool {
+	if value == "" || len(value) > maxSafeTextLength || strings.TrimSpace(value) != value {
+		return false
+	}
+	return strings.IndexFunc(value, unicode.IsControl) < 0
+}

@@ -39,6 +39,37 @@ func (s Scope) ActorID() string   { return s.actorID }
 func (s Scope) RequestID() string { return s.requestID }
 func (s Scope) TraceID() string   { return s.traceID }
 
+type scopeContextKey struct{}
+
+// WithScope attaches the trusted persistence scope to a context so components
+// reached through scope-free ports can recover it. The Phase 9 execution
+// adapter contract identifies work by execution ID alone, so a provider adapter
+// that must read its own persisted state has no other way to stay
+// tenant-scoped.
+//
+// The scope carries no credential and grants no authority on its own: it is
+// still validated by every repository that receives it.
+func WithScope(ctx context.Context, scope Scope) context.Context {
+	if ctx == nil || scope.Validate() != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, scopeContextKey{}, scope)
+}
+
+// ScopeFromContext returns the scope attached by WithScope. A missing scope is
+// reported rather than substituted, so no caller can fall back to an
+// unscoped read.
+func ScopeFromContext(ctx context.Context) (Scope, bool) {
+	if ctx == nil {
+		return Scope{}, false
+	}
+	scope, found := ctx.Value(scopeContextKey{}).(Scope)
+	if !found || scope.Validate() != nil {
+		return Scope{}, false
+	}
+	return scope, true
+}
+
 func validateScopeField(name, value string, required bool) error {
 	if required && value == "" {
 		return fmt.Errorf("%s is required", name)

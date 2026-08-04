@@ -1,10 +1,10 @@
 # WizPay MCP
 
-WizPay MCP is an independent MCP-native payment orchestration service. Phase 10 adds a typed, versioned capability registry without implementing provider or blockchain execution.
+WizPay MCP is an independent MCP-native payment orchestration service. Phase 11 assembles the provider execution boundary — a provider-neutral wiring layer, the Circle User-Controlled Wallet adapter, and the Arc receipt verifier — without implementing the domain planning that would let it move funds.
 
 ## Current implementation status
 
-Phases 0–7 established the runtime, identity/wallet, intent/approval, policy, execution-control, MCP tool, and tenant-isolated PostgreSQL persistence foundations. Phase 8 adds verified-principal normalization, persisted identity eligibility checks, typed capability authorization, trusted request context, and canonical storage.Scope mapping. Phase 9 adds PostgreSQL-backed execution leases/fencing, deterministic resume, provider-neutral adapter/verifier boundaries, and verification-gated completion. Phase 10 registers Payroll, Swap, Bridge, and ANS as immutable versioned metadata and provides deterministic, provider-neutral availability decisions.
+Phases 0–7 established the runtime, identity/wallet, intent/approval, policy, execution-control, MCP tool, and tenant-isolated PostgreSQL persistence foundations. Phase 8 adds verified-principal normalization, persisted identity eligibility checks, typed capability authorization, trusted request context, and canonical storage.Scope mapping. Phase 9 adds PostgreSQL-backed execution leases/fencing, deterministic resume, provider-neutral adapter/verifier boundaries, and verification-gated completion. Phase 10 registers Payroll, Swap, Bridge, and ANS as immutable versioned metadata and provides deterministic, provider-neutral availability decisions. Phase 11 assembles those boundaries into a concrete provider plane: a `providers/wiring` layer composes the Circle User-Controlled Wallet adapter and the Arc Testnet receipt verifier, wires them into the execution worker and into capability availability, and does so fail-closed.
 
 Authentication is distinct from authorization, financial approval, and execution permission. Raw bearer credentials are transport input only: they are never domain/application input, logged, audited, or persisted. Tenant and actor identity are derived exclusively from verified claims plus persisted identity resolution; MCP tool arguments cannot override them.
 
@@ -44,8 +44,24 @@ Routes:
 
 The in-process registry describes capability-to-intent mappings, required permissions and approval/policy/execution gates, supported constraints, and abstract provider feature requirements. Initial definitions are disabled because no provider adapters or verified execution routes are registered. Capability availability is metadata only: it does not imply authorization, approval, policy allow, execution readiness, or execution success.
 
+## Provider execution boundary (Phase 11)
+
+The `internal/providers/wiring` package assembles the provider execution plane from configuration. It keeps the provider-neutral core, the Circle boundary, and the Arc boundary from importing one another, and assembly is declarative and fail-closed:
+
+- **Circle User-Controlled Wallet adapter** initiates transfers only the user can authorize and reconciles their outcome. It never signs, never holds a private key, seed phrase, or signing share, never completes a challenge on the user's behalf, and never accepts a wallet identifier from runtime input — the wallet comes from the approved plan alone.
+- **Arc receipt verifier** is read-only. It reads transaction receipts and the chain head over a single Arc Testnet JSON-RPC endpoint (chain ID `5042002`), confirms the endpoint's chain identity before trusting any receipt, and is the only component permitted to assert on-chain success or failure. An absent receipt is reported as unknown, never as failure.
+- **Provider submission is never verified success.** No Circle transaction state — including `CONFIRMED` and `COMPLETE` — maps to verified success; every post-submission state maps to submitted-pending so the runtime advances to on-chain verification. Only an Arc receipt at the configured confirmation depth verifies an execution.
+- **Reconcile, never blindly resubmit.** Once a request may have left the process, an inconclusive response is classified as ambiguous (reconciliation-only), and reconciliation recovers the persisted provider reference rather than issuing a second submission.
+
+Two integrations connect the plane to the rest of the system, both fail-closed:
+
+- **Worker (Phase 9).** `wiring.BuildWorker` constructs the execution worker only when the plane carries both a provider adapter and a chain-backed verifier. Because Phase 11 supplies no domain planner — turning an approved intent into a concrete transfer is Phase 12 capability logic — the adapter is always nil, so the worker reports unconfigured and the process idles. No execution, and therefore no financial transaction, can be driven from this phase.
+- **Capability availability (Phase 10).** `wiring.Availability` resolves a capability with the provider features a configured provider actually supplies on the requested chain and network, discarding any features a caller placed on the request. A caller can never assert a feature into existence, so every execution-requiring capability stays unavailable until a real provider is configured.
+
+Both `cmd/server` and `cmd/worker` own no provider secrets in the repository; Circle and Arc credentials are supplied only through the environment. See `docs/architecture.md` for the full boundary description.
+
 ## Explicit non-goals
 
-No Circle/Arc integration, wallet creation, signing, broadcasting, smart-contract calls, receipt polling against a real provider, River/Redis dependency, payroll/swap/bridge/ANS execution, approval UI, autonomous spending, or treasury routing exists in Phase 10. Phase 11 remains the provider execution integration boundary and Phase 12 remains the actual financial capability implementation boundary. The worker loop is provider-neutral and requires injected adapter/verifier implementations; no real financial transaction can occur from this phase.
+No domain planner, wallet creation, signing, broadcasting, smart-contract calls, approval UI, autonomous spending, or treasury routing exists in Phase 11. The Circle adapter and Arc verifier are assembled but cannot drive an execution without a planner, which Phase 12 — the actual financial capability implementation boundary — will supply. No live financial transaction can occur from this phase, and no mainnet configuration is provided. The worker loop remains provider-neutral and idles whenever the plane is not fully configured.
 
 See docs/architecture.md and docs/persistence.md for boundaries.
