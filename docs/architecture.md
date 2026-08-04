@@ -185,8 +185,14 @@ The runtime has no Circle, Arc, wallet, chain, signer, receipt, or provider impl
 
 No microservices, Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 9.
 
+## Phase 10 capability registry
+
+Phase 10 adds `internal/capabilities` as a control-plane authority for typed, immutable, versioned capability metadata. The deterministic in-process registry supports exact-version lookup, latest-enabled lookup, canonical descriptor identity, and provider-neutral availability decisions for Payroll, Swap, Bridge, and ANS. Definitions reuse existing intent and permission types and declare approval, policy, execution, chain/network/token/route, and abstract provider-feature requirements.
+
+All initial definitions are disabled because repository-backed provider adapters and executable routes do not yet exist. Availability never performs I/O and does not imply authentication, authorization, approval, policy allow, execution preparation, or execution success. Phase 11 remains provider execution integration; Phase 12 remains actual financial capability implementation. The six Phase 6 MCP tools and the Phase 9 runtime are unchanged.
+
 ## Phase 8 authentication and authorization foundation
 
 Phase 8 protects the control-plane boundary with provider-neutral verified principals, persisted ACTIVE identity resolution, typed capability permissions, private typed context keys, and one canonical trusted-context-to-`storage.Scope` mapping. Authentication, capability authorization, financial approval, policy evaluation, and execution permission remain separate gates. The RSA JWT adapter is a narrow local-key verifier behind `auth.TokenVerifier`; it performs no discovery, provisioning, refresh, session storage, or provider execution. `/mcp` can be protected while `/health` and `/readiness` remain unauthenticated. The bootstrap continues to register zero live tools until authenticated application services exist. See [Phase 8 authentication and authorization](authentication-authorization.md).
 
-Phase 8 added no execution runtime or provider behavior. Phase 9 now supplies only the provider-neutral runtime described above; provider/chain integration, Redis, River, capability registry, wallet creation, signing, broadcasting, real receipt polling, approval UI, and domain-specific financial execution remain absent.
+Phase 8 added no execution runtime or provider behavior. Phase 9 now supplies only the provider-neutral runtime described above; Phase 10 adds only the control-plane capability registry. Provider/chain integration, Redis, River, wallet creation, signing, broadcasting, real receipt polling, approval UI, and domain-specific financial execution remain absent.

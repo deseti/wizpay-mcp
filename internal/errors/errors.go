@@ -32,6 +32,9 @@ const (
 	CodePolicyExpired           Code = "policy_expired"
 	CodePolicyDisabled          Code = "policy_disabled"
 	CodeReviewRequired          Code = "review_required"
+	CodeCapabilityNotFound      Code = "capability_not_found"
+	CodeCapabilityUnavailable   Code = "capability_unavailable"
+	CodeCapabilityConflict      Code = "capability_conflict"
 	CodeExecutionNotFound       Code = "execution_not_found"
 	CodeExecutionInvalid        Code = "execution_invalid"
 	CodeExecutionNotAuthorized  Code = "execution_not_authorized"
@@ -141,6 +144,9 @@ func (c Code) valid() bool {
 		CodePolicyExpired,
 		CodePolicyDisabled,
 		CodeReviewRequired,
+		CodeCapabilityNotFound,
+		CodeCapabilityUnavailable,
+		CodeCapabilityConflict,
 		CodeExecutionNotFound,
 		CodeExecutionInvalid,
 		CodeExecutionNotAuthorized,
