@@ -1,6 +1,6 @@
 # WizPay MCP
 
-WizPay MCP is an independent MCP-native payment orchestration service. Phase 11 assembles the provider execution boundary — a provider-neutral wiring layer, the Circle User-Controlled Wallet adapter, and the Arc receipt verifier — without implementing the domain planning that would let it move funds.
+WizPay MCP is an independent MCP-native payment orchestration service. Phase 11 assembles the provider execution boundary — a provider-neutral wiring layer, the Circle User-Controlled Wallet adapter, the Arc receipt verifier, and typed Payroll/Swap contract deployment primitives — without implementing the domain planning that would let it move funds.
 
 ## Current implementation status
 
@@ -60,8 +60,26 @@ Two integrations connect the plane to the rest of the system, both fail-closed:
 
 Both `cmd/server` and `cmd/worker` own no provider secrets in the repository; Circle and Arc credentials are supplied only through the environment. See `docs/architecture.md` for the full boundary description.
 
+## Contract deployment artifacts (Payroll + Swap)
+
+Verified Arc Testnet deployments are registered in the static in-process registry `internal/contracts` at MCP `RegistryVersion` `1` (artifact metadata only — **not** a Solidity semantic version):
+
+| Role | Contract | Address | Chain ID |
+|---|---|---|---:|
+| Payroll | WizPay | `0x87ACE45582f45cC81AC1E627E875AE84cbd75946` | `5042002` |
+| Swap | WizPaySwapExecutor | `0x17685466759f9Cde06f0DCbB5464164ABe541eFA` | `5042002` |
+
+- Full verified ABIs: `contracts/abi/WizPay.json`, `contracts/abi/WizPaySwapExecutor.json` (reference-only).
+- Runtime uses minimal allowlisted ABI fragments in `internal/contracts/payroll` and `internal/contracts/swap`.
+- Admin functions are intentionally excluded from the runtime execution surface.
+- No generic arbitrary contract executor exists; destination addresses come only from the registry.
+- No separate FX Engine deployment is assumed or registered.
+- Bridge, CCTP, and ANS remain untouched.
+- Contract artifacts do not enable Phase 10 capability availability. Phase 12 remains the Financial Capability Modules boundary.
+- No live financial transaction was performed as part of this work.
+
 ## Explicit non-goals
 
-No domain planner, wallet creation, signing, broadcasting, smart-contract calls, approval UI, autonomous spending, or treasury routing exists in Phase 11. The Circle adapter and Arc verifier are assembled but cannot drive an execution without a planner, which Phase 12 — the actual financial capability implementation boundary — will supply. No live financial transaction can occur from this phase, and no mainnet configuration is provided. The worker loop remains provider-neutral and idles whenever the plane is not fully configured.
+No domain planner, wallet creation, signing, broadcasting of live contract transactions, approval UI, autonomous spending, or treasury routing exists in Phase 11. The Circle adapter, Arc verifier, and contract encode/decode primitives are assembled but cannot drive an execution without a planner, which Phase 12 — the actual financial capability implementation boundary — will supply. No live financial transaction can occur from this phase, and no mainnet configuration is provided. The worker loop remains provider-neutral and idles whenever the plane is not fully configured.
 
 See docs/architecture.md and docs/persistence.md for boundaries.

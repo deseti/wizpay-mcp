@@ -38,6 +38,9 @@ const (
 	CodeProviderNotFound        Code = "provider_not_found"
 	CodeProviderUnavailable     Code = "provider_unavailable"
 	CodeProviderConflict        Code = "provider_conflict"
+	CodeContractNotFound        Code = "contract_not_found"
+	CodeContractUnavailable     Code = "contract_unavailable"
+	CodeContractConflict        Code = "contract_conflict"
 	CodeExecutionNotFound       Code = "execution_not_found"
 	CodeExecutionInvalid        Code = "execution_invalid"
 	CodeExecutionNotAuthorized  Code = "execution_not_authorized"
@@ -150,6 +153,12 @@ func (c Code) valid() bool {
 		CodeCapabilityNotFound,
 		CodeCapabilityUnavailable,
 		CodeCapabilityConflict,
+		CodeProviderNotFound,
+		CodeProviderUnavailable,
+		CodeProviderConflict,
+		CodeContractNotFound,
+		CodeContractUnavailable,
+		CodeContractConflict,
 		CodeExecutionNotFound,
 		CodeExecutionInvalid,
 		CodeExecutionNotAuthorized,

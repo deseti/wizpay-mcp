@@ -201,6 +201,18 @@ Phase 11 assembles the provider execution plane without granting it the ability 
 
 **Fail-closed assembly.** `wiring.Build` registers every provider so the registry can explain unavailability, but constructs an adapter only for a fully configured provider. `wiring.BuildWorker` returns the Phase 9 execution worker only when the plane carries both an adapter and a chain-backed verifier; nil fields are checked before the interface assignment so a typed-nil can never masquerade as a present adapter. Because Phase 11 supplies no domain planner, the adapter is always nil, the worker reports unconfigured, and `cmd/worker` idles until shutdown. `wiring.Availability` resolves capabilities using only the provider features the plane actually supplies on the requested chain and network, discarding caller-supplied features, so no caller can assert a capability into availability. No live financial transaction can occur from this phase and no mainnet configuration exists.
 
+### Phase 11 contract deployment artifacts (Payroll + Swap corrective)
+
+`internal/contracts` holds a static, typed, versioned deployment registry for the verified Arc Testnet Payroll and Swap contracts. `RegistryVersion` is MCP-side artifact metadata only; it is **not** an invented Solidity semantic version (the deployments do not expose one).
+
+| Contract ID | Name | Address | Chain ID |
+|---|---|---|---:|
+| `WIZPAY_PAYROLL` | WizPay | `0x87ACE45582f45cC81AC1E627E875AE84cbd75946` | `5042002` |
+| `WIZPAY_SWAP_EXECUTOR` | WizPaySwapExecutor | `0x17685466759f9Cde06f0DCbB5464164ABe541eFA` | `5042002` |
+
+Full verified ABIs live under `contracts/abi/` as reference-only sources of truth. Runtime packages `internal/contracts/payroll` and `internal/contracts/swap` embed only minimal allowlisted ABI fragments for approved money-moving functions, read functions, and verification events. Admin functions present in the full ABI are intentionally excluded. There is no generic arbitrary-call executor (`CallContract`, raw calldata APIs, free-form method selectors, or caller-supplied destination addresses). No separate FX Engine deployment is registered or assumed. Bridge, CCTP, and ANS remain untouched.
+
+These primitives validate and encode already-approved immutable execution requirements and decode verification events for later Phase 12 domain verification. They do not plan payroll/swap business logic, submit transactions, sign, or mark financial success. Capability availability remains separate: registering contract artifacts does not enable Phase 10 Payroll/Swap capabilities.
 
 ## Phase 8 authentication and authorization foundation
 

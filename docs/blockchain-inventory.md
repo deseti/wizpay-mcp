@@ -37,13 +37,15 @@ The native and ERC-20 USDC decimal representations must never be mixed. Token am
 | Permit2 | Arc Testnet | `5042002` | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate allowance mechanism required by documented StableFX flow | swap candidate; disabled |
 | GatewayWallet | Arc Testnet | `5042002` | `0x0077777d7EBA4688BDeF3E311b846F25870A19B9` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate chain-abstracted balance component | none until owner decision |
 | GatewayMinter | Arc Testnet | `5042002` | `0x0022222ABE238Cc2C7Bb1f21003F0a260052475B` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate gateway minting component; not a public MCP target | none |
-| payroll contract(s) | any | UNVERIFIED | UNVERIFIED | no trusted project artifact supplied | UNVERIFIED | payroll | none |
+| WizPay (Payroll) | Arc Testnet | `5042002` | `0x87ACE45582f45cC81AC1E627E875AE84cbd75946` | project verified ABI `contracts/abi/WizPay.json`; MCP registry `WIZPAY_PAYROLL` RegistryVersion 1 | VERIFIED (static artifact; capability still disabled) | payroll encode/decode only | payroll candidate; no live execution |
+| WizPaySwapExecutor (Swap) | Arc Testnet | `5042002` | `0x17685466759f9Cde06f0DCbB5464164ABe541eFA` | project verified ABI `contracts/abi/WizPaySwapExecutor.json`; MCP registry `WIZPAY_SWAP_EXECUTOR` RegistryVersion 1 | VERIFIED (static artifact; capability still disabled) | swap encode/decode only | swap candidate; no live execution |
+| FX Engine | any | N/A | not registered | user confirmed no separate FX Engine deployment for this scope | not assumed | none | none |
 | ANS registry/resolver/registrar | Arc | `5042002` or mainnet UNVERIFIED | UNVERIFIED | no trusted project artifact supplied/reviewed official deployment | UNVERIFIED | ANS reads/registration | none |
 | withdrawal route/contract | any | UNVERIFIED | UNVERIFIED | owner decision absent | UNVERIFIED | withdrawal | none |
 
 ## ABI requirements
 
-No ABI file is verified or enabled in Phase 0; `contracts/abi` remains placeholder-only.
+Full verified ABI artifacts for Payroll and Swap are present under `contracts/abi/`. Runtime embeds only minimal allowlisted fragments; admin functions remain excluded.
 
 | Contract/interface | Version/source | Required functions | Required events/evidence | Status |
 |---|---|---|---|---|
@@ -52,7 +54,8 @@ No ABI file is verified or enabled in Phase 0; `contracts/abi` remains placehold
 | CCTP MessageTransmitterV2 | official exact deployment ABI UNVERIFIED | exact receive function selected later | message receipt and mint linkage | UNVERIFIED |
 | StableFX FxEscrow | official exact deployment ABI UNVERIFIED | exact taker/settlement functions selected later | trade identifiers, input/output, parties, terminal settlement | UNVERIFIED |
 | Permit2 | exact deployed ABI/version UNVERIFIED | only narrowly approved allowance/permit functions | approval/nonce evidence required by design | UNVERIFIED |
-| payroll | contract/version absent | exact allowlisted batch function(s) | per-recipient transfers and/or authoritative batch event | UNVERIFIED |
+| WizPay (Payroll) | `contracts/abi/WizPay.json`; MCP RegistryVersion 1 (not Solidity semver) | `batchRouteAndPay` (both overloads), `routeAndPay`; reads: estimates/pause/whitelist/feeBps | `BatchPaymentRouted`, `PaymentRouted` | VERIFIED artifact; runtime allowlisted; capability disabled |
+| WizPaySwapExecutor (Swap) | `contracts/abi/WizPaySwapExecutor.json`; MCP RegistryVersion 1 | `executeSwap`; reads: allowedRouters/Tokens, feeBps, feeRecipient, paused | `WizPaySwapExecuted` | VERIFIED artifact; runtime allowlisted; capability disabled |
 | ANS | registry/resolver/registrar version absent | availability/read and exact registration functions | ownership/controller/registration evidence | UNVERIFIED |
 
 ## Owner decisions required before Phase 1 execution work
