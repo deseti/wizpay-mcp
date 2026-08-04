@@ -8,6 +8,7 @@
 package wiring
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/providers/arc"
 	"github.com/deseti/wizpay-mcp/internal/providers/circle"
+	"github.com/deseti/wizpay-mcp/internal/providers/circuit"
 )
 
 // Config is the resolved provider-plane configuration. Secrets live inside the
@@ -24,6 +26,9 @@ import (
 type Config struct {
 	Circle circle.Config
 	Arc    arc.Config
+	// Breaker is the shared infrastructure-breaker configuration for outbound
+	// Circle and Arc calls. Zero value is replaced with circuit.DefaultConfig.
+	Breaker circuit.Config
 }
 
 // LoadConfig reads both provider configurations from the environment.
@@ -36,7 +41,11 @@ func LoadConfig(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Config{Circle: circleConfig, Arc: arcConfig}, nil
+	return Config{
+		Circle:  circleConfig,
+		Arc:     arcConfig,
+		Breaker: circuit.DefaultConfig(),
+	}, nil
 }
 
 // Dependencies are the ports the provider plane cannot supply itself.
@@ -63,6 +72,12 @@ type Plane struct {
 	// Adapter is the Phase 9 execution.Adapter, or nil when no provider is
 	// configured. A nil adapter must never be replaced with a permissive stub.
 	Adapter *circle.Adapter
+	// HealthCheckers are optional non-financial readiness probes. Process
+	// liveness must not depend on them.
+	HealthCheckers []providers.HealthChecker
+	// CircleBreaker and ArcBreaker expose safe breaker snapshots for health.
+	CircleBreaker *circuit.Breaker
+	ArcBreaker    *circuit.Breaker
 }
 
 // Build assembles the provider plane. Every provider is registered so the
@@ -72,14 +87,27 @@ func Build(config Config, dependencies Dependencies) (Plane, error) {
 	if dependencies.Now == nil {
 		return Plane{}, fmt.Errorf("provider plane requires a clock")
 	}
+	breakerConfig := config.Breaker
+	if breakerConfig.FailureThreshold == 0 {
+		breakerConfig = circuit.DefaultConfig()
+	}
+	circleBreaker, err := circuit.New(breakerConfig, dependencies.Now)
+	if err != nil {
+		return Plane{}, err
+	}
+	arcBreaker, err := circuit.New(breakerConfig, dependencies.Now)
+	if err != nil {
+		return Plane{}, err
+	}
+
 	registry := providers.NewRegistry()
 
 	var adapter *circle.Adapter
 	configured := config.Circle.Configured() && config.Arc.Configured() &&
 		dependencies.Planner != nil && dependencies.Authorization != nil && dependencies.References != nil
 	if configured {
-		built, err := circle.NewAdapter(config.Circle, dependencies.HTTPClient, dependencies.Planner,
-			dependencies.Authorization, dependencies.References, dependencies.Now)
+		built, err := circle.NewAdapterWithBreaker(config.Circle, dependencies.HTTPClient, dependencies.Planner,
+			dependencies.Authorization, dependencies.References, dependencies.Now, circleBreaker)
 		if err != nil {
 			return Plane{}, err
 		}
@@ -105,14 +133,30 @@ func Build(config Config, dependencies Dependencies) (Plane, error) {
 		return Plane{}, err
 	}
 
-	plane := Plane{Registry: registry, Adapter: adapter}
+	plane := Plane{
+		Registry:      registry,
+		Adapter:       adapter,
+		CircleBreaker: circleBreaker,
+		ArcBreaker:    arcBreaker,
+	}
+
+	circleHealth, err := circle.NewHealthChecker(config.Circle, dependencies.HTTPClient, circleBreaker, dependencies.Now)
+	if err != nil {
+		return Plane{}, err
+	}
+	arcHealth, err := arc.NewHealthChecker(config.Arc, dependencies.HTTPClient, arcBreaker, dependencies.Now)
+	if err != nil {
+		return Plane{}, err
+	}
+	plane.HealthCheckers = []providers.HealthChecker{circleHealth, arcHealth}
+
 	if !config.Arc.Configured() || adapter == nil {
 		// Without a chain reader or a reconciliation source there is no way to
 		// obtain on-chain evidence, and a provider status alone may never
 		// verify an execution.
 		return plane, nil
 	}
-	client, err := arc.NewClient(config.Arc, dependencies.HTTPClient)
+	client, err := arc.NewClientWithBreaker(config.Arc, dependencies.HTTPClient, arcBreaker)
 	if err != nil {
 		return Plane{}, err
 	}
@@ -127,6 +171,12 @@ func Build(config Config, dependencies Dependencies) (Plane, error) {
 	}
 	plane.Verifier = verifier
 	return plane, nil
+}
+
+// Health runs configured provider health checks under a bounded context.
+// Process liveness endpoints must not require this result to succeed.
+func (p Plane) Health(ctx context.Context) providers.HealthReport {
+	return providers.AggregateHealth(ctx, time.Now, p.HealthCheckers...)
 }
 
 // ProviderFeatures reports the features actually available on a chain and

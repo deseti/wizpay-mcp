@@ -10,6 +10,7 @@ import (
 
 	"github.com/deseti/wizpay-mcp/internal/execution"
 	"github.com/deseti/wizpay-mcp/internal/providers"
+	"github.com/deseti/wizpay-mcp/internal/providers/circuit"
 )
 
 // ReferenceStore recovers the safe provider reference already persisted for an
@@ -35,19 +36,26 @@ type Adapter struct {
 	references    ReferenceStore
 	config        Config
 	now           func() time.Time
+	breaker       *circuit.Breaker
 }
 
 // NewAdapter builds the Circle adapter. It fails closed when the provider is
 // not fully configured rather than returning a degraded adapter.
 func NewAdapter(config Config, httpClient *http.Client, planner providers.Planner, authorization providers.AuthorizationSource, references ReferenceStore, now func() time.Time) (*Adapter, error) {
+	return NewAdapterWithBreaker(config, httpClient, planner, authorization, references, now, nil)
+}
+
+// NewAdapterWithBreaker builds the adapter with an optional circuit breaker for
+// outbound Circle infrastructure calls.
+func NewAdapterWithBreaker(config Config, httpClient *http.Client, planner providers.Planner, authorization providers.AuthorizationSource, references ReferenceStore, now func() time.Time, breaker *circuit.Breaker) (*Adapter, error) {
 	if planner == nil || authorization == nil || references == nil || now == nil {
 		return nil, fmt.Errorf("Circle adapter dependencies are required")
 	}
-	transport, err := newClient(config, httpClient)
+	transport, err := newClientWithBreaker(config, httpClient, breaker)
 	if err != nil {
 		return nil, err
 	}
-	return &Adapter{client: transport, planner: planner, authorization: authorization, references: references, config: config, now: now}, nil
+	return &Adapter{client: transport, planner: planner, authorization: authorization, references: references, config: config, now: now, breaker: breaker}, nil
 }
 
 var (

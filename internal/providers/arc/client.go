@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/deseti/wizpay-mcp/internal/providers/circuit"
 )
 
 const maxResponseBytes = 1 << 20
@@ -40,12 +42,14 @@ type receiptPayload struct {
 	Status          string `json:"status"`
 	TransactionHash string `json:"transactionHash"`
 	BlockNumber     string `json:"blockNumber"`
+	BlockHash       string `json:"blockHash"`
 }
 
 // Client is the narrow read-only Arc JSON-RPC client.
 type Client struct {
-	config Config
-	http   *http.Client
+	config  Config
+	http    *http.Client
+	breaker *circuit.Breaker
 
 	// chainVerified guards the one-time chain identity check. Reading a receipt
 	// from the wrong chain would be false verification evidence, so identity is
@@ -55,6 +59,12 @@ type Client struct {
 }
 
 func NewClient(config Config, httpClient *http.Client) (*Client, error) {
+	return NewClientWithBreaker(config, httpClient, nil)
+}
+
+// NewClientWithBreaker constructs a client that records infrastructure failures
+// on the provided breaker. A nil breaker disables breaker integration.
+func NewClientWithBreaker(config Config, httpClient *http.Client, breaker *circuit.Breaker) (*Client, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -64,7 +74,7 @@ func NewClient(config Config, httpClient *http.Client) (*Client, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: config.Timeout}
 	}
-	return &Client{config: config, http: httpClient}, nil
+	return &Client{config: config, http: httpClient, breaker: breaker}, nil
 }
 
 // ensureChainIdentity confirms the endpoint really serves the configured chain.
@@ -125,12 +135,22 @@ func (c *Client) Receipt(ctx context.Context, transactionHash string) (receiptPa
 }
 
 // call performs one JSON-RPC request. Errors carry no response body.
+//
+// Only the three methods this package issues may reach this function. When a
+// circuit breaker is configured, infrastructure failures open the breaker;
+// successful RPC responses close it.
 func (c *Client) call(ctx context.Context, method string, params []any, out any) error {
+	if c.breaker != nil {
+		if err := c.breaker.Allow(); err != nil {
+			return fmt.Errorf("Arc endpoint circuit breaker is open")
+		}
+	}
 	if params == nil {
 		params = []any{}
 	}
 	body, err := json.Marshal(rpcRequest{Version: "2.0", ID: 1, Method: method, Params: params})
 	if err != nil {
+		// Encoding failure is a local validation problem, not provider outage.
 		return fmt.Errorf("Arc request could not be encoded")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.config.RPCURL, bytes.NewReader(body))
@@ -142,6 +162,7 @@ func (c *Client) call(ctx context.Context, method string, params []any, out any)
 
 	response, err := c.http.Do(request)
 	if err != nil {
+		c.recordFailure()
 		return fmt.Errorf("Arc endpoint is unreachable")
 	}
 	defer func() {
@@ -149,23 +170,55 @@ func (c *Client) call(ctx context.Context, method string, params []any, out any)
 		_ = response.Body.Close()
 	}()
 	if response.StatusCode < 200 || response.StatusCode > 299 {
+		c.recordFailure()
 		return fmt.Errorf("Arc endpoint returned status %d", response.StatusCode)
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
+		c.recordFailure()
 		return fmt.Errorf("Arc response could not be read")
 	}
 	var decoded rpcResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
+		c.recordFailure()
 		return fmt.Errorf("Arc response could not be decoded")
 	}
 	if decoded.Error != nil {
+		c.recordFailure()
 		return fmt.Errorf("Arc endpoint reported RPC error %d", decoded.Error.Code)
 	}
 	if err := json.Unmarshal(decoded.Result, out); err != nil {
+		c.recordFailure()
 		return fmt.Errorf("Arc result could not be decoded")
 	}
+	c.recordSuccess()
 	return nil
+}
+
+func (c *Client) recordSuccess() {
+	if c.breaker != nil {
+		c.breaker.RecordSuccess()
+	}
+}
+
+func (c *Client) recordFailure() {
+	if c.breaker != nil {
+		c.breaker.RecordFailure()
+	}
+}
+
+// HealthCheck probes Arc RPC reachability and chain identity. It uses only the
+// allowlisted eth_chainId method (and optionally eth_blockNumber). No secrets
+// are returned.
+func (c *Client) HealthCheck(ctx context.Context) (chainID string, blockNumber uint64, err error) {
+	if err := c.ensureChainIdentity(ctx); err != nil {
+		return "", 0, err
+	}
+	head, err := c.BlockNumber(ctx)
+	if err != nil {
+		return c.config.ChainID, 0, err
+	}
+	return c.config.ChainID, head, nil
 }
 
 // parseQuantity decodes an EVM hex quantity.

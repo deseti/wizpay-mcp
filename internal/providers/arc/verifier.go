@@ -79,10 +79,12 @@ func (v *Verifier) TransactionReceipt(ctx context.Context, chainID, transactionH
 		// The head lags the receipt, so depth cannot be established yet.
 		return pending, nil
 	}
+	blockHash := strings.ToLower(strings.TrimSpace(payload.BlockHash))
 	receipt := providers.Receipt{
 		ChainID:         chainID,
 		TransactionHash: normalized,
 		BlockNumber:     blockNumber,
+		BlockHash:       blockHash,
 		Confirmations:   head - blockNumber + 1,
 	}
 	switch strings.ToLower(strings.TrimSpace(payload.Status)) {
@@ -92,13 +94,17 @@ func (v *Verifier) TransactionReceipt(ctx context.Context, chainID, transactionH
 		receipt.Status = providers.ReceiptReverted
 	default:
 		// An unrecognized status is never interpreted as either outcome.
-		return pending, nil
-	}
-	if receipt.Status == providers.ReceiptSuccess && receipt.Confirmations < v.config.MinConfirmations {
-		// Confirmed too shallow to be treated as final.
 		return providers.Receipt{
 			Status: providers.ReceiptUnknown, ChainID: chainID, TransactionHash: normalized,
-			BlockNumber: blockNumber, Confirmations: receipt.Confirmations,
+			BlockNumber: blockNumber, BlockHash: blockHash, Confirmations: receipt.Confirmations,
+		}, nil
+	}
+	if receipt.Status == providers.ReceiptSuccess && receipt.Confirmations < v.config.MinConfirmations {
+		// Confirmed too shallow to be treated as final, but block identity is
+		// retained so reorg detection still has a baseline.
+		return providers.Receipt{
+			Status: providers.ReceiptUnknown, ChainID: chainID, TransactionHash: normalized,
+			BlockNumber: blockNumber, BlockHash: blockHash, Confirmations: receipt.Confirmations,
 		}, nil
 	}
 	return receipt, nil

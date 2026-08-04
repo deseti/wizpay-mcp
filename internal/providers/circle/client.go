@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/deseti/wizpay-mcp/internal/providers"
+	"github.com/deseti/wizpay-mcp/internal/providers/circuit"
 )
 
 // maxResponseBytes bounds how much of a provider response is read into memory.
@@ -32,11 +33,16 @@ func (e *transportError) classification() (providers.Classification, string) {
 // client is the narrow Circle HTTP boundary. It exposes only the three
 // documented operations this phase needs and no general-purpose request method.
 type client struct {
-	config Config
-	http   *http.Client
+	config  Config
+	http    *http.Client
+	breaker *circuit.Breaker
 }
 
 func newClient(config Config, httpClient *http.Client) (*client, error) {
+	return newClientWithBreaker(config, httpClient, nil)
+}
+
+func newClientWithBreaker(config Config, httpClient *http.Client, breaker *circuit.Breaker) (*client, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -46,7 +52,7 @@ func newClient(config Config, httpClient *http.Client) (*client, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: config.Timeout}
 	}
-	return &client{config: config, http: httpClient}, nil
+	return &client{config: config, http: httpClient, breaker: breaker}, nil
 }
 
 // transferRequest is the documented request body for creating a user-controlled
@@ -211,11 +217,22 @@ func (c *client) findChallenge(ctx context.Context, authorization providers.User
 // The API key and the ephemeral user token are attached here and nowhere else.
 // Neither value, nor any request or response body, is ever logged or returned:
 // failures surface only as a classification and a safe reason code.
+//
+// Circuit-breaker accounting records only infrastructure/provider-service
+// failures. Validation failures and missing user authorization never open the
+// breaker. An open breaker never resubmits an ambiguous operation — callers
+// still reconcile through GetStatus after submission may have occurred.
 func (c *client) do(ctx context.Context, method, path string, query url.Values, body []byte, authorization providers.UserAuthorization, submitting bool) ([]byte, error) {
 	if !authorization.Present() {
 		// Authentication to WizPay is not Circle signing authority. Without the
 		// user's own ephemeral token, no provider call may be attempted.
+		// This is not a provider infrastructure failure.
 		return nil, &transportError{class: providers.ClassUserAuthorizationRequired, reasonCode: "USER_AUTHORIZATION_REQUIRED"}
+	}
+	if c.breaker != nil {
+		if err := c.breaker.Allow(); err != nil {
+			return nil, &transportError{class: providers.ClassTransientProviderError, reasonCode: "PROVIDER_CIRCUIT_OPEN"}
+		}
 	}
 	endpoint := strings.TrimSuffix(c.config.BaseURL, "/") + path
 	if len(query) > 0 {
@@ -227,6 +244,7 @@ func (c *client) do(ctx context.Context, method, path string, query url.Values, 
 	}
 	request, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
 	if err != nil {
+		// Local request construction failure is validation, not provider outage.
 		return nil, &transportError{class: providers.ClassPreSubmissionValidationFailure, reasonCode: "PROVIDER_REQUEST_INVALID"}
 	}
 	request.Header.Set("Accept", "application/json")
@@ -238,6 +256,7 @@ func (c *client) do(ctx context.Context, method, path string, query url.Values, 
 
 	response, err := c.http.Do(request)
 	if err != nil {
+		c.recordInfrastructureFailure()
 		// A transport failure on a submission is the ambiguous case: the
 		// request may have reached Circle even though no response returned.
 		if submitting {
@@ -253,13 +272,86 @@ func (c *client) do(ctx context.Context, method, path string, query url.Values, 
 	payload, readErr := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		class, reasonCode := classifyHTTPStatus(response.StatusCode, submitting)
+		if countsTowardCircuit(class, response.StatusCode) {
+			c.recordInfrastructureFailure()
+		}
 		return nil, &transportError{class: class, reasonCode: reasonCode}
 	}
 	if readErr != nil {
+		c.recordInfrastructureFailure()
 		if submitting {
 			return nil, &transportError{class: providers.ClassAmbiguousSubmission, reasonCode: "PROVIDER_RESPONSE_UNREADABLE"}
 		}
 		return nil, &transportError{class: providers.ClassTransientProviderError, reasonCode: "PROVIDER_RESPONSE_UNREADABLE"}
 	}
+	c.recordInfrastructureSuccess()
 	return payload, nil
+}
+
+func (c *client) recordInfrastructureSuccess() {
+	if c.breaker != nil {
+		c.breaker.RecordSuccess()
+	}
+}
+
+func (c *client) recordInfrastructureFailure() {
+	if c.breaker != nil {
+		c.breaker.RecordFailure()
+	}
+}
+
+// countsTowardCircuit reports whether an HTTP status should open the breaker.
+// Auth rejections against a bad key are infrastructure; permanent request
+// validation rejections (400/422) are not.
+func countsTowardCircuit(class providers.Classification, statusCode int) bool {
+	switch class {
+	case providers.ClassTransientProviderError, providers.ClassAmbiguousSubmission:
+		return true
+	case providers.ClassPermanentProviderRejection:
+		// 401/403/5xx-like permanent auth rejections count; 400/422 body rejections do not.
+		return statusCode == 401 || statusCode == 403 || statusCode >= 500
+	default:
+		return false
+	}
+}
+
+// healthProbe performs a non-financial, API-key-only reachability probe against
+// Circle. It never creates wallets, transfers tokens, or completes challenges.
+// A 2xx response is healthy; 401/403 means the host is reachable but credentials
+// are rejected (degraded); network/5xx failures are unavailable.
+func (c *client) healthProbe(ctx context.Context) (statusCode int, err error) {
+	if c.breaker != nil {
+		if allowErr := c.breaker.Allow(); allowErr != nil {
+			return 0, circuit.ErrOpen
+		}
+	}
+	// /v1/ping is a conventional non-financial reachability path. Even when the
+	// path is absent, a 404 proves the API host answered without performing a
+	// financial action.
+	endpoint := strings.TrimSuffix(c.config.BaseURL, "/") + "/v1/ping"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+c.config.APIKey.reveal())
+	// Intentionally no X-User-Token: this probe is infrastructure-only.
+
+	response, err := c.http.Do(request)
+	if err != nil {
+		c.recordInfrastructureFailure()
+		return 0, err
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		_ = response.Body.Close()
+	}()
+	if response.StatusCode >= 500 {
+		c.recordInfrastructureFailure()
+		return response.StatusCode, fmt.Errorf("circle health probe status %d", response.StatusCode)
+	}
+	// Reachable host (including 401/403/404) is a successful infrastructure probe
+	// from the breaker's perspective: the service answered.
+	c.recordInfrastructureSuccess()
+	return response.StatusCode, nil
 }

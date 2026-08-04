@@ -60,6 +60,15 @@ Two integrations connect the plane to the rest of the system, both fail-closed:
 
 Both `cmd/server` and `cmd/worker` own no provider secrets in the repository; Circle and Arc credentials are supplied only through the environment. See `docs/architecture.md` for the full boundary description.
 
+## Provider-plane hardening (Phase 11 corrective)
+
+Additional fail-closed controls for the Payroll + Swap provider plane:
+
+- **Reorg-aware verification** — successive Arc receipt observations compare block hash, block number, confirmation depth, and presence; inconsistency stays reconciliation-only and never resubmits.
+- **Provider health probes** — non-financial Circle reachability and Arc chain-identity/block-height checks with bounded timeouts; process `/health` liveness does not depend on external providers.
+- **Circuit breakers** — CLOSED / OPEN / HALF_OPEN breakers on outbound Circle and Arc infrastructure calls; validation and missing user authorization do not open the breaker.
+- **Optional sandbox/testnet harness** — offline by default; see `docs/phase-11-security-recovery-review.md` for env flags and explicit non-goals.
+
 ## Contract deployment artifacts (Payroll + Swap)
 
 Verified Arc Testnet deployments are registered in the static in-process registry `internal/contracts` at MCP `RegistryVersion` `1` (artifact metadata only — **not** a Solidity semantic version):

@@ -22,6 +22,10 @@ const (
 	// ReceiptReverted means a receipt confirmed the transaction executed and
 	// failed. This is the only evidence permitted to fail an execution.
 	ReceiptReverted ReceiptStatus = "REVERTED"
+	// ReceiptReorgInconsistent means successive observations of the same
+	// transaction disagree (missing after present, block hash/number change, or
+	// confirmation depth decrease). It is reconciliation-only and never success.
+	ReceiptReorgInconsistent ReceiptStatus = "REORG_INCONSISTENT"
 )
 
 // Receipt is the minimal on-chain evidence needed to verify an execution. It
@@ -31,7 +35,10 @@ type Receipt struct {
 	ChainID         string
 	TransactionHash string
 	BlockNumber     uint64
-	Confirmations   uint64
+	// BlockHash is the inclusion block hash when the chain reports one. It is
+	// used for reorg detection across verification passes.
+	BlockHash     string
+	Confirmations uint64
 }
 
 // ChainVerifier reads transaction receipts from a chain. Implementations must
@@ -74,11 +81,16 @@ func (c VerifierConfig) Validate() error {
 // never sufficient for VERIFIED. Only a chain receipt, on the chain the
 // reference names, at the required confirmation depth, can verify an
 // execution, and only a receipt can fail one.
+//
+// Reorg-aware observation tracking compares successive receipts for the same
+// transaction. Inconsistency yields a non-success, reconciliation-only outcome
+// and never triggers resubmission.
 type Verifier struct {
-	chain    ChainVerifier
-	resolver ReferenceResolver
-	config   VerifierConfig
-	now      func() time.Time
+	chain        ChainVerifier
+	resolver     ReferenceResolver
+	config       VerifierConfig
+	now          func() time.Time
+	observations *ObservationTracker
 }
 
 func NewVerifier(chain ChainVerifier, resolver ReferenceResolver, config VerifierConfig, now func() time.Time) (*Verifier, error) {
@@ -88,7 +100,13 @@ func NewVerifier(chain ChainVerifier, resolver ReferenceResolver, config Verifie
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return &Verifier{chain: chain, resolver: resolver, config: config, now: now}, nil
+	return &Verifier{
+		chain:        chain,
+		resolver:     resolver,
+		config:       config,
+		now:          now,
+		observations: NewObservationTracker(),
+	}, nil
 }
 
 // Verify resolves the persisted provider reference to on-chain evidence. The
@@ -119,6 +137,22 @@ func (v *Verifier) Verify(ctx context.Context, value execution.Execution, encode
 	if err := v.ensureReceiptMatches(reference, receipt); err != nil {
 		return runtime.VerificationResult{}, err
 	}
+
+	// Reorg/inconsistency detection compares this observation to the previous
+	// one for the same transaction. A reorg signal is reconciliation-only:
+	// never verified success, never automatic resubmission.
+	//
+	// A receipt is "present" when the chain returned inclusion metadata or a
+	// terminal status. A completely absent receipt has neither.
+	present := receipt.BlockNumber != 0 || receipt.BlockHash != "" ||
+		receipt.Status == ReceiptSuccess || receipt.Status == ReceiptReverted
+	signal := v.observations.Evaluate(ObservationFromReceipt(receipt, present))
+	if signal.Inconsistent() || receipt.Status == ReceiptReorgInconsistent {
+		// Stay pending so the runtime continues reconciling the same execution.
+		// Verification PENDING never completes and never resubmits.
+		return v.pending(reference)
+	}
+
 	outcome := Outcome{Reference: reference, HasReference: true, ObservedAt: v.now().UTC()}
 	switch receipt.Status {
 	case ReceiptSuccess:
@@ -129,7 +163,7 @@ func (v *Verifier) Verify(ctx context.Context, value execution.Execution, encode
 	case ReceiptReverted:
 		outcome.Class = ClassConfirmedOnchainFailed
 		outcome.ReasonCode = "ONCHAIN_EXECUTION_REVERTED"
-	case ReceiptUnknown:
+	case ReceiptUnknown, ReceiptReorgInconsistent:
 		return v.pending(reference)
 	default:
 		// An unrecognized receipt status fails closed to pending rather than
