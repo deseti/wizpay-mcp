@@ -175,12 +175,18 @@ The database preserves current wallet projections plus immutable wallet-version 
 
 The process validates database configuration, opens and pings a bounded pgx pool, applies embedded forward migrations, includes PostgreSQL in readiness checks, and closes the pool on shutdown. It still registers no MCP tools because authentication and application-service implementations remain future phases. See [Phase 7 PostgreSQL persistence](persistence.md).
 
+## Phase 9 execution runtime
+
+Phase 9 provides the provider-neutral execution-control runtime. It resumes immutable prepared execution requests, persists one execution identity per operation identity, claims work with PostgreSQL leases and fencing tokens, and invokes only the existing `execution.Adapter` boundary. A durable submission-start marker makes restart behavior deterministic: a marked pre-call execution reconciles through `GetStatus` rather than blindly submitting again. A separate verifier boundary is required before any final success; verified evidence and the `VERIFIED` lifecycle transition are persisted atomically.
+
+The runtime has no Circle, Arc, wallet, chain, signer, receipt, or provider implementation. Its worker loop is a repository-backed polling boundary and remains inert until explicit provider-neutral adapter and verifier implementations are supplied by a later phase.
+
 ## Explicit non-goals
 
-No microservices, Redis/River behavior, workers, schedulers, queues, adapter implementations, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 7.
+No microservices, Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 9.
 
 ## Phase 8 authentication and authorization foundation
 
 Phase 8 protects the control-plane boundary with provider-neutral verified principals, persisted ACTIVE identity resolution, typed capability permissions, private typed context keys, and one canonical trusted-context-to-`storage.Scope` mapping. Authentication, capability authorization, financial approval, policy evaluation, and execution permission remain separate gates. The RSA JWT adapter is a narrow local-key verifier behind `auth.TokenVerifier`; it performs no discovery, provisioning, refresh, session storage, or provider execution. `/mcp` can be protected while `/health` and `/readiness` remain unauthenticated. The bootstrap continues to register zero live tools until authenticated application services exist. See [Phase 8 authentication and authorization](authentication-authorization.md).
 
-No Phase 9 runtime, provider/chain integration, workers, Redis, River, capability registry, wallet creation, signing, broadcasting, receipt polling, approval UI, or domain execution is added by Phase 8.
+Phase 8 added no execution runtime or provider behavior. Phase 9 now supplies only the provider-neutral runtime described above; provider/chain integration, Redis, River, capability registry, wallet creation, signing, broadcasting, real receipt polling, approval UI, and domain-specific financial execution remain absent.

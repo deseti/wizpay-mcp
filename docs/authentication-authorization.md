@@ -22,4 +22,4 @@ Permissions are a closed typed set for the current foundation capabilities: inte
 
 The canonical storage mapping uses only trusted principal tenant/actor values and server-generated request metadata. MCP input cannot construct or replace a principal, permission set, identity, or storage.Scope. Raw bearer tokens never enter domain values, logs, audit metadata, or persistent records.
 
-No Phase 9+ execution runtime or provider functionality is implemented.
+Authentication remains separate from the provider-neutral Phase 9 execution runtime. No provider, chain, signing, broadcasting, or real financial execution functionality is implemented.

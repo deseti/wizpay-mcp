@@ -11,6 +11,8 @@ import (
 type Querier interface {
 	AppendAudit(ctx context.Context, arg AppendAuditParams) error
 	AppendVerificationEvidence(ctx context.Context, arg AppendVerificationEvidenceParams) (int64, error)
+	ClaimExecutionWork(ctx context.Context, arg ClaimExecutionWorkParams) (ExecutionRuntimeWork, error)
+	ClaimNextExecutionWork(ctx context.Context, arg ClaimNextExecutionWorkParams) (ExecutionRuntimeWork, error)
 	CreateApproval(ctx context.Context, arg CreateApprovalParams) (Approval, error)
 	CreateExecution(ctx context.Context, arg CreateExecutionParams) (Execution, error)
 	CreateExecutionRequest(ctx context.Context, arg CreateExecutionRequestParams) (ExecutionRequest, error)
@@ -28,6 +30,7 @@ type Querier interface {
 	FindExecutionByID(ctx context.Context, arg FindExecutionByIDParams) (FindExecutionByIDRow, error)
 	FindExecutionByOperationKey(ctx context.Context, arg FindExecutionByOperationKeyParams) (FindExecutionByOperationKeyRow, error)
 	FindExecutionByRequestKey(ctx context.Context, arg FindExecutionByRequestKeyParams) (FindExecutionByRequestKeyRow, error)
+	FindExecutionOwner(ctx context.Context, arg FindExecutionOwnerParams) (FindExecutionOwnerRow, error)
 	FindIdentityByID(ctx context.Context, arg FindIdentityByIDParams) (Identity, error)
 	FindIntentByClientRequestID(ctx context.Context, arg FindIntentByClientRequestIDParams) (Intent, error)
 	FindIntentByID(ctx context.Context, arg FindIntentByIDParams) (Intent, error)
@@ -39,11 +42,15 @@ type Querier interface {
 	FindWalletBindingByID(ctx context.Context, arg FindWalletBindingByIDParams) (WalletBinding, error)
 	FindWalletBindingByWallet(ctx context.Context, arg FindWalletBindingByWalletParams) (WalletBinding, error)
 	FreezeIntent(ctx context.Context, arg FreezeIntentParams) (Intent, error)
+	MarkSubmissionStarted(ctx context.Context, arg MarkSubmissionStartedParams) (ExecutionRuntimeWork, error)
+	ReleaseExecutionWork(ctx context.Context, arg ReleaseExecutionWorkParams) (int64, error)
+	ResetSubmissionStarted(ctx context.Context, arg ResetSubmissionStartedParams) (int64, error)
 	UpdateApproval(ctx context.Context, arg UpdateApprovalParams) (Approval, error)
 	UpdateExecution(ctx context.Context, arg UpdateExecutionParams) (Execution, error)
 	UpdateIntent(ctx context.Context, arg UpdateIntentParams) (Intent, error)
 	UpdatePolicy(ctx context.Context, arg UpdatePolicyParams) (Policy, error)
 	UpdateWalletBinding(ctx context.Context, arg UpdateWalletBindingParams) (WalletBinding, error)
+	ValidateExecutionClaim(ctx context.Context, arg ValidateExecutionClaimParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

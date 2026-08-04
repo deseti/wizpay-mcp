@@ -24,6 +24,7 @@ const (
 	EventExecutionCreated          EventType = "execution_created"
 	EventExecutionAuthorized       EventType = "execution_authorized"
 	EventExecutionQueued           EventType = "execution_queued"
+	EventExecutionExecuting        EventType = "execution_executing"
 	EventExecutionSubmitted        EventType = "execution_submitted"
 	EventExecutionConfirming       EventType = "execution_confirming"
 	EventExecutionConfirmed        EventType = "execution_confirmed"

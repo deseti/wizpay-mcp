@@ -16,7 +16,11 @@ func auditParams(scope storage.Scope, record audit.Record) (dbsqlc.AppendAuditPa
 	if err := record.Validate(); err != nil {
 		return dbsqlc.AppendAuditParams{}, err
 	}
-	if record.ActorID != scope.ActorID() || record.RequestID != scope.RequestID() || record.TraceID != scope.TraceID() {
+	actorMatches := record.ActorID == scope.ActorID()
+	if record.ActorType == "system" && record.SourceComponent == "execution_runtime" {
+		actorMatches = record.ActorID != "" && record.Event.UserID == scope.ActorID()
+	}
+	if !actorMatches || record.RequestID != scope.RequestID() || record.TraceID != scope.TraceID() {
 		return dbsqlc.AppendAuditParams{}, apperrors.New(apperrors.CodeAuthorizationRequired, "Audit attribution does not match the trusted request scope.", false, true, true)
 	}
 	event := record.Event

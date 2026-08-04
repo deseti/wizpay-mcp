@@ -126,6 +126,89 @@ func (q *Queries) AppendVerificationEvidence(ctx context.Context, arg AppendVeri
 	return result.RowsAffected(), nil
 }
 
+const claimExecutionWork = `-- name: ClaimExecutionWork :one
+UPDATE execution_runtime_work w
+SET lease_owner=$1, lease_expires_at=clock_timestamp() + ($2::bigint * interval '1 microsecond'), fencing_token=w.fencing_token+1
+FROM execution_requests r, executions e
+WHERE w.tenant_id=$3 AND w.execution_id=$4
+  AND r.tenant_id=w.tenant_id AND r.execution_id=w.execution_id AND r.user_id=$5
+  AND e.tenant_id=w.tenant_id AND e.execution_id=w.execution_id
+  AND w.next_run_at <= clock_timestamp()
+  AND (w.lease_expires_at IS NULL OR w.lease_expires_at <= clock_timestamp())
+  AND e.status NOT IN ('COMPLETED','CANCELLED')
+  AND NOT (e.status='FAILED' AND e.failure_eligibility='TERMINAL')
+RETURNING w.tenant_id, w.execution_id, w.next_run_at, w.lease_owner, w.lease_expires_at, w.fencing_token, w.submission_started
+`
+
+type ClaimExecutionWorkParams struct {
+	LeaseOwner                string `json:"lease_owner"`
+	LeaseDurationMicroseconds int64  `json:"lease_duration_microseconds"`
+	TenantID                  string `json:"tenant_id"`
+	ExecutionID               string `json:"execution_id"`
+	ActorID                   string `json:"actor_id"`
+}
+
+func (q *Queries) ClaimExecutionWork(ctx context.Context, arg ClaimExecutionWorkParams) (ExecutionRuntimeWork, error) {
+	row := q.db.QueryRow(ctx, claimExecutionWork,
+		arg.LeaseOwner,
+		arg.LeaseDurationMicroseconds,
+		arg.TenantID,
+		arg.ExecutionID,
+		arg.ActorID,
+	)
+	var i ExecutionRuntimeWork
+	err := row.Scan(
+		&i.TenantID,
+		&i.ExecutionID,
+		&i.NextRunAt,
+		&i.LeaseOwner,
+		&i.LeaseExpiresAt,
+		&i.FencingToken,
+		&i.SubmissionStarted,
+	)
+	return i, err
+}
+
+const claimNextExecutionWork = `-- name: ClaimNextExecutionWork :one
+WITH candidate AS (
+  SELECT w.tenant_id, w.execution_id
+  FROM execution_runtime_work w
+  JOIN executions e USING (tenant_id, execution_id)
+  WHERE w.next_run_at <= clock_timestamp()
+    AND (w.lease_expires_at IS NULL OR w.lease_expires_at <= clock_timestamp())
+    AND e.status NOT IN ('COMPLETED','CANCELLED')
+    AND NOT (e.status='FAILED' AND e.failure_eligibility='TERMINAL')
+  ORDER BY w.next_run_at,w.tenant_id,w.execution_id
+  FOR UPDATE OF w SKIP LOCKED
+  LIMIT 1
+)
+UPDATE execution_runtime_work w
+SET lease_owner=$1, lease_expires_at=clock_timestamp() + ($2::bigint * interval '1 microsecond'), fencing_token=w.fencing_token+1
+FROM candidate c
+WHERE w.tenant_id=c.tenant_id AND w.execution_id=c.execution_id
+RETURNING w.tenant_id, w.execution_id, w.next_run_at, w.lease_owner, w.lease_expires_at, w.fencing_token, w.submission_started
+`
+
+type ClaimNextExecutionWorkParams struct {
+	LeaseOwner                string `json:"lease_owner"`
+	LeaseDurationMicroseconds int64  `json:"lease_duration_microseconds"`
+}
+
+func (q *Queries) ClaimNextExecutionWork(ctx context.Context, arg ClaimNextExecutionWorkParams) (ExecutionRuntimeWork, error) {
+	row := q.db.QueryRow(ctx, claimNextExecutionWork, arg.LeaseOwner, arg.LeaseDurationMicroseconds)
+	var i ExecutionRuntimeWork
+	err := row.Scan(
+		&i.TenantID,
+		&i.ExecutionID,
+		&i.NextRunAt,
+		&i.LeaseOwner,
+		&i.LeaseExpiresAt,
+		&i.FencingToken,
+		&i.SubmissionStarted,
+	)
+	return i, err
+}
+
 const createApproval = `-- name: CreateApproval :one
 INSERT INTO approvals (tenant_id,approval_id,approval_version,approval_request_id,intent_id,intent_version,intent_digest,user_id,wallet_binding_id,wallet_binding_version,wallet_id,wallet_address,chain_id,status,decision,created_at,expires_at,decided_at,consumed_at,operation_key,operation_version,lifecycle_version)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
@@ -1186,6 +1269,27 @@ func (q *Queries) FindExecutionByRequestKey(ctx context.Context, arg FindExecuti
 	return i, err
 }
 
+const findExecutionOwner = `-- name: FindExecutionOwner :one
+SELECT tenant_id,user_id FROM execution_requests WHERE tenant_id=$1 AND execution_id=$2
+`
+
+type FindExecutionOwnerParams struct {
+	TenantID    string `json:"tenant_id"`
+	ExecutionID string `json:"execution_id"`
+}
+
+type FindExecutionOwnerRow struct {
+	TenantID string `json:"tenant_id"`
+	UserID   string `json:"user_id"`
+}
+
+func (q *Queries) FindExecutionOwner(ctx context.Context, arg FindExecutionOwnerParams) (FindExecutionOwnerRow, error) {
+	row := q.db.QueryRow(ctx, findExecutionOwner, arg.TenantID, arg.ExecutionID)
+	var i FindExecutionOwnerRow
+	err := row.Scan(&i.TenantID, &i.UserID)
+	return i, err
+}
+
 const findIdentityByID = `-- name: FindIdentityByID :one
 SELECT tenant_id, user_id, provider, status, lifecycle_version, created_at, updated_at, provider_subject FROM identities WHERE tenant_id = $1 AND user_id = $2 AND user_id = $3
 `
@@ -1637,6 +1741,96 @@ func (q *Queries) FreezeIntent(ctx context.Context, arg FreezeIntentParams) (Int
 	return i, err
 }
 
+const markSubmissionStarted = `-- name: MarkSubmissionStarted :one
+UPDATE execution_runtime_work
+SET submission_started=true
+WHERE tenant_id=$1 AND execution_id=$2 AND lease_owner=$3 AND fencing_token=$4
+  AND lease_expires_at > clock_timestamp() AND submission_started=false
+RETURNING tenant_id, execution_id, next_run_at, lease_owner, lease_expires_at, fencing_token, submission_started
+`
+
+type MarkSubmissionStartedParams struct {
+	TenantID     string `json:"tenant_id"`
+	ExecutionID  string `json:"execution_id"`
+	LeaseOwner   string `json:"lease_owner"`
+	FencingToken int64  `json:"fencing_token"`
+}
+
+func (q *Queries) MarkSubmissionStarted(ctx context.Context, arg MarkSubmissionStartedParams) (ExecutionRuntimeWork, error) {
+	row := q.db.QueryRow(ctx, markSubmissionStarted,
+		arg.TenantID,
+		arg.ExecutionID,
+		arg.LeaseOwner,
+		arg.FencingToken,
+	)
+	var i ExecutionRuntimeWork
+	err := row.Scan(
+		&i.TenantID,
+		&i.ExecutionID,
+		&i.NextRunAt,
+		&i.LeaseOwner,
+		&i.LeaseExpiresAt,
+		&i.FencingToken,
+		&i.SubmissionStarted,
+	)
+	return i, err
+}
+
+const releaseExecutionWork = `-- name: ReleaseExecutionWork :execrows
+UPDATE execution_runtime_work
+SET lease_owner='',lease_expires_at=NULL,next_run_at=$5
+WHERE tenant_id=$1 AND execution_id=$2 AND lease_owner=$3 AND fencing_token=$4
+`
+
+type ReleaseExecutionWorkParams struct {
+	TenantID     string             `json:"tenant_id"`
+	ExecutionID  string             `json:"execution_id"`
+	LeaseOwner   string             `json:"lease_owner"`
+	FencingToken int64              `json:"fencing_token"`
+	NextRunAt    pgtype.Timestamptz `json:"next_run_at"`
+}
+
+func (q *Queries) ReleaseExecutionWork(ctx context.Context, arg ReleaseExecutionWorkParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseExecutionWork,
+		arg.TenantID,
+		arg.ExecutionID,
+		arg.LeaseOwner,
+		arg.FencingToken,
+		arg.NextRunAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const resetSubmissionStarted = `-- name: ResetSubmissionStarted :execrows
+UPDATE execution_runtime_work
+SET submission_started=false
+WHERE tenant_id=$1 AND execution_id=$2 AND lease_owner=$3 AND fencing_token=$4
+  AND lease_expires_at > clock_timestamp() AND submission_started=true
+`
+
+type ResetSubmissionStartedParams struct {
+	TenantID     string `json:"tenant_id"`
+	ExecutionID  string `json:"execution_id"`
+	LeaseOwner   string `json:"lease_owner"`
+	FencingToken int64  `json:"fencing_token"`
+}
+
+func (q *Queries) ResetSubmissionStarted(ctx context.Context, arg ResetSubmissionStartedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resetSubmissionStarted,
+		arg.TenantID,
+		arg.ExecutionID,
+		arg.LeaseOwner,
+		arg.FencingToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateApproval = `-- name: UpdateApproval :one
 UPDATE approvals SET status=$3,decision=$4,decided_at=$5,consumed_at=$6,operation_key=$7,operation_version=$8,lifecycle_version=$9
 WHERE tenant_id=$1 AND approval_id=$2 AND lifecycle_version=$10 AND $9=$10+1 AND user_id=$11 RETURNING tenant_id, approval_id, approval_version, approval_request_id, intent_id, intent_version, intent_digest, user_id, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, status, decision, created_at, expires_at, decided_at, consumed_at, operation_key, operation_version, lifecycle_version
@@ -1908,4 +2102,31 @@ func (q *Queries) UpdateWalletBinding(ctx context.Context, arg UpdateWalletBindi
 		&i.RevokedAt,
 	)
 	return i, err
+}
+
+const validateExecutionClaim = `-- name: ValidateExecutionClaim :execrows
+UPDATE execution_runtime_work
+SET next_run_at=next_run_at
+WHERE tenant_id=$1 AND execution_id=$2 AND lease_owner=$3 AND fencing_token=$4
+  AND lease_expires_at > clock_timestamp()
+`
+
+type ValidateExecutionClaimParams struct {
+	TenantID     string `json:"tenant_id"`
+	ExecutionID  string `json:"execution_id"`
+	LeaseOwner   string `json:"lease_owner"`
+	FencingToken int64  `json:"fencing_token"`
+}
+
+func (q *Queries) ValidateExecutionClaim(ctx context.Context, arg ValidateExecutionClaimParams) (int64, error) {
+	result, err := q.db.Exec(ctx, validateExecutionClaim,
+		arg.TenantID,
+		arg.ExecutionID,
+		arg.LeaseOwner,
+		arg.FencingToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

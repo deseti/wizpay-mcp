@@ -116,6 +116,16 @@ type ExecutionRevision struct {
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ExecutionRuntimeWork struct {
+	TenantID          string             `json:"tenant_id"`
+	ExecutionID       string             `json:"execution_id"`
+	NextRunAt         pgtype.Timestamptz `json:"next_run_at"`
+	LeaseOwner        string             `json:"lease_owner"`
+	LeaseExpiresAt    pgtype.Timestamptz `json:"lease_expires_at"`
+	FencingToken      int64              `json:"fencing_token"`
+	SubmissionStarted bool               `json:"submission_started"`
+}
+
 type Identity struct {
 	TenantID         string             `json:"tenant_id"`
 	UserID           string             `json:"user_id"`

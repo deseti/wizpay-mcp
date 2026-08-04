@@ -1,10 +1,10 @@
 # WizPay MCP
 
-WizPay MCP is an independent MCP-native payment orchestration service. Phase 8 adds a provider-neutral authentication and authorization boundary without implementing financial execution.
+WizPay MCP is an independent MCP-native payment orchestration service. Phase 9 adds a provider-neutral durable execution runtime without implementing provider or blockchain execution.
 
 ## Current implementation status
 
-Phases 0–7 established the runtime, identity/wallet, intent/approval, policy, execution-control, MCP tool, and tenant-isolated PostgreSQL persistence foundations. Phase 8 adds verified-principal normalization, persisted identity eligibility checks, typed capability authorization, trusted request context, and canonical storage.Scope mapping.
+Phases 0–7 established the runtime, identity/wallet, intent/approval, policy, execution-control, MCP tool, and tenant-isolated PostgreSQL persistence foundations. Phase 8 adds verified-principal normalization, persisted identity eligibility checks, typed capability authorization, trusted request context, and canonical storage.Scope mapping. Phase 9 adds PostgreSQL-backed execution leases/fencing, deterministic resume, provider-neutral adapter/verifier boundaries, and verification-gated completion.
 
 Authentication is distinct from authorization, financial approval, and execution permission. Raw bearer credentials are transport input only: they are never domain/application input, logged, audited, or persisted. Tenant and actor identity are derived exclusively from verified claims plus persisted identity resolution; MCP tool arguments cannot override them.
 
@@ -42,6 +42,6 @@ Routes:
 
 ## Explicit non-goals
 
-No Circle/Arc integration, wallet creation, signing, broadcasting, smart-contract calls, receipt polling, execution workers/runtime, Redis/River, capability registry, payroll/swap/bridge/ANS execution, approval UI, autonomous spending, or treasury routing exists in Phase 8.
+No Circle/Arc integration, wallet creation, signing, broadcasting, smart-contract calls, receipt polling against a real provider, River/Redis dependency, capability registry, payroll/swap/bridge/ANS execution, approval UI, autonomous spending, or treasury routing exists in Phase 9. The worker loop is provider-neutral and requires injected adapter/verifier implementations; no real financial transaction can occur from this phase.
 
 See docs/architecture.md and docs/persistence.md for boundaries.

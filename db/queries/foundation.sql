@@ -133,6 +133,65 @@ WHERE executions.tenant_id=$1 AND executions.execution_id=$2 AND executions.revi
   AND EXISTS (SELECT 1 FROM execution_requests r WHERE r.tenant_id=executions.tenant_id AND r.request_id=executions.request_id AND r.user_id=sqlc.arg(actor_id))
 RETURNING *;
 
+-- name: ClaimExecutionWork :one
+UPDATE execution_runtime_work w
+SET lease_owner=sqlc.arg(lease_owner), lease_expires_at=clock_timestamp() + (sqlc.arg(lease_duration_microseconds)::bigint * interval '1 microsecond'), fencing_token=w.fencing_token+1
+FROM execution_requests r, executions e
+WHERE w.tenant_id=sqlc.arg(tenant_id) AND w.execution_id=sqlc.arg(execution_id)
+  AND r.tenant_id=w.tenant_id AND r.execution_id=w.execution_id AND r.user_id=sqlc.arg(actor_id)
+  AND e.tenant_id=w.tenant_id AND e.execution_id=w.execution_id
+  AND w.next_run_at <= clock_timestamp()
+  AND (w.lease_expires_at IS NULL OR w.lease_expires_at <= clock_timestamp())
+  AND e.status NOT IN ('COMPLETED','CANCELLED')
+  AND NOT (e.status='FAILED' AND e.failure_eligibility='TERMINAL')
+RETURNING w.*;
+
+-- name: ClaimNextExecutionWork :one
+WITH candidate AS (
+  SELECT w.tenant_id, w.execution_id
+  FROM execution_runtime_work w
+  JOIN executions e USING (tenant_id, execution_id)
+  WHERE w.next_run_at <= clock_timestamp()
+    AND (w.lease_expires_at IS NULL OR w.lease_expires_at <= clock_timestamp())
+    AND e.status NOT IN ('COMPLETED','CANCELLED')
+    AND NOT (e.status='FAILED' AND e.failure_eligibility='TERMINAL')
+  ORDER BY w.next_run_at,w.tenant_id,w.execution_id
+  FOR UPDATE OF w SKIP LOCKED
+  LIMIT 1
+)
+UPDATE execution_runtime_work w
+SET lease_owner=sqlc.arg(lease_owner), lease_expires_at=clock_timestamp() + (sqlc.arg(lease_duration_microseconds)::bigint * interval '1 microsecond'), fencing_token=w.fencing_token+1
+FROM candidate c
+WHERE w.tenant_id=c.tenant_id AND w.execution_id=c.execution_id
+RETURNING w.*;
+
+-- name: MarkSubmissionStarted :one
+UPDATE execution_runtime_work
+SET submission_started=true
+WHERE tenant_id=$1 AND execution_id=$2 AND lease_owner=$3 AND fencing_token=$4
+  AND lease_expires_at > clock_timestamp() AND submission_started=false
+RETURNING *;
+
+-- name: ResetSubmissionStarted :execrows
+UPDATE execution_runtime_work
+SET submission_started=false
+WHERE tenant_id=$1 AND execution_id=$2 AND lease_owner=$3 AND fencing_token=$4
+  AND lease_expires_at > clock_timestamp() AND submission_started=true;
+
+-- name: ValidateExecutionClaim :execrows
+UPDATE execution_runtime_work
+SET next_run_at=next_run_at
+WHERE tenant_id=$1 AND execution_id=$2 AND lease_owner=$3 AND fencing_token=$4
+  AND lease_expires_at > clock_timestamp();
+
+-- name: ReleaseExecutionWork :execrows
+UPDATE execution_runtime_work
+SET lease_owner='',lease_expires_at=NULL,next_run_at=sqlc.arg(next_run_at)
+WHERE tenant_id=$1 AND execution_id=$2 AND lease_owner=$3 AND fencing_token=$4;
+
+-- name: FindExecutionOwner :one
+SELECT tenant_id,user_id FROM execution_requests WHERE tenant_id=$1 AND execution_id=$2;
+
 -- name: AppendVerificationEvidence :execrows
 INSERT INTO verification_evidence (tenant_id,execution_id,execution_version,status,adapter_reference,error_code,observed_at)
 SELECT $1,$2,$3,$4,$5,$6,$7

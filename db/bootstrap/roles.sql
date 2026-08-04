@@ -51,8 +51,9 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, wizpay_mcp_application
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO wizpay_mcp_application;
 GRANT INSERT ON tenants, identities, wallet_bindings, intents, approvals, policies,
     policy_evaluations, policy_evaluation_findings, execution_requests, executions,
-    verification_evidence, audit_records TO wizpay_mcp_application;
-GRANT UPDATE ON identities, wallet_bindings, intents, approvals, policies, executions TO wizpay_mcp_application;
+    verification_evidence, audit_records, execution_runtime_work TO wizpay_mcp_application;
+GRANT UPDATE ON identities, wallet_bindings, intents, approvals, policies, executions,
+    execution_runtime_work TO wizpay_mcp_application;
 REVOKE UPDATE, DELETE, TRUNCATE, TRIGGER, REFERENCES ON audit_records FROM wizpay_mcp_application;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO wizpay_mcp_application;
 
