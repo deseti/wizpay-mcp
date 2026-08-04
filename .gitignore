@@ -21,3 +21,5 @@ Thumbs.db
 web/approval-ui/node_modules/
 web/approval-ui/dist/
 
+# Claude Code local settings
+.claude/settings.local.json
