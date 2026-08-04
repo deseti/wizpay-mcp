@@ -236,6 +236,24 @@ func (s *Service) verify(ctx context.Context, claim storage.ExecutionClaim, valu
 	}
 	switch result.Outcome {
 	case VerificationPending:
+		// Persist updated adapter-reference observation metadata when the
+		// verifier advanced durable reorg baseline state. Lifecycle stays
+		// unchanged: CONFIRMING/CONFIRMED with reconcile-only behavior.
+		if result.Reference != "" && result.Reference != reference {
+			observation, observationErr := execution.NewResult(execution.ResultParams{
+				ExecutionID:      value.ExecutionID(),
+				ExecutionVersion: value.Revision(),
+				Status:           value.Status(),
+				AdapterReference: result.Reference,
+				ObservedAt:       result.ObservedAt,
+			})
+			if observationErr != nil {
+				return value, observationErr
+			}
+			if err := s.evidence.AppendVerificationEvidence(ctx, claim.Scope, observation); err != nil {
+				return value, err
+			}
+		}
 		return value, nil
 	case VerificationFailed:
 		next, transitionErr := value.Fail(execution.Failure{Code: result.ReasonCode, Eligibility: execution.RecoveryTerminal}, now)

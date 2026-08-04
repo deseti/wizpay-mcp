@@ -51,7 +51,7 @@
 | Durable submission-start marker | Phase 9 runtime `MarkSubmissionStarted` before `Execute` |
 | Reconciliation after possible submission | `GetStatus` path; ambiguous classification is reconciliation-only |
 | No duplicate execution after ambiguity | Same execution ID; no second `Execute` once marked |
-| Reorg-aware observation handling | `ObservationTracker` compares block hash/number/confirmations/presence |
+| Reorg-aware observation handling | `ObservationTracker` plus durable receipt observation fields on adapter references (`bh`/`bn`/`cf`/`rp`) survive worker restart; present→missing retains last inclusion identity |
 | Circuit breaker does not violate idempotency/recovery | Open breaker returns transient/open error; never invents a new execution or resubmits after ambiguity |
 
 ## Integration harness vs live evidence

@@ -8,6 +8,10 @@ import (
 
 // ReceiptObservation is one prior on-chain receipt observation used for
 // reorg/inconsistency detection. It carries no provider secrets.
+//
+// When Present is false after a prior present observation, BlockHash/BlockNumber
+// retain the last known inclusion identity so a later reappearance can still be
+// compared. Confirmations are only meaningful while Present is true.
 type ReceiptObservation struct {
 	ChainID         string
 	TransactionHash string
@@ -15,8 +19,16 @@ type ReceiptObservation struct {
 	BlockNumber     uint64
 	BlockHash       string
 	Confirmations   uint64
-	// Present is true when a receipt body was observed (not merely UNKNOWN-absent).
+	// Present is true when a receipt body was observed on this pass.
 	Present bool
+	// Known is true when this observation carries durable inclusion history
+	// (present now, or retained last-known inclusion after a missing receipt).
+	Known bool
+}
+
+// HasInclusion reports whether last-known inclusion identity is available.
+func (o ReceiptObservation) HasInclusion() bool {
+	return o.Known || o.Present || o.BlockHash != "" || o.BlockNumber != 0
 }
 
 // ReorgSignal classifies a comparison between a prior observation and a new one.
@@ -32,7 +44,8 @@ const (
 	ReorgBlockHashChanged ReorgSignal = "BLOCK_HASH_CHANGED"
 	// ReorgBlockNumberChanged means the inclusion block number changed.
 	ReorgBlockNumberChanged ReorgSignal = "BLOCK_NUMBER_CHANGED"
-	// ReorgConfirmationsDecreased means confirmation depth fell after a prior observation.
+	// ReorgConfirmationsDecreased means confirmation depth fell after a prior
+	// present observation of the same inclusion.
 	ReorgConfirmationsDecreased ReorgSignal = "CONFIRMATIONS_DECREASED"
 )
 
@@ -41,15 +54,22 @@ func (s ReorgSignal) Inconsistent() bool {
 }
 
 // CompareReceiptObservations detects meaningful chain inconsistency between a
-// prior observation and a newly read receipt. A first observation always returns
-// ReorgNone. Inconsistency never implies resubmission — only reconciliation.
+// prior observation and a newly read receipt. A first observation (no prior
+// inclusion identity) always returns ReorgNone. Inconsistency never implies
+// resubmission — only reconciliation.
 func CompareReceiptObservations(prior, current ReceiptObservation) ReorgSignal {
-	if !prior.Present {
+	if !prior.HasInclusion() {
 		return ReorgNone
 	}
 	if !current.Present {
-		return ReorgReceiptMissing
+		// Only signal missing when we previously observed presence. Staying
+		// missing after a missing observation is not a new inconsistency.
+		if prior.Present {
+			return ReorgReceiptMissing
+		}
+		return ReorgNone
 	}
+	// Current is present: compare against last known inclusion identity.
 	if prior.BlockHash != "" && current.BlockHash != "" &&
 		!strings.EqualFold(prior.BlockHash, current.BlockHash) {
 		return ReorgBlockHashChanged
@@ -57,16 +77,53 @@ func CompareReceiptObservations(prior, current ReceiptObservation) ReorgSignal {
 	if prior.BlockNumber != 0 && current.BlockNumber != 0 && prior.BlockNumber != current.BlockNumber {
 		return ReorgBlockNumberChanged
 	}
-	if prior.Confirmations > 0 && current.Confirmations < prior.Confirmations {
-		// Allow equality or growth only. A decrease is a reorg/reorg-like signal.
+	// Confirmation regression only applies when both observations are present
+	// for the same inclusion (hash/number already match or were empty).
+	if prior.Present && prior.Confirmations > 0 && current.Confirmations < prior.Confirmations {
 		return ReorgConfirmationsDecreased
 	}
 	return ReorgNone
 }
 
+// MergeObservation updates durable observation state after a compare.
+//
+// present -> missing: Present=false but last inclusion identity is retained.
+// missing -> present: inclusion identity updates to the reappeared receipt.
+// present -> present: inclusion and confirmations update to current.
+func MergeObservation(prior, current ReceiptObservation) ReceiptObservation {
+	out := current
+	out.TransactionHash = strings.ToLower(strings.TrimSpace(current.TransactionHash))
+	out.ChainID = current.ChainID
+	if current.Present {
+		out.Known = true
+		out.Present = true
+		out.BlockHash = strings.ToLower(strings.TrimSpace(current.BlockHash))
+		out.BlockNumber = current.BlockNumber
+		out.Confirmations = current.Confirmations
+		out.Status = current.Status
+		return out
+	}
+	// Missing now: retain last known inclusion if any.
+	if prior.HasInclusion() {
+		out.Known = true
+		out.Present = false
+		out.BlockHash = prior.BlockHash
+		out.BlockNumber = prior.BlockNumber
+		// Do not retain prior confirmations across absence; reappearance must
+		// rebuild confirmation depth against the retained inclusion identity.
+		out.Confirmations = 0
+		out.Status = ReceiptUnknown
+		return out
+	}
+	out.Known = false
+	out.Present = false
+	return out
+}
+
 // ObservationTracker stores the latest receipt observation per transaction so
-// subsequent verification passes can detect reorgs. It is process-local memory
-// only; durable financial truth remains PostgreSQL execution state.
+// subsequent verification passes can detect reorgs in-process. Durable recovery
+// after restart is supplied by seeding Evaluate with observation metadata
+// decoded from persisted adapter references.
 type ObservationTracker struct {
 	mu   sync.Mutex
 	byTX map[string]ReceiptObservation
@@ -81,7 +138,7 @@ func observationKey(chainID, transactionHash string) string {
 	return chainID + "|" + strings.ToLower(strings.TrimSpace(transactionHash))
 }
 
-// Prior returns the stored observation when present.
+// Prior returns the stored observation when present in process memory.
 func (t *ObservationTracker) Prior(chainID, transactionHash string) (ReceiptObservation, bool) {
 	if t == nil {
 		return ReceiptObservation{}, false
@@ -109,31 +166,45 @@ func (t *ObservationTracker) Remember(observation ReceiptObservation) {
 	t.byTX[observationKey(observation.ChainID, observation.TransactionHash)] = observation
 }
 
-// Evaluate compares current against prior, updates memory, and returns the signal.
-func (t *ObservationTracker) Evaluate(current ReceiptObservation) ReorgSignal {
-	prior, found := t.Prior(current.ChainID, current.TransactionHash)
-	signal := ReorgNone
-	if found {
-		signal = CompareReceiptObservations(prior, current)
+// Evaluate compares current against the best available prior (process memory
+// preferred, else durablePrior from persisted adapter reference), updates
+// memory with merged state, and returns the signal plus the merged observation
+// that must be persisted for restart safety.
+func (t *ObservationTracker) Evaluate(durablePrior, current ReceiptObservation) (ReorgSignal, ReceiptObservation) {
+	if current.ChainID == "" {
+		current.ChainID = durablePrior.ChainID
 	}
-	// Always remember the latest observation so subsequent checks have a baseline.
-	// On missing-after-present, remember Present=false so we do not immediately
-	// re-fire the same missing signal forever without new evidence, but still
-	// retain that we once saw a receipt via leaving block metadata empty.
-	t.Remember(current)
-	return signal
+	if current.TransactionHash == "" {
+		current.TransactionHash = durablePrior.TransactionHash
+	}
+	processPrior, found := t.Prior(current.ChainID, current.TransactionHash)
+	prior := durablePrior
+	if found {
+		prior = processPrior
+	}
+	signal := CompareReceiptObservations(prior, current)
+	merged := MergeObservation(prior, current)
+	if merged.ChainID == "" {
+		merged.ChainID = current.ChainID
+	}
+	if merged.TransactionHash == "" {
+		merged.TransactionHash = strings.ToLower(strings.TrimSpace(current.TransactionHash))
+	}
+	t.Remember(merged)
+	return signal, merged
 }
 
-// ObservationFromReceipt builds a tracker observation from a chain receipt.
+// ObservationFromReceipt builds a current-pass observation from a chain receipt.
 func ObservationFromReceipt(receipt Receipt, present bool) ReceiptObservation {
 	return ReceiptObservation{
 		ChainID:         receipt.ChainID,
 		TransactionHash: receipt.TransactionHash,
 		Status:          receipt.Status,
 		BlockNumber:     receipt.BlockNumber,
-		BlockHash:       receipt.BlockHash,
+		BlockHash:       strings.ToLower(strings.TrimSpace(receipt.BlockHash)),
 		Confirmations:   receipt.Confirmations,
 		Present:         present,
+		Known:           present,
 	}
 }
 

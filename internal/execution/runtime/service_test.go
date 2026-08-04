@@ -349,6 +349,38 @@ func TestVerificationPendingAndTransientNeverComplete(t *testing.T) {
 	}
 }
 
+func TestVerificationPendingPersistsUpdatedAdapterReferenceObservation(t *testing.T) {
+	request := testRequest(t)
+	repository := confirmingRepository(t, request)
+	// Seed prior evidence with an older adapter reference so a changed pending
+	// reference is durable across restarts.
+	prior, err := execution.NewResult(execution.ResultParams{
+		ExecutionID: request.ExecutionID(), ExecutionVersion: repository.value.Revision(),
+		Status: execution.StatusConfirming, AdapterReference: "prior-ref", ObservedAt: testNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.evidence = []execution.Result{prior}
+	updated := "updated-observation-ref"
+	service := testService(t, repository, &fakeAdapter{}, &fakeVerifier{
+		result: VerificationResult{Outcome: VerificationPending, Reference: updated, ObservedAt: testNow.Add(time.Minute)},
+	})
+	if _, err := service.Process(context.Background(), testScope(t), request.ExecutionID()); err != nil {
+		t.Fatal(err)
+	}
+	if repository.value.Status() != execution.StatusConfirming {
+		t.Fatalf("lifecycle must stay confirming, got %s", repository.value.Status())
+	}
+	if len(repository.evidence) < 2 || repository.evidence[len(repository.evidence)-1].AdapterReference() != updated {
+		t.Fatalf("pending observation was not persisted: %+v", repository.evidence)
+	}
+	// No Execute path is involved during verification.
+	if repository.value.Status() == execution.StatusExecuting {
+		t.Fatal("reorg/pending verification must not re-enter executing")
+	}
+}
+
 func TestConfirmedRestartRequiresVerifierAndAtomicEvidence(t *testing.T) {
 	request := testRequest(t)
 	repository := confirmingRepository(t, request)

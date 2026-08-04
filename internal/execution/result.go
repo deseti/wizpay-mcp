@@ -78,7 +78,7 @@ func (r Result) Validate() error {
 		return invalidExecution(fmt.Errorf("status %s is not an adapter result state", r.status))
 	}
 	if r.adapterReference != "" {
-		if err := validateExecutionText("adapter reference", r.adapterReference); err != nil {
+		if err := validateAdapterReference(r.adapterReference); err != nil {
 			return invalidExecution(err)
 		}
 	}

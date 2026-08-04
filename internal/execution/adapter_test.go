@@ -65,3 +65,41 @@ func TestExecutionResultRejectsMissingReferenceAndUnsafeErrorCode(t *testing.T) 
 		t.Fatalf("unsafe error code error = %v", err)
 	}
 }
+
+func TestExecutionTextLimitsAreScoped(t *testing.T) {
+	request := mustRequest(t)
+	// Generic execution text (execution ID) remains bounded at 256.
+	longID := "e" + string(make([]byte, 256))
+	// make zeros - need printable chars
+	longID = "e" + stringsRepeat("x", 256)
+	if _, err := NewResult(ResultParams{
+		ExecutionID: longID, ExecutionVersion: 1, Status: StatusSubmitted,
+		AdapterReference: "opaque-ref", ObservedAt: executionTestNow,
+	}); !executionErrorCode(err, "execution_invalid") {
+		t.Fatalf("execution ID >256 must be rejected, err=%v", err)
+	}
+	// Adapter reference may be 257..512.
+	mid := stringsRepeat("a", 300)
+	if _, err := NewResult(ResultParams{
+		ExecutionID: request.ExecutionID(), ExecutionVersion: 1, Status: StatusSubmitted,
+		AdapterReference: mid, ObservedAt: executionTestNow,
+	}); err != nil {
+		t.Fatalf("adapter reference length 300 must be accepted: %v", err)
+	}
+	// Adapter reference >512 is rejected.
+	tooLong := stringsRepeat("b", 513)
+	if _, err := NewResult(ResultParams{
+		ExecutionID: request.ExecutionID(), ExecutionVersion: 1, Status: StatusSubmitted,
+		AdapterReference: tooLong, ObservedAt: executionTestNow,
+	}); !executionErrorCode(err, "execution_invalid") {
+		t.Fatalf("adapter reference >512 must be rejected, err=%v", err)
+	}
+}
+
+func stringsRepeat(value string, n int) string {
+	out := make([]byte, 0, n*len(value))
+	for i := 0; i < n; i++ {
+		out = append(out, value...)
+	}
+	return string(out)
+}

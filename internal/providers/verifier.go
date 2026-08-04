@@ -139,14 +139,23 @@ func (v *Verifier) Verify(ctx context.Context, value execution.Execution, encode
 	}
 
 	// Reorg/inconsistency detection compares this observation to the previous
-	// one for the same transaction. A reorg signal is reconciliation-only:
-	// never verified success, never automatic resubmission.
+	// one for the same transaction. Prior state comes from process memory and,
+	// after restart, from durable observation fields embedded in the adapter
+	// reference. A reorg signal is reconciliation-only: never verified success,
+	// never automatic resubmission.
 	//
 	// A receipt is "present" when the chain returned inclusion metadata or a
 	// terminal status. A completely absent receipt has neither.
 	present := receipt.BlockNumber != 0 || receipt.BlockHash != "" ||
 		receipt.Status == ReceiptSuccess || receipt.Status == ReceiptReverted
-	signal := v.observations.Evaluate(ObservationFromReceipt(receipt, present))
+	current := ObservationFromReceipt(receipt, present)
+	current.ChainID = reference.ChainID
+	current.TransactionHash = reference.TransactionHash
+	signal, merged := v.observations.Evaluate(reference.ReceiptObservation(), current)
+	// Always return the merged observation in the reference so the runtime can
+	// persist it for restart-safe reorg detection.
+	reference = reference.WithReceiptObservation(merged)
+
 	if signal.Inconsistent() || receipt.Status == ReceiptReorgInconsistent {
 		// Stay pending so the runtime continues reconciling the same execution.
 		// Verification PENDING never completes and never resubmits.
@@ -159,6 +168,9 @@ func (v *Verifier) Verify(ctx context.Context, value execution.Execution, encode
 		if receipt.Confirmations < v.config.MinConfirmations {
 			return v.pending(reference)
 		}
+		// Stabilization: only the current canonical SUCCESS receipt at the
+		// configured confirmation depth may verify, and only when it is
+		// consistent with the durable observation baseline (signal NONE).
 		outcome.Class = ClassVerifiedSuccess
 	case ReceiptReverted:
 		outcome.Class = ClassConfirmedOnchainFailed

@@ -8,7 +8,14 @@ import (
 	"unicode"
 )
 
-const maxExecutionTextLength = 256
+const (
+	// maxExecutionTextLength bounds generic execution text fields (IDs, etc.).
+	maxExecutionTextLength = 256
+	// maxAdapterReferenceLength bounds durable adapter references that may embed
+	// receipt-observation metadata for restart-safe reorg detection. PostgreSQL
+	// adapter_reference is text; this is an application-layer bound only.
+	maxAdapterReferenceLength = 512
+)
 
 type Status string
 
@@ -108,11 +115,21 @@ func validRecoveryTarget(from, target Status) bool {
 }
 
 func validateExecutionText(name, value string) error {
+	return validateBoundedText(name, value, maxExecutionTextLength)
+}
+
+// validateAdapterReference applies the larger bound reserved for durable
+// provider references that embed optional reorg observation metadata.
+func validateAdapterReference(value string) error {
+	return validateBoundedText("adapter reference", value, maxAdapterReferenceLength)
+}
+
+func validateBoundedText(name, value string, max int) error {
 	if value == "" || strings.TrimSpace(value) != value {
 		return fmt.Errorf("%s is required", name)
 	}
-	if len(value) > maxExecutionTextLength {
-		return fmt.Errorf("%s exceeds %d characters", name, maxExecutionTextLength)
+	if len(value) > max {
+		return fmt.Errorf("%s exceeds %d characters", name, max)
 	}
 	if strings.IndexFunc(value, unicode.IsControl) >= 0 {
 		return fmt.Errorf("%s contains control characters", name)

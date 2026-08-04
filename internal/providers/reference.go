@@ -2,12 +2,15 @@ package providers
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 )
 
 const (
-	maxReferenceLength = 256
+	// maxReferenceLength bounds the durable adapter reference including optional
+	// receipt-observation fields used for restart-safe reorg detection.
+	maxReferenceLength = 512
 	maxSafeTextLength  = 256
 	maxChainIDLength   = 20
 	// referencePrefix versions the encoding so a future reference shape can be
@@ -18,6 +21,10 @@ const (
 // Reference is the safe, non-secret provider reference persisted as the Phase 9
 // execution.Result adapter reference. It carries reconciliation identifiers
 // only: never an API key, user token, request body, or response body.
+//
+// Optional receipt-observation fields (Obs*) carry the last known inclusion
+// identity for reorg detection across worker restarts. They are observations,
+// not verified financial success.
 type Reference struct {
 	Provider ProviderID
 	ChainID  string
@@ -33,6 +40,13 @@ type Reference struct {
 	// TransactionHash is the on-chain transaction hash, once the provider
 	// reports one. Only this field can lead to on-chain verification.
 	TransactionHash string
+
+	// Receipt observation metadata (optional, durable reorg baseline).
+	ObsPresent       bool
+	ObsKnown         bool
+	ObsBlockHash     string
+	ObsBlockNumber   uint64
+	ObsConfirmations uint64
 }
 
 func (r Reference) Validate() error {
@@ -53,12 +67,57 @@ func (r Reference) Validate() error {
 	if r.TransactionHash != "" && !ValidTransactionHash(r.TransactionHash) {
 		return fmt.Errorf("provider reference has an invalid transaction hash")
 	}
+	if r.ObsBlockHash != "" && !ValidTransactionHash(r.ObsBlockHash) {
+		// Block hashes use the same 32-byte 0x-hex shape as transaction hashes.
+		return fmt.Errorf("provider reference has an invalid observation block hash")
+	}
+	if err := r.validateObservationMetadata(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// hasObservationMetadata reports whether any durable receipt-observation field
+// is set on the reference.
+func (r Reference) hasObservationMetadata() bool {
+	return r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0 || r.ObsConfirmations != 0
+}
+
+func (r Reference) validateObservationMetadata() error {
+	if !r.hasObservationMetadata() {
+		return nil
+	}
+	// Observation metadata is always about a specific transaction inclusion.
+	if r.TransactionHash == "" || !ValidTransactionHash(r.TransactionHash) {
+		return fmt.Errorf("provider reference observation metadata requires a valid transaction hash")
+	}
+	// Present implies known inclusion history.
+	if r.ObsPresent && !r.ObsKnown {
+		return fmt.Errorf("provider reference observation present without known flag")
+	}
+	// Confirmations and block identity require a known observation baseline.
+	if !r.ObsKnown {
+		return fmt.Errorf("provider reference observation fields require a known observation")
+	}
+	return nil
+}
+
+// normalizeObservationMetadata applies deterministic observation consistency
+// after parse/encode helpers construct a reference.
+func (r *Reference) normalizeObservationMetadata() {
+	if r.ObsPresent {
+		r.ObsKnown = true
+	}
+	if r.ObsBlockHash != "" || r.ObsBlockNumber != 0 {
+		r.ObsKnown = true
+		r.ObsBlockHash = strings.ToLower(strings.TrimSpace(r.ObsBlockHash))
+	}
 }
 
 // Encode returns the canonical single-line encoding stored as the adapter
 // reference. Empty optional fields are omitted so the encoding stays stable.
 func (r Reference) Encode() (string, error) {
+	r.normalizeObservationMetadata()
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
@@ -75,11 +134,63 @@ func (r Reference) Encode() (string, error) {
 	if r.TransactionHash != "" {
 		parts = append(parts, "hash="+r.TransactionHash)
 	}
+	if r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0 {
+		if r.ObsPresent {
+			parts = append(parts, "rp=1")
+		} else {
+			parts = append(parts, "rp=0")
+		}
+		if r.ObsKnown || r.ObsPresent {
+			parts = append(parts, "rk=1")
+		}
+		if r.ObsBlockHash != "" {
+			parts = append(parts, "bh="+strings.ToLower(r.ObsBlockHash))
+		}
+		if r.ObsBlockNumber != 0 {
+			parts = append(parts, "bn="+strconv.FormatUint(r.ObsBlockNumber, 10))
+		}
+		if r.ObsConfirmations != 0 {
+			parts = append(parts, "cf="+strconv.FormatUint(r.ObsConfirmations, 10))
+		}
+	}
 	encoded := strings.Join(parts, ";")
 	if len(encoded) > maxReferenceLength {
 		return "", fmt.Errorf("provider reference exceeds %d characters", maxReferenceLength)
 	}
 	return encoded, nil
+}
+
+// ReceiptObservation reconstructs durable reorg baseline metadata from this
+// reference. Empty when no observation fields were persisted.
+func (r Reference) ReceiptObservation() ReceiptObservation {
+	if !r.ObsKnown && !r.ObsPresent && r.ObsBlockHash == "" && r.ObsBlockNumber == 0 {
+		return ReceiptObservation{}
+	}
+	return ReceiptObservation{
+		ChainID:         r.ChainID,
+		TransactionHash: r.TransactionHash,
+		Present:         r.ObsPresent,
+		Known:           r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0,
+		BlockHash:       strings.ToLower(strings.TrimSpace(r.ObsBlockHash)),
+		BlockNumber:     r.ObsBlockNumber,
+		Confirmations:   r.ObsConfirmations,
+	}
+}
+
+// WithReceiptObservation returns a copy carrying durable receipt observation
+// metadata for reorg detection after restart.
+func (r Reference) WithReceiptObservation(observation ReceiptObservation) Reference {
+	next := r
+	next.ObsPresent = observation.Present
+	next.ObsKnown = observation.Known || observation.Present || observation.BlockHash != "" || observation.BlockNumber != 0
+	next.ObsBlockHash = strings.ToLower(strings.TrimSpace(observation.BlockHash))
+	next.ObsBlockNumber = observation.BlockNumber
+	next.ObsConfirmations = observation.Confirmations
+	if next.TransactionHash == "" && observation.TransactionHash != "" {
+		next.TransactionHash = strings.ToLower(strings.TrimSpace(observation.TransactionHash))
+	}
+	next.normalizeObservationMetadata()
+	return next
 }
 
 // WithTransaction returns a copy carrying provider transaction identifiers. It
@@ -129,10 +240,39 @@ func ParseReference(value string) (Reference, error) {
 			reference.ProviderTransactionID = fieldValue
 		case "hash":
 			reference.TransactionHash = fieldValue
+		case "rp":
+			switch fieldValue {
+			case "0":
+				reference.ObsPresent = false
+			case "1":
+				reference.ObsPresent = true
+			default:
+				return Reference{}, fmt.Errorf("provider reference has an invalid observation present flag")
+			}
+		case "rk":
+			if fieldValue != "1" {
+				return Reference{}, fmt.Errorf("provider reference has an invalid observation known flag")
+			}
+			reference.ObsKnown = true
+		case "bh":
+			reference.ObsBlockHash = fieldValue
+		case "bn":
+			parsed, err := parseUintField(fieldValue)
+			if err != nil {
+				return Reference{}, fmt.Errorf("provider reference has an invalid observation block number")
+			}
+			reference.ObsBlockNumber = parsed
+		case "cf":
+			parsed, err := parseUintField(fieldValue)
+			if err != nil {
+				return Reference{}, fmt.Errorf("provider reference has an invalid observation confirmations")
+			}
+			reference.ObsConfirmations = parsed
 		default:
 			return Reference{}, fmt.Errorf("provider reference has an unknown field %q", key)
 		}
 	}
+	reference.normalizeObservationMetadata()
 	if err := reference.Validate(); err != nil {
 		return Reference{}, err
 	}
@@ -205,4 +345,30 @@ func validSafeText(value string) bool {
 		return false
 	}
 	return strings.IndexFunc(value, unicode.IsControl) < 0
+}
+
+// parseUintField parses a canonical decimal uint64. It fails closed on empty
+// input, non-digits, non-canonical leading zeros, and values above MaxUint64.
+func parseUintField(value string) (uint64, error) {
+	if value == "" {
+		return 0, fmt.Errorf("invalid unsigned integer")
+	}
+	// Canonical form: "0" or a non-zero digit followed only by digits.
+	if value[0] == '0' {
+		if len(value) != 1 {
+			return 0, fmt.Errorf("invalid unsigned integer")
+		}
+	} else {
+		for _, character := range value {
+			if character < '0' || character > '9' {
+				return 0, fmt.Errorf("invalid unsigned integer")
+			}
+		}
+	}
+	// strconv.ParseUint fails closed on overflow beyond MaxUint64.
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid unsigned integer")
+	}
+	return parsed, nil
 }

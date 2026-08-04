@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -128,5 +130,92 @@ func TestValidAddressIsCaseInsensitive(t *testing.T) {
 	}
 	if ValidAddress(strings.Repeat("a", 42)) {
 		t.Fatal("address without 0x prefix must be rejected")
+	}
+}
+
+func TestParseUintField(t *testing.T) {
+	ok := []struct {
+		in   string
+		want uint64
+	}{
+		{"0", 0},
+		{"1", 1},
+		{"42", 42},
+		{strconv.FormatUint(math.MaxUint64, 10), math.MaxUint64},
+	}
+	for _, tt := range ok {
+		got, err := parseUintField(tt.in)
+		if err != nil || got != tt.want {
+			t.Fatalf("parseUintField(%q) = %d, %v want %d", tt.in, got, err, tt.want)
+		}
+	}
+	// MaxUint64 + 1 as decimal string.
+	overflow := "18446744073709551616"
+	// 20-digit value larger than MaxUint64.
+	large20 := "99999999999999999999"
+	reject := []string{"", "01", "00", "0x10", "1a", "-1", overflow, large20, " 1", "1 "}
+	for _, in := range reject {
+		if _, err := parseUintField(in); err == nil {
+			t.Fatalf("parseUintField(%q) must fail closed", in)
+		}
+	}
+}
+
+func TestObservationMetadataRequiresTransactionHash(t *testing.T) {
+	base := Reference{Provider: ProviderCircleUserControlled, ChainID: testChainID, ChallengeID: "challenge-1"}
+	// Observation fields without a transaction hash must be rejected.
+	malformed := base
+	malformed.ObsKnown = true
+	malformed.ObsBlockHash = testHash
+	if err := malformed.Validate(); err == nil {
+		t.Fatal("observation without transaction hash must be rejected")
+	}
+	encoded := "wzp1;p=CIRCLE_USER_CONTROLLED_WALLET;chain=5042002;ch=challenge-1;rp=1;rk=1;bh=" + testHash
+	if _, err := ParseReference(encoded); err == nil {
+		t.Fatal("parsed observation without hash must be rejected")
+	}
+}
+
+func TestObservationPresentImpliesKnownAndConfirmationsRequireKnown(t *testing.T) {
+	// Present without known is normalized by helpers, but raw Validate rejects.
+	raw := Reference{
+		Provider: ProviderCircleUserControlled, ChainID: testChainID, TransactionHash: testHash,
+		ObsPresent: true, ObsKnown: false,
+	}
+	if err := raw.Validate(); err == nil {
+		t.Fatal("present without known must fail Validate")
+	}
+	// Confirmations alone without known observation.
+	onlyCF := Reference{
+		Provider: ProviderCircleUserControlled, ChainID: testChainID, TransactionHash: testHash,
+		ObsConfirmations: 3,
+	}
+	if err := onlyCF.Validate(); err == nil {
+		t.Fatal("confirmations without known observation must be rejected")
+	}
+	encoded := "wzp1;p=CIRCLE_USER_CONTROLLED_WALLET;chain=5042002;hash=" + testHash + ";cf=3"
+	if _, err := ParseReference(encoded); err == nil {
+		t.Fatal("cf without known observation must fail parse")
+	}
+	// Present normalizes to known on WithReceiptObservation / Encode path.
+	ok := referenceWithHash().WithReceiptObservation(ReceiptObservation{
+		Present: true, BlockHash: testHash, BlockNumber: 9, Confirmations: 2, TransactionHash: testHash,
+	})
+	if !ok.ObsKnown || !ok.ObsPresent {
+		t.Fatalf("normalized observation = %#v", ok)
+	}
+	if _, err := ok.Encode(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestObservationBlockIdentityNormalizesKnown(t *testing.T) {
+	encoded := "wzp1;p=CIRCLE_USER_CONTROLLED_WALLET;chain=5042002;hash=" + testHash + ";bh=" + testHash + ";bn=10"
+	decoded, err := ParseReference(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.ObsKnown || decoded.ObsBlockNumber != 10 || decoded.ObsBlockHash != testHash {
+		t.Fatalf("decoded = %#v", decoded)
 	}
 }
