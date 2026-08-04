@@ -38,7 +38,8 @@
 | No unilateral WizPay signing | Challenges require user authorization; backend never completes challenges |
 | User authorization required | Missing user token → `USER_AUTHORIZATION_REQUIRED` |
 | Provider submission ≠ verified success | Classification maps CONFIRMED/COMPLETE → submitted-pending; only Arc receipt at depth may verify |
-| Reorg/ambiguity never triggers blind resubmission | Reorg → verification PENDING; submission-start marker forces `GetStatus` reconcile |
+| Arc finality policy | Deterministic BFT; default `MinConfirmations=1`; canonical RPC `https://rpc.testnet.arc.io`; zero confirmations rejected |
+| Observation inconsistency never triggers blind resubmission | Contradictory receipt observations → verification PENDING; submission-start marker forces `GetStatus` reconcile; not an expected Arc consensus reorg path |
 | No generic arbitrary contract execution | Sealed `EncodedCall`; typed Payroll/Swap encoders only |
 | Admin ABI surface excluded | Canonical allowlists; admin functions not registered |
 | Provider secrets redacted | `APIKey` / `UserAuthorization` redaction; health details contain no secrets |
@@ -51,14 +52,14 @@
 | Durable submission-start marker | Phase 9 runtime `MarkSubmissionStarted` before `Execute` |
 | Reconciliation after possible submission | `GetStatus` path; ambiguous classification is reconciliation-only |
 | No duplicate execution after ambiguity | Same execution ID; no second `Execute` once marked |
-| Reorg-aware observation handling | `ObservationTracker` plus durable receipt observation fields on adapter references (`bh`/`bn`/`cf`/`rp`) survive worker restart; present→missing retains last inclusion identity |
+| Observation-integrity handling | `ObservationTracker` plus durable receipt observation fields on adapter references (`bh`/`bn`/`cf`/`rp`) survive worker restart; present→missing retains last inclusion identity (defensive; Arc does not normally reorg committed blocks) |
 | Circuit breaker does not violate idempotency/recovery | Open breaker returns transient/open error; never invents a new execution or resubmits after ambiguity |
 
 ## Integration harness vs live evidence
 
 | Item | Status |
 |---|---|
-| Offline unit/fake tests for health, breaker, reorg | Implemented and run in default CI |
+| Offline unit/fake tests for health, breaker, observation integrity | Implemented and run in default CI |
 | Optional Arc Testnet read-only harness (`WIZPAY_ARC_INTEGRATION=1`) | Implemented; **not executed** in this closure unless operators opt in |
 | Optional Circle non-financial harness (`WIZPAY_CIRCLE_INTEGRATION=1` + API key) | Implemented; **not executed** in this closure (no credentials used) |
 | Live production or money-moving tests | **Not performed** |
@@ -84,4 +85,4 @@ WIZPAY_CIRCLE_INTEGRATION=1 WIZPAY_CIRCLE_API_KEY=... go test -count=1 ./interna
 
 ## Closure
 
-For the **Payroll + Swap Phase 11 provider-plane hardening** items in this review (reorg, health, circuit breaker, integration harness, security/recovery documentation), the implementation is complete and validated offline. Bridge/CCTP/ANS and Phase 12 remain out of scope by decision.
+For the **Payroll + Swap Phase 11 provider-plane hardening** items in this review (observation integrity, health, circuit breaker, integration harness, security/recovery documentation), the implementation is complete and validated offline. Arc finality reconciliation sets default confirmations to `1` and reframes observation-consistency machinery as defensive (not expected Arc reorgs). Bridge/CCTP/ANS and Phase 12 domain execution remain out of scope by decision. No live financial transaction was performed for this review.

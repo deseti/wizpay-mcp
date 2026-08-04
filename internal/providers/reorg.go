@@ -7,7 +7,13 @@ import (
 )
 
 // ReceiptObservation is one prior on-chain receipt observation used for
-// reorg/inconsistency detection. It carries no provider secrets.
+// defensive observation-integrity detection. It carries no provider secrets.
+//
+// On Arc, committed blocks are not expected to reorg under deterministic BFT
+// finality. These comparisons still protect against contradictory RPC/provider
+// observations (disappearing receipts, hash/number mismatch, confirmation/head
+// regression, malformed responses). Inconsistency is fail-closed and
+// reconciliation-only; it never authorizes resubmission.
 //
 // When Present is false after a prior present observation, BlockHash/BlockNumber
 // retain the last known inclusion identity so a later reappearance can still be
@@ -32,20 +38,26 @@ func (o ReceiptObservation) HasInclusion() bool {
 }
 
 // ReorgSignal classifies a comparison between a prior observation and a new one.
+//
+// The type name is historical. On Arc these signals describe defensive
+// observation/RPC integrity failures, not an expected consensus reorg path.
 type ReorgSignal string
 
 const (
 	// ReorgNone means the new observation is consistent with the prior one
 	// (including normal confirmation growth or first observation).
 	ReorgNone ReorgSignal = "NONE"
-	// ReorgReceiptMissing means a previously present receipt is no longer found.
+	// ReorgReceiptMissing means a previously present receipt is no longer found
+	// (treat as RPC/observation inconsistency on Arc).
 	ReorgReceiptMissing ReorgSignal = "RECEIPT_MISSING"
-	// ReorgBlockHashChanged means the inclusion block hash changed.
+	// ReorgBlockHashChanged means the inclusion block hash changed across
+	// observations (defensive integrity signal; not expected Arc consensus reorg).
 	ReorgBlockHashChanged ReorgSignal = "BLOCK_HASH_CHANGED"
-	// ReorgBlockNumberChanged means the inclusion block number changed.
+	// ReorgBlockNumberChanged means the inclusion block number changed across
+	// observations (defensive integrity signal).
 	ReorgBlockNumberChanged ReorgSignal = "BLOCK_NUMBER_CHANGED"
 	// ReorgConfirmationsDecreased means confirmation depth fell after a prior
-	// present observation of the same inclusion.
+	// present observation of the same inclusion (head/RPC regression).
 	ReorgConfirmationsDecreased ReorgSignal = "CONFIRMATIONS_DECREASED"
 )
 
@@ -53,10 +65,10 @@ func (s ReorgSignal) Inconsistent() bool {
 	return s != ReorgNone && s != ""
 }
 
-// CompareReceiptObservations detects meaningful chain inconsistency between a
-// prior observation and a newly read receipt. A first observation (no prior
-// inclusion identity) always returns ReorgNone. Inconsistency never implies
-// resubmission — only reconciliation.
+// CompareReceiptObservations detects meaningful observation inconsistency
+// between a prior observation and a newly read receipt. A first observation
+// (no prior inclusion identity) always returns ReorgNone. Inconsistency never
+// implies resubmission — only reconciliation.
 func CompareReceiptObservations(prior, current ReceiptObservation) ReorgSignal {
 	if !prior.HasInclusion() {
 		return ReorgNone
@@ -121,9 +133,9 @@ func MergeObservation(prior, current ReceiptObservation) ReceiptObservation {
 }
 
 // ObservationTracker stores the latest receipt observation per transaction so
-// subsequent verification passes can detect reorgs in-process. Durable recovery
-// after restart is supplied by seeding Evaluate with observation metadata
-// decoded from persisted adapter references.
+// subsequent verification passes can detect contradictory observations
+// in-process. Durable recovery after restart is supplied by seeding Evaluate
+// with observation metadata decoded from persisted adapter references.
 type ObservationTracker struct {
 	mu   sync.Mutex
 	byTX map[string]ReceiptObservation
@@ -208,7 +220,10 @@ func ObservationFromReceipt(receipt Receipt, present bool) ReceiptObservation {
 	}
 }
 
-// ReasonCodeForReorg maps a reorg signal to a safe recovery reason code.
+// ReasonCodeForReorg maps an observation-integrity signal to a safe recovery
+// reason code. Codes retain the historical ONCHAIN_REORG_* prefix for stable
+// operators; on Arc they mean defensive RPC/observation inconsistency, not
+// expected consensus reorg behavior.
 func ReasonCodeForReorg(signal ReorgSignal) string {
 	switch signal {
 	case ReorgReceiptMissing:

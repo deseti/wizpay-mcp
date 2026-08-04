@@ -91,7 +91,8 @@ func (reorgFakeResolver) ResolveReference(_ context.Context, _ string, reference
 
 func newReorgTestVerifier(t *testing.T, chain ChainVerifier) *Verifier {
 	t.Helper()
-	verifier, err := NewVerifier(chain, reorgFakeResolver{}, VerifierConfig{MinConfirmations: 2}, func() time.Time { return providerTestNow })
+	// MinConfirmations=1 matches Arc deterministic finality guidance.
+	verifier, err := NewVerifier(chain, reorgFakeResolver{}, VerifierConfig{MinConfirmations: 1}, func() time.Time { return providerTestNow })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,6 +362,44 @@ func TestVerifierRevertedStillFails(t *testing.T) {
 	}
 	if result.Outcome != runtime.VerificationFailed {
 		t.Fatalf("outcome = %s", result.Outcome)
+	}
+}
+
+func TestVerifierOneConfirmationSuccessIsGenericChainLevelOnly(t *testing.T) {
+	// Arc finality: one committed SUCCESS receipt at depth 1 satisfies the
+	// Phase 11 generic chain verifier. Receipt deliberately carries no logs;
+	// Phase 12 domain event verification remains a separate, later gate.
+	bh := blockHash(11)
+	chain := &reorgFakeChain{receipts: []Receipt{{
+		Status: ReceiptSuccess, ChainID: testChainID, TransactionHash: testHash,
+		BlockNumber: 10, BlockHash: bh, Confirmations: 1,
+	}}}
+	verifier := newReorgTestVerifier(t, chain)
+	request := testRequest(t, "intent-finality-one-conf")
+	value, err := execution.New(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := verifier.Verify(context.Background(), value, mustEncodeReference(t, referenceWithHash()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != runtime.VerificationVerified {
+		t.Fatalf("one confirmation SUCCESS must verify at chain level, got %s", result.Outcome)
+	}
+	// Domain event verification is not performed by this generic verifier.
+	receipt := Receipt{}
+	if receipt.Status != "" || receipt.BlockHash != "" {
+		t.Fatal("sanity: empty Receipt has no domain event payload")
+	}
+}
+
+func TestVerifierConfigRejectsZeroConfirmations(t *testing.T) {
+	if err := (VerifierConfig{MinConfirmations: 0}).Validate(); err == nil {
+		t.Fatal("MinConfirmations=0 must be rejected")
+	}
+	if err := (VerifierConfig{MinConfirmations: 1}).Validate(); err != nil {
+		t.Fatalf("MinConfirmations=1 must be accepted: %v", err)
 	}
 }
 

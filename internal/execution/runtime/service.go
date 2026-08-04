@@ -237,8 +237,9 @@ func (s *Service) verify(ctx context.Context, claim storage.ExecutionClaim, valu
 	switch result.Outcome {
 	case VerificationPending:
 		// Persist updated adapter-reference observation metadata when the
-		// verifier advanced durable reorg baseline state. Lifecycle stays
-		// unchanged: CONFIRMING/CONFIRMED with reconcile-only behavior.
+		// verifier advanced durable observation-integrity baseline state.
+		// Lifecycle stays unchanged: CONFIRMING/CONFIRMED with reconcile-only
+		// behavior.
 		if result.Reference != "" && result.Reference != reference {
 			observation, observationErr := execution.NewResult(execution.ResultParams{
 				ExecutionID:      value.ExecutionID(),

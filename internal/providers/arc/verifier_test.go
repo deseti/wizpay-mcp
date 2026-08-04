@@ -31,7 +31,7 @@ func (f fakeSource) BlockNumber(context.Context) (uint64, error) {
 func verifierConfig() Config {
 	return Config{
 		Enabled: true, ChainID: ChainIDTestnet, Network: NetworkTestnet,
-		RPCURL: RPCTestnet, ExplorerURL: ExplorerTestnet, MinConfirmations: 2, Timeout: 15 * time.Second,
+		RPCURL: RPCTestnet, ExplorerURL: ExplorerTestnet, MinConfirmations: 1, Timeout: 15 * time.Second,
 	}
 }
 
@@ -69,7 +69,6 @@ func TestTransactionReceiptPendingCases(t *testing.T) {
 		"receipt without block": {found: true, payload: receiptPayload{Status: "0x1", TransactionHash: verifierHash}},
 		"head lags receipt":     {found: true, head: 5, payload: receiptPayload{Status: "0x1", BlockNumber: "0x10", TransactionHash: verifierHash}},
 		"unrecognized status":   {found: true, head: 100, payload: receiptPayload{Status: "0x2", BlockNumber: "0x10", TransactionHash: verifierHash}},
-		"success too shallow":   {found: true, head: 16, payload: receiptPayload{Status: "0x1", BlockNumber: "0x10", TransactionHash: verifierHash}},
 	}
 	for name, source := range cases {
 		receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
@@ -82,8 +81,28 @@ func TestTransactionReceiptPendingCases(t *testing.T) {
 	}
 }
 
-func TestTransactionReceiptSuccess(t *testing.T) {
-	// block 0x10 == 16, head 17 → confirmations = 17-16+1 = 2 == MinConfirmations.
+func TestTransactionReceiptSuccessAtOneConfirmation(t *testing.T) {
+	// Arc deterministic finality: one committed SUCCESS receipt (head == block
+	// → confirmations = 1) satisfies the generic chain-level verifier.
+	// block 0x10 == 16, head 16 → confirmations = 16-16+1 = 1.
+	source := fakeSource{found: true, head: 16, payload: receiptPayload{
+		Status: "0x1", BlockNumber: "0x10", BlockHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		TransactionHash: verifierHash,
+	}}
+	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
+	if err != nil {
+		t.Fatalf("TransactionReceipt: %v", err)
+	}
+	if receipt.Status != providers.ReceiptSuccess {
+		t.Fatalf("expected SUCCESS, got %s", receipt.Status)
+	}
+	if receipt.Confirmations != 1 {
+		t.Fatalf("expected 1 confirmation, got %d", receipt.Confirmations)
+	}
+}
+
+func TestTransactionReceiptSuccessDeeperConfirmations(t *testing.T) {
+	// block 0x10 == 16, head 17 → confirmations = 2 (still success with min=1).
 	source := fakeSource{found: true, head: 17, payload: receiptPayload{Status: "0x1", BlockNumber: "0x10", TransactionHash: verifierHash}}
 	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
 	if err != nil {
@@ -94,6 +113,27 @@ func TestTransactionReceiptSuccess(t *testing.T) {
 	}
 	if receipt.Confirmations != 2 {
 		t.Fatalf("expected 2 confirmations, got %d", receipt.Confirmations)
+	}
+}
+
+func TestTransactionReceiptRequiresConfiguredDepth(t *testing.T) {
+	// When operators raise MinConfirmations above 1, shallower receipts stay pending.
+	config := verifierConfig()
+	config.MinConfirmations = 2
+	source := fakeSource{found: true, head: 16, payload: receiptPayload{Status: "0x1", BlockNumber: "0x10", TransactionHash: verifierHash}}
+	verifier, err := NewVerifier(config, source)
+	if err != nil {
+		t.Fatalf("NewVerifier: %v", err)
+	}
+	receipt, err := verifier.TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
+	if err != nil {
+		t.Fatalf("TransactionReceipt: %v", err)
+	}
+	if receipt.Status != providers.ReceiptUnknown {
+		t.Fatalf("expected UNKNOWN for conf 1 < min 2, got %s", receipt.Status)
+	}
+	if receipt.Confirmations != 1 || receipt.BlockNumber != 16 {
+		t.Fatalf("shallow receipt must retain inclusion baseline: %#v", receipt)
 	}
 }
 

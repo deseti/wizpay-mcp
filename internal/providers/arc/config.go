@@ -19,6 +19,8 @@ const (
 	// ChainIDTestnet is the Arc Testnet chain ID.
 	ChainIDTestnet = "5042002"
 	// RPCTestnet is the canonical Arc Testnet JSON-RPC endpoint.
+	// Official Arc documentation uses this host; do not substitute
+	// rpc.testnet.arc.network.
 	RPCTestnet = "https://rpc.testnet.arc.io"
 	// ExplorerTestnet is the Arc Testnet block explorer.
 	ExplorerTestnet = "https://testnet.arcscan.app"
@@ -34,10 +36,17 @@ const (
 	// another using this constant.
 	NativeCurrencyDecimals = 18
 
-	defaultTimeout          = 15 * time.Second
-	maxTimeout              = time.Minute
-	defaultMinConfirmations = 2
+	defaultTimeout = 15 * time.Second
+	maxTimeout     = time.Minute
+	// defaultMinConfirmations is 1 because Arc uses deterministic BFT finality:
+	// once a block is committed it is irreversible and Arc documents no reorgs
+	// of committed blocks. Confirmation depth still cannot be configured below 1.
+	defaultMinConfirmations = 1
 	maxMinConfirmations     = 64
+
+	// rejectedRPCHost is a known non-canonical host that must never be used as
+	// the Arc Testnet RPC endpoint in this repository.
+	rejectedRPCHost = "rpc.testnet.arc.network"
 )
 
 // Config is the Arc chain configuration. Exactly one RPC endpoint is used: no
@@ -96,6 +105,9 @@ func (c Config) Validate() error {
 	if strings.Contains(c.RPCURL, ",") {
 		return fmt.Errorf("Arc RPC URL must be a single endpoint")
 	}
+	if err := rejectNonCanonicalRPC(c.RPCURL); err != nil {
+		return err
+	}
 	if c.MinConfirmations < 1 || c.MinConfirmations > maxMinConfirmations {
 		return fmt.Errorf("Arc minimum confirmations must be between 1 and %d", maxMinConfirmations)
 	}
@@ -112,6 +124,21 @@ func validateHTTPSURL(value, name string) error {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		return fmt.Errorf("Arc %s URL must be an absolute HTTPS URL", name)
+	}
+	return nil
+}
+
+// rejectNonCanonicalRPC fails closed on the known incorrect Arc Testnet host.
+// The canonical production/default endpoint remains RPCTestnet (.io). No
+// fallback RPC list is introduced.
+func rejectNonCanonicalRPC(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("Arc RPC URL must be an absolute HTTPS URL")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == rejectedRPCHost {
+		return fmt.Errorf("Arc RPC URL must not use the non-canonical host %s; use %s", rejectedRPCHost, RPCTestnet)
 	}
 	return nil
 }

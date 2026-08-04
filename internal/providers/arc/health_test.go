@@ -45,7 +45,7 @@ func TestArcHealthProbeHealthy(t *testing.T) {
 
 	config := Config{
 		Enabled: true, ChainID: ChainIDTestnet, Network: NetworkTestnet,
-		RPCURL: server.URL, ExplorerURL: ExplorerTestnet, MinConfirmations: 2, Timeout: 2 * time.Second,
+		RPCURL: server.URL, ExplorerURL: ExplorerTestnet, MinConfirmations: 1, Timeout: 2 * time.Second,
 	}
 	// httptest uses http URL; config validation requires https. Bypass by
 	// constructing client without Validate path for test: use NewClient only

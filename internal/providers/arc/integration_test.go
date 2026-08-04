@@ -29,7 +29,7 @@ func TestArcTestnetIntegration(t *testing.T) {
 	config := arc.Config{
 		Enabled: true, ChainID: arc.ChainIDTestnet, Network: arc.NetworkTestnet,
 		RPCURL: arc.RPCTestnet, ExplorerURL: arc.ExplorerTestnet,
-		MinConfirmations: 2, Timeout: 15 * time.Second,
+		MinConfirmations: 1, Timeout: 15 * time.Second,
 	}
 	client, err := arc.NewClient(config, nil)
 	if err != nil {

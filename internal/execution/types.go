@@ -12,8 +12,8 @@ const (
 	// maxExecutionTextLength bounds generic execution text fields (IDs, etc.).
 	maxExecutionTextLength = 256
 	// maxAdapterReferenceLength bounds durable adapter references that may embed
-	// receipt-observation metadata for restart-safe reorg detection. PostgreSQL
-	// adapter_reference is text; this is an application-layer bound only.
+	// receipt-observation metadata for restart-safe observation integrity.
+	// PostgreSQL adapter_reference is text; this is an application-layer bound only.
 	maxAdapterReferenceLength = 512
 )
 
@@ -119,7 +119,7 @@ func validateExecutionText(name, value string) error {
 }
 
 // validateAdapterReference applies the larger bound reserved for durable
-// provider references that embed optional reorg observation metadata.
+// provider references that embed optional observation-integrity metadata.
 func validateAdapterReference(value string) error {
 	return validateBoundedText("adapter reference", value, maxAdapterReferenceLength)
 }

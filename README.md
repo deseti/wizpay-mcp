@@ -49,8 +49,8 @@ The in-process registry describes capability-to-intent mappings, required permis
 The `internal/providers/wiring` package assembles the provider execution plane from configuration. It keeps the provider-neutral core, the Circle boundary, and the Arc boundary from importing one another, and assembly is declarative and fail-closed:
 
 - **Circle User-Controlled Wallet adapter** initiates transfers only the user can authorize and reconciles their outcome. It never signs, never holds a private key, seed phrase, or signing share, never completes a challenge on the user's behalf, and never accepts a wallet identifier from runtime input — the wallet comes from the approved plan alone.
-- **Arc receipt verifier** is read-only. It reads transaction receipts and the chain head over a single Arc Testnet JSON-RPC endpoint (chain ID `5042002`), confirms the endpoint's chain identity before trusting any receipt, and is the only component permitted to assert on-chain success or failure. An absent receipt is reported as unknown, never as failure.
-- **Provider submission is never verified success.** No Circle transaction state — including `CONFIRMED` and `COMPLETE` — maps to verified success; every post-submission state maps to submitted-pending so the runtime advances to on-chain verification. Only an Arc receipt at the configured confirmation depth verifies an execution.
+- **Arc receipt verifier** is read-only. It reads transaction receipts and the chain head over a single Arc Testnet JSON-RPC endpoint (`https://rpc.testnet.arc.io`, chain ID `5042002`), confirms the endpoint's chain identity before trusting any receipt, and is the only component permitted to assert on-chain success or failure. An absent receipt is reported as unknown, never as failure. Arc uses deterministic BFT finality; default required confirmations is `1`.
+- **Provider submission is never verified success.** No Circle transaction state — including `CONFIRMED` and `COMPLETE` — maps to verified success; every post-submission state maps to submitted-pending so the runtime advances to on-chain verification. Only an Arc receipt at the configured confirmation depth yields generic chain-level verification. Phase 12 domain event verification remains separate.
 - **Reconcile, never blindly resubmit.** Once a request may have left the process, an inconclusive response is classified as ambiguous (reconciliation-only), and reconciliation recovers the persisted provider reference rather than issuing a second submission.
 
 Two integrations connect the plane to the rest of the system, both fail-closed:
@@ -64,7 +64,7 @@ Both `cmd/server` and `cmd/worker` own no provider secrets in the repository; Ci
 
 Additional fail-closed controls for the Payroll + Swap provider plane:
 
-- **Reorg-aware verification** — successive Arc receipt observations compare block hash, block number, confirmation depth, and presence; inconsistency stays reconciliation-only and never resubmits.
+- **Observation-integrity verification** — successive Arc receipt observations compare block hash, block number, confirmation depth, and presence; inconsistency stays reconciliation-only and never resubmits. On Arc this is a defensive RPC/observation guard (committed blocks are not expected to reorg under deterministic BFT finality).
 - **Provider health probes** — non-financial Circle reachability and Arc chain-identity/block-height checks with bounded timeouts; process `/health` liveness does not depend on external providers.
 - **Circuit breakers** — CLOSED / OPEN / HALF_OPEN breakers on outbound Circle and Arc infrastructure calls; validation and missing user authorization do not open the breaker.
 - **Optional sandbox/testnet harness** — offline by default; see `docs/phase-11-security-recovery-review.md` for env flags and explicit non-goals.

@@ -9,7 +9,7 @@ import (
 
 const (
 	// maxReferenceLength bounds the durable adapter reference including optional
-	// receipt-observation fields used for restart-safe reorg detection.
+	// receipt-observation fields used for restart-safe observation integrity.
 	maxReferenceLength = 512
 	maxSafeTextLength  = 256
 	maxChainIDLength   = 20
@@ -23,8 +23,9 @@ const (
 // only: never an API key, user token, request body, or response body.
 //
 // Optional receipt-observation fields (Obs*) carry the last known inclusion
-// identity for reorg detection across worker restarts. They are observations,
-// not verified financial success.
+// identity for defensive observation-integrity checks across worker restarts.
+// They are observations, not verified financial success, and do not imply Arc
+// consensus reorgs of committed blocks.
 type Reference struct {
 	Provider ProviderID
 	ChainID  string
@@ -41,7 +42,7 @@ type Reference struct {
 	// reports one. Only this field can lead to on-chain verification.
 	TransactionHash string
 
-	// Receipt observation metadata (optional, durable reorg baseline).
+	// Receipt observation metadata (optional, durable observation-integrity baseline).
 	ObsPresent       bool
 	ObsKnown         bool
 	ObsBlockHash     string
@@ -160,8 +161,8 @@ func (r Reference) Encode() (string, error) {
 	return encoded, nil
 }
 
-// ReceiptObservation reconstructs durable reorg baseline metadata from this
-// reference. Empty when no observation fields were persisted.
+// ReceiptObservation reconstructs durable observation-integrity baseline
+// metadata from this reference. Empty when no observation fields were persisted.
 func (r Reference) ReceiptObservation() ReceiptObservation {
 	if !r.ObsKnown && !r.ObsPresent && r.ObsBlockHash == "" && r.ObsBlockNumber == 0 {
 		return ReceiptObservation{}
@@ -178,7 +179,7 @@ func (r Reference) ReceiptObservation() ReceiptObservation {
 }
 
 // WithReceiptObservation returns a copy carrying durable receipt observation
-// metadata for reorg detection after restart.
+// metadata for observation-integrity checks after restart.
 func (r Reference) WithReceiptObservation(observation ReceiptObservation) Reference {
 	next := r
 	next.ObsPresent = observation.Present

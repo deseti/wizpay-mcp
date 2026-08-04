@@ -25,6 +25,8 @@ const (
 	// ReceiptReorgInconsistent means successive observations of the same
 	// transaction disagree (missing after present, block hash/number change, or
 	// confirmation depth decrease). It is reconciliation-only and never success.
+	// On Arc this is a defensive observation/RPC integrity status, not evidence
+	// of an expected consensus reorg of a committed block.
 	ReceiptReorgInconsistent ReceiptStatus = "REORG_INCONSISTENT"
 )
 
@@ -36,7 +38,7 @@ type Receipt struct {
 	TransactionHash string
 	BlockNumber     uint64
 	// BlockHash is the inclusion block hash when the chain reports one. It is
-	// used for reorg detection across verification passes.
+	// used for observation-integrity comparison across verification passes.
 	BlockHash     string
 	Confirmations uint64
 }
@@ -62,8 +64,10 @@ type ReferenceResolver interface {
 // VerifierConfig bounds when on-chain evidence is accepted as final.
 type VerifierConfig struct {
 	// MinConfirmations is the confirmation depth required before a successful
-	// receipt is treated as verified. It must be at least 1 so that a receipt
-	// from an unconfirmed block can never verify an execution.
+	// receipt is treated as verified. It must be at least 1. On Arc Testnet the
+	// recommended and default value is 1 (deterministic BFT finality). This is
+	// generic chain-level verification only; domain event verification remains
+	// a separate Phase 12 gate for Payroll/Swap.
 	MinConfirmations uint64
 }
 
@@ -82,9 +86,10 @@ func (c VerifierConfig) Validate() error {
 // reference names, at the required confirmation depth, can verify an
 // execution, and only a receipt can fail one.
 //
-// Reorg-aware observation tracking compares successive receipts for the same
+// Observation-integrity tracking compares successive receipts for the same
 // transaction. Inconsistency yields a non-success, reconciliation-only outcome
-// and never triggers resubmission.
+// and never triggers resubmission. On Arc this is a defensive guard against
+// contradictory RPC observations, not an expected consensus reorg path.
 type Verifier struct {
 	chain        ChainVerifier
 	resolver     ReferenceResolver
@@ -138,11 +143,11 @@ func (v *Verifier) Verify(ctx context.Context, value execution.Execution, encode
 		return runtime.VerificationResult{}, err
 	}
 
-	// Reorg/inconsistency detection compares this observation to the previous
+	// Observation-integrity detection compares this observation to the previous
 	// one for the same transaction. Prior state comes from process memory and,
 	// after restart, from durable observation fields embedded in the adapter
-	// reference. A reorg signal is reconciliation-only: never verified success,
-	// never automatic resubmission.
+	// reference. An inconsistency signal is reconciliation-only: never verified
+	// success, never automatic resubmission.
 	//
 	// A receipt is "present" when the chain returned inclusion metadata or a
 	// terminal status. A completely absent receipt has neither.

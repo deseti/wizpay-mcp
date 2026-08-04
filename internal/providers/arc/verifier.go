@@ -20,6 +20,12 @@ type receiptSource interface {
 // It is the only component permitted to assert that an execution succeeded or
 // failed on-chain. It does so from a receipt on the configured chain at the
 // configured confirmation depth, and from nothing else.
+//
+// Arc Testnet uses deterministic BFT finality: committed blocks are irreversible
+// and Arc documents no consensus reorgs. The default confirmation depth is
+// therefore 1. Success here is generic chain-level receipt evidence only;
+// Phase 12 domain event verification remains separate and still required for
+// Payroll/Swap financial completion.
 type Verifier struct {
 	source receiptSource
 	config Config
@@ -101,7 +107,7 @@ func (v *Verifier) TransactionReceipt(ctx context.Context, chainID, transactionH
 	}
 	if receipt.Status == providers.ReceiptSuccess && receipt.Confirmations < v.config.MinConfirmations {
 		// Confirmed too shallow to be treated as final, but block identity is
-		// retained so reorg detection still has a baseline.
+		// retained so observation-integrity comparison still has a baseline.
 		return providers.Receipt{
 			Status: providers.ReceiptUnknown, ChainID: chainID, TransactionHash: normalized,
 			BlockNumber: blockNumber, BlockHash: blockHash, Confirmations: receipt.Confirmations,
