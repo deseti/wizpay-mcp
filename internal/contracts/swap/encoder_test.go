@@ -50,6 +50,24 @@ func TestEncodeExecuteSwapDeterministic(t *testing.T) {
 	}
 }
 
+func TestEncodeExecuteSwapDoesNotReadWallClock(t *testing.T) {
+	call, err := swap.EncodeExecuteSwap(contracts.DefaultRegistry(), swap.ExecuteSwapInput{
+		Router:       "0x1111111111111111111111111111111111111111",
+		TokenIn:      "0x3600000000000000000000000000000000000000",
+		TokenOut:     "0x3600000000000000000000000000000000000001",
+		AmountIn:     big.NewInt(1_000_000),
+		MinAmountOut: big.NewInt(990_000),
+		Recipient:    "0x2222222222222222222222222222222222222222",
+		Deadline:     1,
+	})
+	if err != nil {
+		t.Fatalf("positive frozen deadline must encode without a wall-clock read: %v", err)
+	}
+	if call.Function() != swap.SigExecuteSwap {
+		t.Fatalf("function = %q", call.Function())
+	}
+}
+
 func TestSwapValidationRejections(t *testing.T) {
 	registry := contracts.DefaultRegistry()
 	base := swap.ExecuteSwapInput{
@@ -68,7 +86,7 @@ func TestSwapValidationRejections(t *testing.T) {
 		"zero amountIn":      func(in *swap.ExecuteSwapInput) { in.AmountIn = big.NewInt(0) },
 		"zero minAmountOut":  func(in *swap.ExecuteSwapInput) { in.MinAmountOut = big.NewInt(0) },
 		"invalid recipient":  func(in *swap.ExecuteSwapInput) { in.Recipient = "0x0" },
-		"expired deadline":   func(in *swap.ExecuteSwapInput) { in.Deadline = time.Now().Add(-time.Minute).Unix() },
+		"zero deadline":      func(in *swap.ExecuteSwapInput) { in.Deadline = 0 },
 		"zero address token": func(in *swap.ExecuteSwapInput) { in.TokenIn = "0x0000000000000000000000000000000000000000" },
 	}
 	for name, mutate := range cases {

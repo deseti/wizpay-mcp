@@ -16,7 +16,8 @@ type ExecuteSwapInput struct {
 	AmountIn     *big.Int
 	MinAmountOut *big.Int
 	Recipient    string
-	// Deadline is a unix timestamp (seconds). Encoding fails if the deadline
-	// is zero or has already expired at encoding time.
+	// Deadline is a frozen unix timestamp in seconds. Encoding validates only
+	// that it is positive; execution-time freshness requires an explicit clock
+	// at a later runtime boundary.
 	Deadline int64
 }

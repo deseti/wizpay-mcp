@@ -3,13 +3,9 @@ package swap
 import (
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 )
-
-// nowFunc is overridable in tests for deterministic deadline checks.
-var nowFunc = time.Now
 
 func validateDeployment(deployment contracts.Deployment) error {
 	if deployment.ID != contracts.ContractWizPaySwapExecutor {
@@ -54,9 +50,6 @@ func validateExecuteSwap(in ExecuteSwapInput) error {
 	}
 	if in.Deadline <= 0 {
 		return fmt.Errorf("deadline must be greater than zero")
-	}
-	if in.Deadline <= nowFunc().Unix() {
-		return fmt.Errorf("deadline has already expired")
 	}
 	return nil
 }
