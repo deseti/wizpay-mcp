@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/execution"
 	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/providers/circuit"
@@ -25,15 +26,21 @@ type ReferenceStore interface {
 
 // Adapter is the Circle User-Controlled Wallet execution adapter.
 //
-// It initiates transfers that only the user can authorize and reconciles their
-// outcome. It never signs, never completes a challenge on the user's behalf,
-// never creates users or wallets, and never accepts a wallet identifier from
-// runtime input: the wallet comes from the approved plan alone.
+// It initiates token transfers and allowlisted contract-execution challenges
+// that only the user can authorize, then reconciles their outcome. It never
+// signs, never completes a challenge on the user's behalf, never creates users
+// or wallets, and never accepts a wallet identifier or arbitrary contract
+// target/calldata from runtime input: wallet identity and sealed EncodedCall
+// material come from the approved plan alone.
+//
+// Challenge creation is never financial success. Circle COMPLETE/CONFIRMED is
+// never WizPay VERIFIED.
 type Adapter struct {
 	client        *client
 	planner       providers.Planner
 	authorization providers.AuthorizationSource
 	references    ReferenceStore
+	registry      *contracts.Registry
 	config        Config
 	now           func() time.Time
 	breaker       *circuit.Breaker
@@ -55,7 +62,10 @@ func NewAdapterWithBreaker(config Config, httpClient *http.Client, planner provi
 	if err != nil {
 		return nil, err
 	}
-	return &Adapter{client: transport, planner: planner, authorization: authorization, references: references, config: config, now: now, breaker: breaker}, nil
+	return &Adapter{
+		client: transport, planner: planner, authorization: authorization, references: references,
+		registry: contracts.DefaultRegistry(), config: config, now: now, breaker: breaker,
+	}, nil
 }
 
 var (
@@ -63,11 +73,15 @@ var (
 	_ providers.ReferenceResolver = (*Adapter)(nil)
 )
 
-// Execute initiates a transfer by creating a Circle challenge.
+// Execute initiates a transfer or allowlisted contract-execution challenge.
 //
 // A successful return is NOT a submitted transaction and NOT success. It means
 // the user has been asked to authorize, and the resulting challenge reference
 // has been captured so every later attempt reconciles instead of resubmitting.
+//
+// Pre-first-submission freshness is enforced here with the injected clock.
+// After the runtime has marked submission_started, only GetStatus is used;
+// later expiry never causes a replacement submission.
 func (a *Adapter) Execute(ctx context.Context, request execution.Request) (execution.Result, error) {
 	executionID := request.ExecutionID()
 	plan, err := a.planner.Plan(ctx, request)
@@ -79,6 +93,12 @@ func (a *Adapter) Execute(ctx context.Context, request execution.Request) (execu
 	if err := a.validatePlan(plan); err != nil {
 		return a.outcome(executionID, providers.Outcome{
 			Class: providers.ClassPreSubmissionValidationFailure, ReasonCode: "SUBMISSION_PLAN_INVALID",
+		})
+	}
+	// Freshness applies only before first submission. GetStatus never checks it.
+	if plan.FreshnessExpired(a.now()) {
+		return a.outcome(executionID, providers.Outcome{
+			Class: providers.ClassPreSubmissionValidationFailure, ReasonCode: "FINANCIAL_MATERIAL_EXPIRED",
 		})
 	}
 	idempotencyKey, err := providers.IdempotencyKey(request)
@@ -97,19 +117,12 @@ func (a *Adapter) Execute(ctx context.Context, request execution.Request) (execu
 		})
 	}
 
-	challengeID, err := a.client.createTransferChallenge(ctx, authorization, transferRequest{
-		IdempotencyKey:     idempotencyKey,
-		DestinationAddress: plan.DestinationAddress,
-		Amounts:            []string{plan.Amount},
-		WalletID:           plan.WalletID,
-		TokenID:            plan.TokenID,
-		RefID:              executionID,
-	})
 	baseReference := providers.Reference{
 		Provider: providers.ProviderCircleUserControlled,
 		ChainID:  plan.ChainID,
 		WalletID: plan.WalletID,
 	}
+	challengeID, err := a.createChallenge(ctx, authorization, plan, idempotencyKey, executionID)
 	if err != nil {
 		return a.transportOutcome(executionID, err, baseReference, false)
 	}
@@ -124,6 +137,44 @@ func (a *Adapter) Execute(ctx context.Context, request execution.Request) (execu
 		Reference:    reference,
 		HasReference: true,
 	})
+}
+
+// createChallenge maps the closed plan kind onto the matching official Circle
+// UCW challenge endpoint. It never invents target/calldata.
+func (a *Adapter) createChallenge(ctx context.Context, authorization providers.UserAuthorization, plan providers.Plan, idempotencyKey, executionID string) (string, error) {
+	switch plan.EffectiveKind() {
+	case providers.PlanKindTokenTransfer:
+		return a.client.createTransferChallenge(ctx, authorization, transferRequest{
+			IdempotencyKey:     idempotencyKey,
+			DestinationAddress: plan.DestinationAddress,
+			Amounts:            []string{plan.Amount},
+			WalletID:           plan.WalletID,
+			TokenID:            plan.TokenID,
+			RefID:              executionID,
+		})
+	case providers.PlanKindContractExecution:
+		call, ok := plan.EncodedCall()
+		if !ok {
+			return "", &transportError{class: providers.ClassPreSubmissionValidationFailure, reasonCode: "SUBMISSION_PLAN_INVALID"}
+		}
+		callData, err := encodeCallDataHex(call.CallData())
+		if err != nil {
+			return "", &transportError{class: providers.ClassPreSubmissionValidationFailure, reasonCode: "SUBMISSION_PLAN_INVALID"}
+		}
+		// Mapping is fully derived: wallet from trusted plan binding, address
+		// and calldata from sealed EncodedCall, network from trusted config
+		// (walletId path), durable ref/idempotency from execution identity.
+		return a.client.createContractExecutionChallenge(ctx, authorization, contractExecutionRequest{
+			IdempotencyKey:  idempotencyKey,
+			ContractAddress: call.To(),
+			CallData:        callData,
+			WalletID:        plan.WalletID,
+			RefID:           executionID,
+			FeeLevel:        feeLevelMedium,
+		})
+	default:
+		return "", &transportError{class: providers.ClassPreSubmissionValidationFailure, reasonCode: "SUBMISSION_PLAN_INVALID"}
+	}
 }
 
 // GetStatus reconciles an execution that may already have been submitted. It is
@@ -301,6 +352,52 @@ func (a *Adapter) validatePlan(plan providers.Plan) error {
 	}
 	if plan.ChainID != a.config.ChainID || plan.Network != a.config.Network {
 		return fmt.Errorf("submission plan targets an unsupported chain or network")
+	}
+	switch plan.EffectiveKind() {
+	case providers.PlanKindTokenTransfer:
+		return nil
+	case providers.PlanKindContractExecution:
+		return a.validateContractExecutionPlan(plan)
+	default:
+		return fmt.Errorf("submission plan kind is unsupported")
+	}
+}
+
+// validateContractExecutionPlan enforces the closed Payroll/Swap surface:
+// only WIZPAY_PAYROLL and WIZPAY_SWAP_EXECUTOR, matching registry version,
+// chain, and canonical deployment address from sealed EncodedCall.
+func (a *Adapter) validateContractExecutionPlan(plan providers.Plan) error {
+	call, ok := plan.EncodedCall()
+	if !ok {
+		return fmt.Errorf("contract execution plan is missing sealed encoded call")
+	}
+	switch call.ContractID() {
+	case contracts.ContractWizPayPayroll, contracts.ContractWizPaySwapExecutor:
+	default:
+		return fmt.Errorf("contract %q is not supported for provider execution", call.ContractID())
+	}
+	if call.RegistryVersion() != contracts.RegistryVersion {
+		return fmt.Errorf("contract registry version %d is unsupported", call.RegistryVersion())
+	}
+	if call.ChainID() != a.config.ChainID || call.ChainID() != contracts.ChainIDArcTestnet {
+		return fmt.Errorf("encoded call targets an unsupported chain")
+	}
+	if call.Network() != "" && call.Network() != a.config.Network {
+		return fmt.Errorf("encoded call targets an unsupported network")
+	}
+	registry := a.registry
+	if registry == nil {
+		registry = contracts.DefaultRegistry()
+	}
+	deployment, err := registry.Require(call.ContractID(), call.RegistryVersion(), call.ChainID(), call.Network())
+	if err != nil {
+		return fmt.Errorf("encoded call deployment is not registered: %w", err)
+	}
+	if !contracts.AddressesEqual(call.To(), deployment.Address) {
+		return fmt.Errorf("encoded call target does not match canonical deployment")
+	}
+	if !deployment.AllowsExecution(call.Function()) {
+		return fmt.Errorf("encoded call function is not allowlisted for execution")
 	}
 	return nil
 }

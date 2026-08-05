@@ -6,36 +6,182 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/execution"
 )
 
 const idempotencyDomain = "WIZPAY_MCP_PROVIDER_IDEMPOTENCY_V1\n"
 
+// PlanKind selects the closed submission surface for a Plan.
+//
+// External callers never supply raw contractAddress/callData/function/selector
+// fields. Contract execution is only expressible through a sealed
+// contracts.EncodedCall constructed by typed domain encoders.
+type PlanKind string
+
+const (
+	// PlanKindTokenTransfer is the existing Circle token-transfer surface.
+	// Empty Kind is treated as this value for backward compatibility.
+	PlanKindTokenTransfer PlanKind = "TOKEN_TRANSFER"
+	// PlanKindContractExecution is the sealed allowlisted contract-call surface
+	// for WIZPAY_PAYROLL and WIZPAY_SWAP_EXECUTOR only.
+	PlanKindContractExecution PlanKind = "CONTRACT_EXECUTION"
+)
+
 // Plan is the provider-neutral description of what a single execution submits.
 //
-// Phase 11 defines this port but implements no domain planning: producing a
-// Plan from an intent is capability logic and belongs to a later phase. The
-// plan carries no credentials, no signatures, and no raw provider payload.
+// Producing a Plan from an intent is capability/orchestration logic. The plan
+// carries no credentials, no signatures, and no raw provider payload.
+//
+// CONTRACT_EXECUTION plans seal the target and calldata inside
+// contracts.EncodedCall. There is no generic contract executor surface: callers
+// cannot set contractAddress, callData, function, or selector directly.
 type Plan struct {
-	WalletBindingID    string
-	WalletID           string
-	WalletAddress      string
-	ChainID            string
-	Network            string
+	// Kind selects the submission surface. Empty means TOKEN_TRANSFER.
+	Kind PlanKind
+
+	WalletBindingID string
+	WalletID        string
+	WalletAddress   string
+	ChainID         string
+	Network         string
+
+	// DestinationAddress, TokenID, and Amount are TOKEN_TRANSFER fields only.
+	// TokenID is the provider's non-secret token identifier. Amount is a
+	// decimal string denominated in the token's own units.
 	DestinationAddress string
-	// TokenID is the provider's non-secret token identifier. It is required
-	// because token units and native gas units are distinct denominations and
-	// must never be inferred from one another.
-	TokenID string
-	// Amount is a decimal string denominated in the token's own units.
-	Amount string
+	TokenID            string
+	Amount             string
+
+	// encodedCall is CONTRACT_EXECUTION only. It is unexported so external
+	// packages cannot inject arbitrary target/calldata without going through
+	// NewContractExecutionPlan and a sealed contracts.EncodedCall.
+	encodedCall    contracts.EncodedCall
+	hasEncodedCall bool
+
+	// submitNotAfter is the exclusive upper bound for first submission when
+	// set. Checked only before the first provider submission attempt using an
+	// injected clock; once submission may have started, reconciliation must
+	// continue even if this bound is in the past.
+	submitNotAfter    time.Time
+	hasSubmitNotAfter bool
+}
+
+// ContractExecutionParams constructs a sealed CONTRACT_EXECUTION plan.
+//
+// Call must already be a sealed EncodedCall from a typed payroll/swap encoder.
+// SubmitNotAfter is required and must be derived from immutable financial
+// material (intent expiry, constraint deadline, and for Swap also frozen swap
+// deadline and quote expiry) using an explicit orchestration clock — never
+// time.Now() inside planners or encoders.
+type ContractExecutionParams struct {
+	WalletBindingID string
+	WalletID        string
+	WalletAddress   string
+	ChainID         string
+	Network         string
+	Call            contracts.EncodedCall
+	SubmitNotAfter  time.Time
+}
+
+// NewContractExecutionPlan builds a closed CONTRACT_EXECUTION plan.
+//
+// It rejects zero/missing EncodedCall material, unsupported contract IDs, and a
+// missing freshness bound. Target address and calldata come only from Call.
+func NewContractExecutionPlan(params ContractExecutionParams) (Plan, error) {
+	if params.Call.To() == "" || len(params.Call.CallData()) < 4 {
+		return Plan{}, fmt.Errorf("contract execution plan requires a sealed encoded call")
+	}
+	if !allowedContractExecutionID(params.Call.ContractID()) {
+		return Plan{}, fmt.Errorf("contract execution plan contract %q is not supported", params.Call.ContractID())
+	}
+	if params.SubmitNotAfter.IsZero() {
+		return Plan{}, fmt.Errorf("contract execution plan requires a submit-not-after freshness bound")
+	}
+	plan := Plan{
+		Kind:              PlanKindContractExecution,
+		WalletBindingID:   params.WalletBindingID,
+		WalletID:          params.WalletID,
+		WalletAddress:     params.WalletAddress,
+		ChainID:           params.ChainID,
+		Network:           params.Network,
+		encodedCall:       params.Call.Clone(),
+		hasEncodedCall:    true,
+		submitNotAfter:    params.SubmitNotAfter.UTC(),
+		hasSubmitNotAfter: true,
+	}
+	if err := plan.Validate(); err != nil {
+		return Plan{}, err
+	}
+	return plan, nil
+}
+
+// EffectiveKind returns the closed plan kind. Empty Kind is TOKEN_TRANSFER.
+func (p Plan) EffectiveKind() PlanKind {
+	switch p.Kind {
+	case PlanKindContractExecution:
+		return PlanKindContractExecution
+	case PlanKindTokenTransfer, "":
+		return PlanKindTokenTransfer
+	default:
+		return p.Kind
+	}
+}
+
+// EncodedCall returns the sealed contract call for CONTRACT_EXECUTION plans.
+func (p Plan) EncodedCall() (contracts.EncodedCall, bool) {
+	if !p.hasEncodedCall {
+		return contracts.EncodedCall{}, false
+	}
+	return p.encodedCall.Clone(), true
+}
+
+// SubmitNotAfter returns the exclusive first-submission freshness bound when set.
+func (p Plan) SubmitNotAfter() (time.Time, bool) {
+	if !p.hasSubmitNotAfter || p.submitNotAfter.IsZero() {
+		return time.Time{}, false
+	}
+	return p.submitNotAfter.UTC(), true
+}
+
+// FreshnessExpired reports whether first submission is forbidden at at.
+//
+// Reconciliation paths must not call this to decide resubmission: once
+// submission may have started, expiry never authorizes a replacement submit.
+func (p Plan) FreshnessExpired(at time.Time) bool {
+	bound, ok := p.SubmitNotAfter()
+	if !ok {
+		return false
+	}
+	if at.IsZero() {
+		return true
+	}
+	return !at.UTC().Before(bound)
+}
+
+// EarliestDeadline returns the earliest non-zero UTC candidate, or zero if none
+// are set. Orchestration uses this to combine intent expiry, constraint
+// deadline, swap deadline, and quote expiry into SubmitNotAfter.
+func EarliestDeadline(candidates ...time.Time) time.Time {
+	var earliest time.Time
+	for _, candidate := range candidates {
+		if candidate.IsZero() {
+			continue
+		}
+		value := candidate.UTC()
+		if earliest.IsZero() || value.Before(earliest) {
+			earliest = value
+		}
+	}
+	return earliest
 }
 
 func (p Plan) Validate() error {
 	for _, field := range []struct{ name, value string }{
 		{"wallet binding ID", p.WalletBindingID}, {"wallet ID", p.WalletID},
-		{"network", p.Network}, {"token ID", p.TokenID},
+		{"network", p.Network},
 	} {
 		if !validSafeText(field.value) {
 			return fmt.Errorf("submission plan %s is invalid", field.name)
@@ -47,6 +193,29 @@ func (p Plan) Validate() error {
 	if !ValidAddress(p.WalletAddress) {
 		return fmt.Errorf("submission plan wallet address is invalid")
 	}
+
+	switch p.EffectiveKind() {
+	case PlanKindTokenTransfer:
+		return p.validateTokenTransfer()
+	case PlanKindContractExecution:
+		return p.validateContractExecution()
+	default:
+		return fmt.Errorf("submission plan kind is invalid")
+	}
+}
+
+func (p Plan) validateTokenTransfer() error {
+	if p.hasEncodedCall {
+		return fmt.Errorf("submission plan token transfer cannot carry an encoded call")
+	}
+	if p.hasSubmitNotAfter {
+		// Token transfer keeps the historical shape; freshness bounds belong to
+		// contract-execution financial material for this phase.
+		return fmt.Errorf("submission plan token transfer cannot carry a contract freshness bound")
+	}
+	if !validSafeText(p.TokenID) {
+		return fmt.Errorf("submission plan token ID is invalid")
+	}
 	if !ValidAddress(p.DestinationAddress) {
 		return fmt.Errorf("submission plan destination address is invalid")
 	}
@@ -57,6 +226,49 @@ func (p Plan) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func (p Plan) validateContractExecution() error {
+	if p.DestinationAddress != "" || p.TokenID != "" || p.Amount != "" {
+		return fmt.Errorf("submission plan contract execution cannot carry token-transfer fields")
+	}
+	if !p.hasEncodedCall {
+		return fmt.Errorf("submission plan contract execution requires a sealed encoded call")
+	}
+	if !p.hasSubmitNotAfter || p.submitNotAfter.IsZero() {
+		return fmt.Errorf("submission plan contract execution requires a submit-not-after freshness bound")
+	}
+	call := p.encodedCall
+	if !allowedContractExecutionID(call.ContractID()) {
+		return fmt.Errorf("submission plan contract %q is not supported", call.ContractID())
+	}
+	if call.RegistryVersion() == 0 {
+		return fmt.Errorf("submission plan registry version is invalid")
+	}
+	if call.ChainID() == "" || call.To() == "" || call.Function() == "" || len(call.CallData()) < 4 {
+		return fmt.Errorf("submission plan encoded call is incomplete")
+	}
+	if !ValidAddress(call.To()) {
+		return fmt.Errorf("submission plan contract address is invalid")
+	}
+	// Plan chain identity must agree with the sealed call (no caller override).
+	if p.ChainID != call.ChainID() {
+		return fmt.Errorf("submission plan chain ID does not match encoded call")
+	}
+	if p.Network != "" && call.Network() != "" && p.Network != call.Network() {
+		return fmt.Errorf("submission plan network does not match encoded call")
+	}
+	return nil
+}
+
+// allowedContractExecutionID is the Phase 12 Step 3 closed allowlist.
+func allowedContractExecutionID(id contracts.ContractID) bool {
+	switch id {
+	case contracts.ContractWizPayPayroll, contracts.ContractWizPaySwapExecutor:
+		return true
+	default:
+		return false
+	}
 }
 
 // validateAmount enforces a plain positive decimal string. Unit interpretation
@@ -88,7 +300,8 @@ func validateAmount(amount string) error {
 
 // Planner resolves the authorized execution into a concrete submission plan.
 // Implementations must derive every field from already-approved intent state
-// and must never accept caller-supplied wallet identifiers.
+// and must never accept caller-supplied wallet identifiers or arbitrary
+// contract target/calldata.
 type Planner interface {
 	Plan(ctx context.Context, request execution.Request) (Plan, error)
 }

@@ -8,8 +8,9 @@ Reviewed on 2026-08-02. These are the only external sources used for Circle/Arc-
 - [Key Management](https://developers.circle.com/wallets/key-management): supports the statement that user-controlled wallets use 2-of-2 MPC and only users sign after their authentication; signing shares/credentials remain outside WizPay MCP.
 - [Transaction Signing and Authorization](https://developers.circle.com/wallets/signing-and-authorization-models): supports separation of initiation from user authorization and the rule that submitted and finalized are different events.
 - [Create wallets API reference](https://developers.circle.com/api-reference/wallets/user-controlled-wallets/create-user-wallet): reviewed only to confirm that Circle wallet creation is challenge-based and uses user-scoped credentials. No API behavior is implemented and no credential is stored.
+- [Create a challenge for contract execution](https://developers.circle.com/api-reference/wallets/user-controlled-wallets/create-user-transaction-contract-execution-challenge): official UCW endpoint `POST /v1/w3s/user/transactions/contractExecution`. Required fields include `idempotencyKey` and `contractAddress`; wallet identity is `walletId` or `walletAddress`+`blockchain`; `callData` is mutually exclusive with `abiFunctionSignature`/`abiParameters`; `feeLevel` or gas fields are required for gas. Response returns `data.challengeId`. Challenge creation is not financial success.
 
-The exact Circle identifier for Arc Testnet, supported EOA/SCA choice, production API sequence, authentication mechanism, challenge lifecycle, webhook semantics, and wallet-binding verification procedure remain `UNVERIFIED / REQUIRES OWNER DECISION`.
+The exact Circle identifier for Arc Testnet, supported EOA/SCA choice, production API sequence, authentication mechanism, challenge lifecycle, webhook semantics, and wallet-binding verification procedure remain `UNVERIFIED / REQUIRES OWNER DECISION` for unreviewed details beyond the endpoint mappings implemented offline.
 
 ## Arc
 

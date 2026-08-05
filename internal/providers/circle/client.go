@@ -3,6 +3,7 @@ package circle
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,8 +31,8 @@ func (e *transportError) classification() (providers.Classification, string) {
 	return e.class, e.reasonCode
 }
 
-// client is the narrow Circle HTTP boundary. It exposes only the three
-// documented operations this phase needs and no general-purpose request method.
+// client is the narrow Circle HTTP boundary. It exposes only the documented
+// operations this phase needs and no general-purpose request method.
 type client struct {
 	config  Config
 	http    *http.Client
@@ -77,9 +78,8 @@ type transferResponse struct {
 // which is a request for the user's authorization and is NOT a submitted
 // transaction and NOT evidence of success.
 //
-// The submitted flag returned alongside the error reports whether the request
-// may have reached Circle. Callers must treat a true value as potentially
-// executed and reconcile rather than retry.
+// Callers must treat transport failures after the request may have left the
+// process as potentially executed and reconcile rather than retry.
 func (c *client) createTransferChallenge(ctx context.Context, authorization providers.UserAuthorization, body transferRequest) (string, error) {
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -96,6 +96,71 @@ func (c *client) createTransferChallenge(ctx context.Context, authorization prov
 		return "", &transportError{class: providers.ClassAmbiguousSubmission, reasonCode: "PROVIDER_RESPONSE_UNREADABLE"}
 	}
 	return decoded.Data.ChallengeID, nil
+}
+
+// contractExecutionRequest is the documented request body for creating a
+// user-controlled contract-execution challenge.
+//
+// Official fields only (POST /v1/w3s/user/transactions/contractExecution):
+// required idempotencyKey + contractAddress; walletId (or walletAddress+
+// blockchain); callData mutually exclusive with abiFunctionSignature/
+// abiParameters; optional refId/feeLevel/gas fields/amount.
+//
+// WizPay always uses sealed callData from contracts.EncodedCall and never
+// accepts caller-supplied abiFunctionSignature/abiParameters or free-form
+// contractAddress/callData outside EncodedCall.To/CallData.
+type contractExecutionRequest struct {
+	IdempotencyKey  string `json:"idempotencyKey"`
+	ContractAddress string `json:"contractAddress"`
+	CallData        string `json:"callData"`
+	WalletID        string `json:"walletId"`
+	RefID           string `json:"refId,omitempty"`
+	FeeLevel        string `json:"feeLevel,omitempty"`
+}
+
+type contractExecutionResponse struct {
+	Data struct {
+		ChallengeID string `json:"challengeId"`
+	} `json:"data"`
+}
+
+// feeLevelMedium is the documented Circle dynamic fee enum used when gas
+// fields are not manually estimated. Official API requires feeLevel or gasLimit.
+const feeLevelMedium = "MEDIUM"
+
+// createContractExecutionChallenge initiates an allowlisted contract call. It
+// returns a challenge ID, which is a request for the user's authorization and
+// is NOT a submitted transaction and NOT evidence of financial success.
+func (c *client) createContractExecutionChallenge(ctx context.Context, authorization providers.UserAuthorization, body contractExecutionRequest) (string, error) {
+	if body.IdempotencyKey == "" || body.ContractAddress == "" || body.CallData == "" || body.WalletID == "" {
+		return "", &transportError{class: providers.ClassPreSubmissionValidationFailure, reasonCode: "PROVIDER_REQUEST_INVALID"}
+	}
+	if body.FeeLevel == "" {
+		// Official schema: gasLimit is required when feeLevel is absent.
+		body.FeeLevel = feeLevelMedium
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return "", &transportError{class: providers.ClassPreSubmissionValidationFailure, reasonCode: "PROVIDER_REQUEST_INVALID"}
+	}
+	response, err := c.do(ctx, http.MethodPost, "/v1/w3s/user/transactions/contractExecution", nil, encoded, authorization, true)
+	if err != nil {
+		return "", err
+	}
+	var decoded contractExecutionResponse
+	if err := json.Unmarshal(response, &decoded); err != nil || decoded.Data.ChallengeID == "" {
+		return "", &transportError{class: providers.ClassAmbiguousSubmission, reasonCode: "PROVIDER_RESPONSE_UNREADABLE"}
+	}
+	return decoded.Data.ChallengeID, nil
+}
+
+// encodeCallDataHex formats sealed calldata as the documented 0x-prefixed
+// even-length hex string required by Circle's callData field.
+func encodeCallDataHex(callData []byte) (string, error) {
+	if len(callData) < 4 {
+		return "", fmt.Errorf("call data is too short")
+	}
+	return "0x" + hex.EncodeToString(callData), nil
 }
 
 // transaction is the subset of the documented Circle transaction object needed
