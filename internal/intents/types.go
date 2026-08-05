@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
 
 const maxTextLength = 256
 
-// Type discriminates the only financial parameter shapes accepted in Phase 3.
+// Type discriminates the only financial parameter shapes accepted in Phase 3+.
 type Type string
 
 const (
@@ -60,6 +61,32 @@ func (a Amount) Validate() error {
 	return nil
 }
 
+// IsZero reports whether the amount is the zero value (unset for omitempty).
+func (a Amount) IsZero() bool {
+	return a.Decimal == "" && a.BaseUnits == "" && a.Decimals == 0
+}
+
+// IsPositive reports whether the amount is a valid positive value.
+func (a Amount) IsPositive() bool {
+	if err := a.Validate(); err != nil {
+		return false
+	}
+	value, ok := new(big.Int).SetString(a.BaseUnits, 10)
+	return ok && value.Sign() > 0
+}
+
+// BaseInt returns the base-unit integer when the amount is valid.
+func (a Amount) BaseInt() (*big.Int, error) {
+	if err := a.Validate(); err != nil {
+		return nil, err
+	}
+	value, ok := new(big.Int).SetString(a.BaseUnits, 10)
+	if !ok {
+		return nil, fmt.Errorf("amount base units are invalid")
+	}
+	return value, nil
+}
+
 func decimalToBaseUnits(value string, decimals uint8) (*big.Int, error) {
 	if value == "" || strings.TrimSpace(value) != value || strings.HasPrefix(value, "+") || strings.HasPrefix(value, "-") {
 		return nil, fmt.Errorf("amount decimal must be a canonical non-negative decimal string")
@@ -102,6 +129,10 @@ type Token struct {
 	Decimals uint8  `json:"decimals"`
 }
 
+func (t Token) IsZero() bool {
+	return t.ChainID == "" && t.Standard == "" && t.Address == "" && t.Symbol == "" && t.Decimals == 0
+}
+
 func (t Token) Validate() error {
 	if err := validateChainID(t.ChainID); err != nil {
 		return err
@@ -121,44 +152,122 @@ func (t Token) Validate() error {
 	return nil
 }
 
+// ValidatePhase12Token requires a non-zero EVM token address in addition to Token.Validate.
+func (t Token) ValidatePhase12Token(name string) error {
+	if err := t.Validate(); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if err := validateNonZeroEVMAddress(name+" address", t.Address); err != nil {
+		return err
+	}
+	return nil
+}
+
+// PayrollVariant selects the allowlisted Payroll contract execution shape.
+type PayrollVariant string
+
+const (
+	PayrollVariantSingle              PayrollVariant = "SINGLE"
+	PayrollVariantBatchSingleTokenOut PayrollVariant = "BATCH_SINGLE_TOKEN_OUT"
+	PayrollVariantBatchMultiTokenOut  PayrollVariant = "BATCH_MULTI_TOKEN_OUT"
+)
+
+func (v PayrollVariant) Valid() bool {
+	switch v {
+	case PayrollVariantSingle, PayrollVariantBatchSingleTokenOut, PayrollVariantBatchMultiTokenOut:
+		return true
+	default:
+		return false
+	}
+}
+
+// Schema version constants for financial parameter shapes.
+const (
+	// FinancialSchemaLegacy is the pre-Phase-12 shape (readable, not Phase-12-executable).
+	FinancialSchemaLegacy uint8 = 0
+	// FinancialSchemaPhase12 is the Phase 12 execution-critical shape.
+	FinancialSchemaPhase12 uint8 = 1
+)
+
+// Recipient is one payroll payment line.
+//
+// Legacy (schema 0): Address + Amount only.
+// Phase 12 (schema 1): Address + TokenOut + AmountIn + MinAmountOut.
 type Recipient struct {
 	Address string `json:"address"`
-	Amount  Amount `json:"amount"`
+	// Amount is the legacy Phase 3 recipient amount. It is omitempty so Phase 12
+	// lines do not re-emit it.
+	Amount Amount `json:"amount,omitempty"`
+	// TokenOut is the Phase 12 destination token for this line.
+	TokenOut Token `json:"token_out,omitempty"`
+	// AmountIn is the Phase 12 input amount for this line.
+	AmountIn Amount `json:"amount_in,omitempty"`
+	// MinAmountOut is the Phase 12 minimum output for this line.
+	// It must be explicitly set and strictly positive; zero is rejected and
+	// never silently defaulted.
+	MinAmountOut Amount `json:"min_amount_out,omitempty"`
 }
 
+// PayrollParameters is the PAYROLL financial payload.
+//
+// SchemaVersion 0 with no Phase 12 material: legacy shape (Token, Recipients with
+// Amount, Total). SchemaVersion must be FinancialSchemaPhase12 (1) for any Phase
+// 12-shaped payload; mixed Phase 12 fields with schema 0 are rejected on create.
+// IsPhase12 may still detect Phase 12 field presence when schema is 0 so mixed
+// payloads fail closed rather than falling back to legacy validation.
+//
+// Old shapes remain readable and digest-stable but are not Phase12Executable.
 type PayrollParameters struct {
-	Token      Token       `json:"token"`
+	SchemaVersion uint8          `json:"schema_version,omitempty"`
+	Variant       PayrollVariant `json:"variant,omitempty"`
+	// TokenIn is the Phase 12 source token.
+	TokenIn Token `json:"token_in,omitempty"`
+	// Token is the legacy Phase 3 source token.
+	Token Token `json:"token,omitempty"`
+	// Recipients are ordered and digest-significant. Order is preserved.
 	Recipients []Recipient `json:"recipients"`
-	Total      Amount      `json:"total"`
+	// Total must equal the sum of recipient input amounts.
+	Total Amount `json:"total"`
+	// ReferenceID is required for batch variants and is immutable intent metadata.
+	// For SINGLE it is optional (routeAndPay has no on-chain referenceId).
+	ReferenceID string `json:"reference_id,omitempty"`
 }
 
+// SwapQuote freezes quote evidence that must match the approved economic material.
+type SwapQuote struct {
+	QuoteID           string    `json:"quote_id"`
+	Source            string    `json:"source"`
+	ExpectedAmountOut Amount    `json:"expected_amount_out"`
+	MinAmountOut      Amount    `json:"min_amount_out"`
+	Router            string    `json:"router"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	EvidenceReference string    `json:"evidence_reference"`
+}
+
+// SwapParameters is the SWAP financial payload.
+//
+// SchemaVersion 0 with no Phase 12 material: legacy shape (tokens, amounts,
+// quote_reference, slippage). SchemaVersion must be FinancialSchemaPhase12 (1)
+// for Phase 12-shaped payloads; schema 0 with router/recipient/quote/deadline
+// is rejected on create (never auto-upgraded).
 type SwapParameters struct {
+	SchemaVersion  uint8  `json:"schema_version,omitempty"`
 	InputToken     Token  `json:"input_token"`
 	OutputToken    Token  `json:"output_token"`
 	InputAmount    Amount `json:"input_amount"`
 	ExpectedOutput Amount `json:"expected_output"`
 	MinimumOutput  Amount `json:"minimum_output"`
-	QuoteReference string `json:"quote_reference"`
+	// QuoteReference is the legacy opaque quote id. Phase 12 prefers Quote.QuoteID.
+	QuoteReference string `json:"quote_reference,omitempty"`
 	MaxSlippageBPS uint16 `json:"max_slippage_bps"`
-}
-
-type BridgeParameters struct {
-	SourceChainID      string `json:"source_chain_id"`
-	DestinationChainID string `json:"destination_chain_id"`
-	SourceToken        Token  `json:"source_token"`
-	SourceAmount       Amount `json:"source_amount"`
-	DestinationAmount  Amount `json:"destination_amount"`
-	DestinationAddress string `json:"destination_address"`
-	PlanReference      string `json:"plan_reference"`
-}
-
-type ANSParameters struct {
-	NormalizedName string `json:"normalized_name"`
-	NameVersion    string `json:"name_version"`
-	TermSeconds    uint64 `json:"term_seconds"`
-	Controller     string `json:"controller"`
-	CostToken      Token  `json:"cost_token"`
-	Cost           Amount `json:"cost"`
+	// Phase 12 execution-critical fields.
+	Router    string     `json:"router,omitempty"`
+	Recipient string     `json:"recipient,omitempty"`
+	Quote     *SwapQuote `json:"quote,omitempty"`
+	// Deadline is the executeSwap unix deadline boundary as RFC3339 time in
+	// canonical material. It is independent of Constraints.Deadline but must
+	// not permit execution after the quote expires.
+	Deadline time.Time `json:"deadline,omitempty"`
 }
 
 // FinancialParameters is a closed discriminated union. Exactly one member must
@@ -213,128 +322,6 @@ func (p FinancialParameters) validate(kind Type) error {
 	}
 }
 
-func (p PayrollParameters) validate() error {
-	if err := p.Token.Validate(); err != nil {
-		return err
-	}
-	if len(p.Recipients) == 0 || len(p.Recipients) > 500 {
-		return fmt.Errorf("payroll requires 1 to 500 recipients")
-	}
-	total := new(big.Int)
-	for i, recipient := range p.Recipients {
-		if err := validateText("recipient address", recipient.Address); err != nil {
-			return fmt.Errorf("recipient %d: %w", i, err)
-		}
-		if err := recipient.Amount.Validate(); err != nil {
-			return fmt.Errorf("recipient %d: %w", i, err)
-		}
-		if recipient.Amount.Decimals != p.Token.Decimals {
-			return fmt.Errorf("recipient %d amount decimals do not match token", i)
-		}
-		value, _ := new(big.Int).SetString(recipient.Amount.BaseUnits, 10)
-		total.Add(total, value)
-	}
-	if err := p.Total.Validate(); err != nil {
-		return err
-	}
-	if p.Total.Decimals != p.Token.Decimals || total.String() != p.Total.BaseUnits {
-		return fmt.Errorf("payroll total does not match recipient amounts")
-	}
-	return nil
-}
-
-func (p SwapParameters) validate() error {
-	if err := p.InputToken.Validate(); err != nil {
-		return err
-	}
-	if err := p.OutputToken.Validate(); err != nil {
-		return err
-	}
-	for _, item := range []struct {
-		name     string
-		amount   Amount
-		decimals uint8
-	}{{"input", p.InputAmount, p.InputToken.Decimals}, {"expected output", p.ExpectedOutput, p.OutputToken.Decimals}, {"minimum output", p.MinimumOutput, p.OutputToken.Decimals}} {
-		if err := item.amount.Validate(); err != nil {
-			return fmt.Errorf("%s amount: %w", item.name, err)
-		}
-		if item.amount.Decimals != item.decimals {
-			return fmt.Errorf("%s amount decimals do not match token", item.name)
-		}
-	}
-	if err := validateText("quote reference", p.QuoteReference); err != nil {
-		return err
-	}
-	if p.MaxSlippageBPS > 10_000 {
-		return fmt.Errorf("maximum slippage cannot exceed 10000 basis points")
-	}
-	minimum, _ := new(big.Int).SetString(p.MinimumOutput.BaseUnits, 10)
-	expected, _ := new(big.Int).SetString(p.ExpectedOutput.BaseUnits, 10)
-	if minimum.Cmp(expected) > 0 {
-		return fmt.Errorf("minimum output cannot exceed expected output")
-	}
-	return nil
-}
-
-func (p BridgeParameters) validate() error {
-	if err := validateChainID(p.SourceChainID); err != nil {
-		return err
-	}
-	if err := validateChainID(p.DestinationChainID); err != nil {
-		return err
-	}
-	if p.SourceChainID == p.DestinationChainID {
-		return fmt.Errorf("bridge source and destination chains must differ")
-	}
-	if err := p.SourceToken.Validate(); err != nil {
-		return err
-	}
-	if p.SourceToken.ChainID != p.SourceChainID {
-		return fmt.Errorf("bridge source token chain does not match source chain")
-	}
-	if err := p.SourceAmount.Validate(); err != nil {
-		return err
-	}
-	if err := p.DestinationAmount.Validate(); err != nil {
-		return err
-	}
-	if p.SourceAmount.Decimals != p.SourceToken.Decimals {
-		return fmt.Errorf("bridge source amount decimals do not match token")
-	}
-	if err := validateText("destination address", p.DestinationAddress); err != nil {
-		return err
-	}
-	return validateText("bridge plan reference", p.PlanReference)
-}
-
-func (p ANSParameters) validate() error {
-	if err := validateText("normalized name", p.NormalizedName); err != nil {
-		return err
-	}
-	if p.NormalizedName != strings.ToLower(p.NormalizedName) || strings.TrimSuffix(p.NormalizedName, ".") != p.NormalizedName {
-		return fmt.Errorf("ANS name must be normalized lowercase without a trailing dot")
-	}
-	if err := validateText("name version", p.NameVersion); err != nil {
-		return err
-	}
-	if p.TermSeconds == 0 {
-		return fmt.Errorf("ANS term must be positive")
-	}
-	if err := validateText("ANS controller", p.Controller); err != nil {
-		return err
-	}
-	if err := p.CostToken.Validate(); err != nil {
-		return err
-	}
-	if err := p.Cost.Validate(); err != nil {
-		return err
-	}
-	if p.Cost.Decimals != p.CostToken.Decimals {
-		return fmt.Errorf("ANS cost decimals do not match token")
-	}
-	return nil
-}
-
 func cloneFinancial(p FinancialParameters) FinancialParameters {
 	result := p
 	if p.Payroll != nil {
@@ -344,6 +331,10 @@ func cloneFinancial(p FinancialParameters) FinancialParameters {
 	}
 	if p.Swap != nil {
 		value := *p.Swap
+		if p.Swap.Quote != nil {
+			quote := *p.Swap.Quote
+			value.Quote = &quote
+		}
 		result.Swap = &value
 	}
 	if p.Bridge != nil {

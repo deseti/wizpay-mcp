@@ -161,9 +161,10 @@ func newIntentView(intent intents.Intent) (intentView, error) {
 	}
 	switch intent.Type() {
 	case intents.TypePayroll:
-		view.spendToken, view.spendAmount = tokenReference(financial.Payroll.Token), financial.Payroll.Total
-		view.chains = []string{financial.Payroll.Token.ChainID}
-		view.tokens = []TokenReference{tokenReference(financial.Payroll.Token)}
+		source := financial.Payroll.SourceToken()
+		view.spendToken, view.spendAmount = tokenReference(source), financial.Payroll.Total
+		view.chains = []string{source.ChainID}
+		view.tokens = []TokenReference{tokenReference(source)}
 		for _, recipient := range financial.Payroll.Recipients {
 			view.recipients = append(view.recipients, recipient.Address)
 		}

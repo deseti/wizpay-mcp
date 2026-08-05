@@ -8,6 +8,13 @@ import (
 
 // Restore reconstructs a persisted intent and revalidates its immutable
 // material and digest. It performs no I/O and grants no authorization.
+//
+// Historical restore invariants:
+//   - Representation normalization only (trim/UTC/clone); no schema stamping.
+//   - No address-case rewriting (would change digests frozen before Phase 12).
+//   - No invention of execution-critical Phase 12 fields.
+//   - Legacy schema_version 0 remains 0; Phase12Executable stays false.
+//   - No silent upgrade or migration of approved material.
 func Restore(params Params, status Status, digest string, lifecycleRevision uint64) (Intent, error) {
 	params = normalizeParams(params)
 	if err := validateParams(params); err != nil {

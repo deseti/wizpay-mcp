@@ -25,11 +25,15 @@ Amounts always contain exact human decimal and base-unit strings plus decimals. 
 
 | Type | Required normalized fields |
 |---|---|
-| PAYROLL | input token; ordered recipient list; exact per-recipient amounts; exact total; batch memo hash if present |
-| SWAP | input/output tokens; exact input; quoted/expected output; minimum output; max slippage bps; quote ID and expiry |
+| PAYROLL (legacy schema 0) | `token`; ordered `recipients[{address,amount}]`; exact `total` — readable/restorable; **not** Phase-12-executable |
+| PAYROLL (Phase 12 schema 1) | explicit `schema_version=1`; `variant` (`SINGLE` \| `BATCH_SINGLE_TOKEN_OUT` \| `BATCH_MULTI_TOKEN_OUT`); `token_in`; ordered `recipients[{address,token_out,amount_in,min_amount_out}]` (max 256, no duplicate addresses; each `min_amount_out` strictly positive); `total` = sum(`amount_in`); batch `reference_id`; route `ALLOWLISTED_CONTRACT` / `WIZPAY_PAYROLL` / registry version `1` |
+| SWAP (legacy schema 0) | input/output tokens; amounts; `quote_reference`; max slippage bps — readable/restorable; **not** Phase-12-executable |
+| SWAP (Phase 12 schema 1) | explicit `schema_version=1`; tokens; amounts; max slippage bps; `minimum_output` ≥ ceil(expected × (10000 − bps) / 10000) and > 0; immutable `router`; explicit `recipient`; frozen `quote{quote_id,source,expected,min,router,expires_at,evidence_reference}`; `deadline` ≤ quote expiry; route `ALLOWLISTED_CONTRACT` / `WIZPAY_SWAP_EXECUTOR` / registry version `1` |
 | BRIDGE | source/destination chain IDs; source token; exact source/destination amounts; destination recipient; bridge plan/message route and expiry |
 | ANS_REGISTRATION | chain ID; normalized name; normalization rules version; term; controller/recipient; exact cost token/amount; registration route |
 | WITHDRAWAL | token; exact amount; exact recipient; optional safe memo; withdrawal route |
+
+Phase 12 financial fields are digest-significant and never invented at creation, restore, or execution time. New Phase 12 shapes must carry explicit `schema_version=1`; schema `0` with Phase 12 fields is rejected (never auto-stamped). Historical intents without Phase 12 fields remain readable with `schema_version=0`; they are not silently upgraded and are not Phase-12-executable.
 
 ## Freeze boundary
 

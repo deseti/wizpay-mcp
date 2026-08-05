@@ -117,8 +117,11 @@ type Intent struct {
 }
 
 // NewDraft validates a typed intent before its material fields are frozen.
+// Representation is normalized; schema versions and economic fields are never
+// invented. Phase 12 shapes must carry an explicit schema_version.
 func NewDraft(params Params) (Intent, error) {
 	params = normalizeParams(params)
+	normalizeCreationAddresses(&params)
 	if err := validateParams(params); err != nil {
 		return Intent{}, apperrors.Wrap(apperrors.CodeValidationError, "Intent is invalid.", false, true, true, err)
 	}
@@ -133,6 +136,7 @@ func (i Intent) ReviseDraft(params Params) (Intent, error) {
 		return Intent{}, err
 	}
 	params = normalizeParams(params)
+	normalizeCreationAddresses(&params)
 	if err := validateParams(params); err != nil {
 		return Intent{}, apperrors.Wrap(apperrors.CodeValidationError, "Intent is invalid.", false, true, true, err)
 	}
@@ -198,12 +202,26 @@ func validateParams(p Params) error {
 	}
 	switch p.Type {
 	case TypePayroll:
-		if p.Financial.Payroll.Token.ChainID != p.Ownership.ChainID {
+		token := p.Financial.Payroll.SourceToken()
+		if token.ChainID != p.Ownership.ChainID {
 			return fmt.Errorf("payroll token chain does not match owning wallet chain")
+		}
+		if p.Financial.Payroll.IsPhase12() {
+			if err := validatePayrollRoute(p.Route); err != nil {
+				return err
+			}
 		}
 	case TypeSwap:
 		if p.Financial.Swap.InputToken.ChainID != p.Ownership.ChainID {
 			return fmt.Errorf("swap input token chain does not match owning wallet chain")
+		}
+		if p.Financial.Swap.IsPhase12() {
+			if err := p.Financial.Swap.validateWithTimeline(p.CreatedAt, p.Constraints.Deadline, p.ExpiresAt); err != nil {
+				return err
+			}
+			if err := validateSwapRoute(p.Route); err != nil {
+				return err
+			}
 		}
 	case TypeBridge:
 		if p.Financial.Bridge.SourceChainID != p.Ownership.ChainID {
@@ -226,6 +244,39 @@ func validateParams(p Params) error {
 	return p.Constraints.validate(p.CreatedAt, p.ExpiresAt)
 }
 
+func validatePayrollRoute(route Route) error {
+	if route.Type != RouteAllowlistedContract {
+		return fmt.Errorf("phase 12 payroll requires ALLOWLISTED_CONTRACT route")
+	}
+	if route.Reference != RouteReferencePayroll {
+		return fmt.Errorf("phase 12 payroll route reference must be %s", RouteReferencePayroll)
+	}
+	if route.Version != RouteVersionPayroll {
+		return fmt.Errorf("phase 12 payroll route version must be %d", RouteVersionPayroll)
+	}
+	return nil
+}
+
+func validateSwapRoute(route Route) error {
+	if route.Type != RouteAllowlistedContract {
+		return fmt.Errorf("phase 12 swap requires ALLOWLISTED_CONTRACT route")
+	}
+	if route.Reference != RouteReferenceSwap {
+		return fmt.Errorf("phase 12 swap route reference must be %s", RouteReferenceSwap)
+	}
+	if route.Version != RouteVersionSwap {
+		return fmt.Errorf("phase 12 swap route version must be %d", RouteVersionSwap)
+	}
+	return nil
+}
+
+// normalizeParams performs representation-only normalization shared by
+// NewDraft, ReviseDraft, and Restore.
+//
+// It never invents schema_version or other immutable economic metadata.
+// It does not lowercase EVM addresses: address case is part of historically
+// frozen material, and Restore must not rewrite digests. Creation paths apply
+// address lowercasing via normalizeCreationAddresses after this step.
 func normalizeParams(p Params) Params {
 	p.IntentID = strings.TrimSpace(p.IntentID)
 	p.ClientRequestID = strings.TrimSpace(p.ClientRequestID)
@@ -244,7 +295,33 @@ func normalizeParams(p Params) Params {
 	p.ExpiresAt = p.ExpiresAt.UTC()
 	p.Constraints.Deadline = p.Constraints.Deadline.UTC()
 	p.Financial = cloneFinancial(p.Financial)
+	// Time representation only — no economic fields invented. Historical swap
+	// payloads have nil Quote and zero Deadline, so these branches are no-ops.
+	if p.Financial.Swap != nil {
+		if p.Financial.Swap.Quote != nil {
+			p.Financial.Swap.Quote.ExpiresAt = p.Financial.Swap.Quote.ExpiresAt.UTC()
+		}
+		if !p.Financial.Swap.Deadline.IsZero() {
+			p.Financial.Swap.Deadline = p.Financial.Swap.Deadline.UTC()
+		}
+	}
 	return p
+}
+
+// normalizeCreationAddresses lowercases valid EVM addresses for new drafts and
+// draft revisions only. Restore must not call this: historical digests were
+// frozen from material that was not address-case-rewritten.
+func normalizeCreationAddresses(p *Params) {
+	if p == nil {
+		return
+	}
+	normalizeOwnershipWalletAddress(&p.Ownership)
+	if p.Financial.Payroll != nil {
+		normalizePayrollAddresses(p.Financial.Payroll)
+	}
+	if p.Financial.Swap != nil {
+		normalizeSwapAddresses(p.Financial.Swap)
+	}
 }
 
 type materialEnvelope struct {
