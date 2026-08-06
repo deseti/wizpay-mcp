@@ -117,6 +117,19 @@ type Verifier struct {
 	observations *ObservationTracker
 }
 
+// VerificationObservation is the provider verifier's bounded internal handoff
+// to a capability-specific verifier. Result remains the public runtime
+// outcome; Receipt is the exact observation used to produce it and Reference
+// is the updated safe durable reference. A composed verifier may inspect the
+// receipt only when FinalSuccess is true.
+type VerificationObservation struct {
+	Result       runtime.VerificationResult
+	Reference    Reference
+	Receipt      Receipt
+	HasReceipt   bool
+	FinalSuccess bool
+}
+
 func NewVerifier(chain ChainVerifier, resolver ReferenceResolver, config VerifierConfig, now func() time.Time) (*Verifier, error) {
 	if chain == nil || resolver == nil || now == nil {
 		return nil, fmt.Errorf("provider verifier dependencies are required")
@@ -137,29 +150,42 @@ func NewVerifier(chain ChainVerifier, resolver ReferenceResolver, config Verifie
 // execution supplies only its identity: the reference alone names the
 // transaction, and the runtime has already scoped it to this execution.
 func (v *Verifier) Verify(ctx context.Context, value execution.Execution, encoded string) (runtime.VerificationResult, error) {
+	observation, err := v.VerifyObservation(ctx, value, encoded)
+	if err != nil {
+		return runtime.VerificationResult{}, err
+	}
+	return observation.Result, nil
+}
+
+// VerifyObservation performs the generic provider reconciliation and chain
+// verification exactly once, returning the same runtime result as Verify plus
+// the exact receipt used for a final generic success. It never performs domain
+// verification and never reads the receipt more than once.
+func (v *Verifier) VerifyObservation(ctx context.Context, value execution.Execution, encoded string) (VerificationObservation, error) {
 	// A reference this layer cannot parse is never treated as absence of a
 	// transaction. It is surfaced as ambiguous so the runtime holds the
 	// execution for recovery instead of assuming an outcome.
 	reference, err := ParseReference(encoded)
 	if err != nil {
-		return runtime.VerificationResult{}, err
+		return VerificationObservation{}, err
 	}
 	reference, err = v.resolveHash(ctx, value.ExecutionID(), reference)
 	if err != nil {
-		return runtime.VerificationResult{}, err
+		return VerificationObservation{}, err
 	}
 	if reference.TransactionHash == "" {
 		// The provider has not yet reported an on-chain transaction. Pending
 		// preserves whatever reference material is already known.
-		return v.pending(reference)
+		result, pendingErr := v.pending(reference)
+		return VerificationObservation{Result: result, Reference: reference}, pendingErr
 	}
 	receipt, err := v.chain.TransactionReceipt(ctx, reference.ChainID, reference.TransactionHash)
 	if err != nil {
 		// Chain unavailability is not evidence of failure.
-		return runtime.VerificationResult{}, runtime.NewVerificationError("CHAIN_VERIFICATION_UNAVAILABLE")
+		return VerificationObservation{}, runtime.NewVerificationError("CHAIN_VERIFICATION_UNAVAILABLE")
 	}
 	if err := v.ensureReceiptMatches(reference, receipt); err != nil {
-		return runtime.VerificationResult{}, err
+		return VerificationObservation{}, err
 	}
 
 	// Observation-integrity detection compares this observation to the previous
@@ -183,14 +209,16 @@ func (v *Verifier) Verify(ctx context.Context, value execution.Execution, encode
 	if signal.Inconsistent() || receipt.Status == ReceiptReorgInconsistent {
 		// Stay pending so the runtime continues reconciling the same execution.
 		// Verification PENDING never completes and never resubmits.
-		return v.pending(reference)
+		result, pendingErr := v.pending(reference)
+		return VerificationObservation{Result: result, Reference: reference, Receipt: receipt, HasReceipt: true}, pendingErr
 	}
 
 	outcome := Outcome{Reference: reference, HasReference: true, ObservedAt: v.now().UTC()}
 	switch receipt.Status {
 	case ReceiptSuccess:
 		if receipt.Confirmations < v.config.MinConfirmations {
-			return v.pending(reference)
+			result, pendingErr := v.pending(reference)
+			return VerificationObservation{Result: result, Reference: reference, Receipt: receipt, HasReceipt: true}, pendingErr
 		}
 		// Stabilization: only the current canonical SUCCESS receipt at the
 		// configured confirmation depth may verify, and only when it is
@@ -200,13 +228,16 @@ func (v *Verifier) Verify(ctx context.Context, value execution.Execution, encode
 		outcome.Class = ClassConfirmedOnchainFailed
 		outcome.ReasonCode = "ONCHAIN_EXECUTION_REVERTED"
 	case ReceiptUnknown, ReceiptReorgInconsistent:
-		return v.pending(reference)
+		result, pendingErr := v.pending(reference)
+		return VerificationObservation{Result: result, Reference: reference, Receipt: receipt, HasReceipt: true}, pendingErr
 	default:
 		// An unrecognized receipt status fails closed to pending rather than
 		// being interpreted as either success or failure.
-		return v.pending(reference)
+		result, pendingErr := v.pending(reference)
+		return VerificationObservation{Result: result, Reference: reference, Receipt: receipt, HasReceipt: true}, pendingErr
 	}
-	return outcome.VerificationResult()
+	result, resultErr := outcome.VerificationResult()
+	return VerificationObservation{Result: result, Reference: reference, Receipt: receipt, HasReceipt: true, FinalSuccess: receipt.Status == ReceiptSuccess}, resultErr
 }
 
 // resolveHash asks the provider for the on-chain hash when one is not already

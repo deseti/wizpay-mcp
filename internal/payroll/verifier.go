@@ -46,7 +46,15 @@ type DomainResult struct {
 	// Non-empty for batch variants even when aggregate fields match.
 	Unprovable []string
 	// TransactionHash echoes the evidence hash that was examined.
-	TransactionHash string
+	TransactionHash   string
+	definitiveFailure bool
+}
+
+// DefinitiveFailure reports whether a DOMAIN_FAILED result is grounded in a
+// canonical event whose immutable financial fields contradict the intent.
+// Domain-owned orchestration and material failures deliberately return false.
+func (r DomainResult) DefinitiveFailure() bool {
+	return r.Status == DomainFailed && r.definitiveFailure
 }
 
 // FinancialComplete reports whether the result authorizes Payroll financial
@@ -188,8 +196,8 @@ func (v Verifier) verifySingle(financial intents.PayrollParameters, ownership in
 		return base, nil
 	}
 	if ambiguous {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_AMBIGUOUS"
+		base.Status = DomainUnverified
+		base.ReasonCode = "PAYMENT_ROUTED_DECODE_ERROR"
 		return base, nil
 	}
 	if len(matches) == 0 {
@@ -199,9 +207,7 @@ func (v Verifier) verifySingle(financial intents.PayrollParameters, ownership in
 	}
 	if len(matches) > 1 {
 		// Multiple identical or conflicting PaymentRouted events: fail closed.
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_AMBIGUOUS"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_AMBIGUOUS"), nil
 	}
 	event := matches[0]
 	line := financial.Recipients[0]
@@ -215,45 +221,29 @@ func (v Verifier) verifySingle(financial intents.PayrollParameters, ownership in
 	}
 
 	if !contracts.AddressesEqual(event.Sender, ownership.WalletAddress) {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_SENDER_MISMATCH"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_SENDER_MISMATCH"), nil
 	}
 	if !contracts.AddressesEqual(event.Recipient, line.Address) {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_RECIPIENT_MISMATCH"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_RECIPIENT_MISMATCH"), nil
 	}
 	if !contracts.AddressesEqual(event.TokenIn, financial.TokenIn.Address) {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_TOKEN_IN_MISMATCH"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_TOKEN_IN_MISMATCH"), nil
 	}
 	if !contracts.AddressesEqual(event.TokenOut, line.TokenOut.Address) {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_TOKEN_OUT_MISMATCH"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_TOKEN_OUT_MISMATCH"), nil
 	}
 	if event.AmountIn == nil || event.AmountIn.Cmp(amountIn) != 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_AMOUNT_IN_MISMATCH"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_AMOUNT_IN_MISMATCH"), nil
 	}
 	if event.AmountOut == nil || event.AmountOut.Sign() < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_AMOUNT_OUT_INVALID"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_AMOUNT_OUT_INVALID"), nil
 	}
 	// Settlement proof: actual output must meet the frozen minimum.
 	if event.AmountOut.Cmp(minOut) < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_AMOUNT_OUT_BELOW_MINIMUM"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_AMOUNT_OUT_BELOW_MINIMUM"), nil
 	}
 	if event.FeeAmount == nil || event.FeeAmount.Sign() < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "PAYMENT_ROUTED_FEE_INVALID"
-		return base, nil
+		return definitive(base, "PAYMENT_ROUTED_FEE_INVALID"), nil
 	}
 
 	base.Status = DomainVerified
@@ -279,8 +269,8 @@ func (v Verifier) verifyBatch(financial intents.PayrollParameters, ownership int
 		return base, nil
 	}
 	if ambiguous {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_AMBIGUOUS"
+		base.Status = DomainUnverified
+		base.ReasonCode = "BATCH_PAYMENT_ROUTED_DECODE_ERROR"
 		return base, nil
 	}
 	if len(matches) == 0 {
@@ -289,51 +279,35 @@ func (v Verifier) verifyBatch(financial intents.PayrollParameters, ownership int
 		return base, nil
 	}
 	if len(matches) > 1 {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_AMBIGUOUS"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_AMBIGUOUS"), nil
 	}
 	event := matches[0]
 
 	if !contracts.AddressesEqual(event.Sender, ownership.WalletAddress) {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_SENDER_MISMATCH"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_SENDER_MISMATCH"), nil
 	}
 	if event.ReferenceID != financial.ReferenceID {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_REFERENCE_MISMATCH"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_REFERENCE_MISMATCH"), nil
 	}
 	if !contracts.AddressesEqual(event.TokenIn, financial.TokenIn.Address) {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_TOKEN_IN_MISMATCH"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_TOKEN_IN_MISMATCH"), nil
 	}
 	totalIn, err := financial.Total.BaseInt()
 	if err != nil {
 		return DomainResult{}, fmt.Errorf("total: %w", err)
 	}
 	if event.TotalAmountIn == nil || event.TotalAmountIn.Cmp(totalIn) != 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_TOTAL_IN_MISMATCH"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_TOTAL_IN_MISMATCH"), nil
 	}
 	wantCount := big.NewInt(int64(len(financial.Recipients)))
 	if event.RecipientCount == nil || event.RecipientCount.Cmp(wantCount) != 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_RECIPIENT_COUNT_MISMATCH"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_RECIPIENT_COUNT_MISMATCH"), nil
 	}
 	if event.TotalAmountOut == nil || event.TotalAmountOut.Sign() < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_TOTAL_OUT_INVALID"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_TOTAL_OUT_INVALID"), nil
 	}
 	if event.TotalFees == nil || event.TotalFees.Sign() < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_FEES_INVALID"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_FEES_INVALID"), nil
 	}
 
 	// Sum of frozen min_amount_out is a lower bound on aggregate settlement.
@@ -346,9 +320,7 @@ func (v Verifier) verifyBatch(financial intents.PayrollParameters, ownership int
 		minTotalOut.Add(minTotalOut, minOut)
 	}
 	if event.TotalAmountOut.Cmp(minTotalOut) < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "BATCH_PAYMENT_ROUTED_TOTAL_OUT_BELOW_MINIMUM"
-		return base, nil
+		return definitive(base, "BATCH_PAYMENT_ROUTED_TOTAL_OUT_BELOW_MINIMUM"), nil
 	}
 
 	provable := []string{
@@ -362,9 +334,7 @@ func (v Verifier) verifyBatch(financial intents.PayrollParameters, ownership int
 		// Single token-out: event tokenOut must match the shared token_out.
 		tokenOut := financial.Recipients[0].TokenOut.Address
 		if !contracts.AddressesEqual(event.TokenOut, tokenOut) {
-			base.Status = DomainFailed
-			base.ReasonCode = "BATCH_PAYMENT_ROUTED_TOKEN_OUT_MISMATCH"
-			return base, nil
+			return definitive(base, "BATCH_PAYMENT_ROUTED_TOKEN_OUT_MISMATCH"), nil
 		}
 		provable = append(provable, "token_out")
 	case intents.PayrollVariantBatchMultiTokenOut:
@@ -372,9 +342,7 @@ func (v Verifier) verifyBatch(financial intents.PayrollParameters, ownership int
 		// proven. Do not claim token_out match.
 		// Still require a non-zero address so the log is well-formed.
 		if !contracts.ValidAddress(event.TokenOut) {
-			base.Status = DomainFailed
-			base.ReasonCode = "BATCH_PAYMENT_ROUTED_TOKEN_OUT_INVALID"
-			return base, nil
+			return definitive(base, "BATCH_PAYMENT_ROUTED_TOKEN_OUT_INVALID"), nil
 		}
 	}
 
@@ -392,4 +360,11 @@ func failed(code, txHash, _ string) DomainResult {
 		ReasonCode:      code,
 		TransactionHash: strings.ToLower(strings.TrimSpace(txHash)),
 	}
+}
+
+func definitive(result DomainResult, code string) DomainResult {
+	result.Status = DomainFailed
+	result.ReasonCode = code
+	result.definitiveFailure = true
+	return result
 }

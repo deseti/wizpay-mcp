@@ -29,11 +29,19 @@ const (
 // DomainResult is the pure deterministic outcome of Swap event verification.
 // It performs no RPC, wall-clock, or Circle calls.
 type DomainResult struct {
-	Status          DomainStatus
-	ReasonCode      string
-	EventSignature  string
-	Provable        []string
-	TransactionHash string
+	Status            DomainStatus
+	ReasonCode        string
+	EventSignature    string
+	Provable          []string
+	TransactionHash   string
+	definitiveFailure bool
+}
+
+// DefinitiveFailure reports whether a DOMAIN_FAILED result is grounded in a
+// canonical event whose immutable financial fields contradict the intent.
+// Domain-owned orchestration and material failures deliberately return false.
+func (r DomainResult) DefinitiveFailure() bool {
+	return r.Status == DomainFailed && r.definitiveFailure
 }
 
 // FinancialComplete reports whether the result authorizes Swap financial completion.
@@ -125,8 +133,8 @@ func (v Verifier) Verify(intent intents.Intent, plan Plan, receipt providers.Rec
 		return base, nil
 	}
 	if ambiguous {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_AMBIGUOUS"
+		base.Status = DomainUnverified
+		base.ReasonCode = "SWAP_EXECUTED_DECODE_ERROR"
 		return base, nil
 	}
 	if len(matches) == 0 {
@@ -136,9 +144,7 @@ func (v Verifier) Verify(intent intents.Intent, plan Plan, receipt providers.Rec
 		return base, nil
 	}
 	if len(matches) > 1 {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_AMBIGUOUS"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_AMBIGUOUS"), nil
 	}
 	event := matches[0]
 
@@ -153,63 +159,41 @@ func (v Verifier) Verify(intent intents.Intent, plan Plan, receipt providers.Rec
 
 	// User is the wallet that initiated executeSwap (ownership wallet).
 	if !contracts.AddressesEqual(event.User, ownershipWallet(intent)) {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_USER_MISMATCH"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_USER_MISMATCH"), nil
 	}
 	if !contracts.AddressesEqual(event.Router, financial.Router) {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_ROUTER_MISMATCH"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_ROUTER_MISMATCH"), nil
 	}
 	if !contracts.AddressesEqual(event.TokenIn, financial.InputToken.Address) {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_TOKEN_IN_MISMATCH"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_TOKEN_IN_MISMATCH"), nil
 	}
 	if !contracts.AddressesEqual(event.TokenOut, financial.OutputToken.Address) {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_TOKEN_OUT_MISMATCH"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_TOKEN_OUT_MISMATCH"), nil
 	}
 	if event.AmountIn == nil || event.AmountIn.Cmp(amountIn) != 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_AMOUNT_IN_MISMATCH"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_AMOUNT_IN_MISMATCH"), nil
 	}
 	if event.AmountOut == nil || event.AmountOut.Sign() < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_AMOUNT_OUT_INVALID"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_AMOUNT_OUT_INVALID"), nil
 	}
 	// Critical: compare against MinimumOutput only. ExpectedOutput is quote info.
 	if event.AmountOut.Cmp(minOut) < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_AMOUNT_OUT_BELOW_MINIMUM"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_AMOUNT_OUT_BELOW_MINIMUM"), nil
 	}
 	if !contracts.AddressesEqual(event.Recipient, financial.Recipient) {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_RECIPIENT_MISMATCH"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_RECIPIENT_MISMATCH"), nil
 	}
 	if event.FeeAmount == nil || event.FeeAmount.Sign() < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_FEE_INVALID"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_FEE_INVALID"), nil
 	}
 	if event.NetAmountIn == nil || event.NetAmountIn.Sign() < 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_NET_AMOUNT_IN_INVALID"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_NET_AMOUNT_IN_INVALID"), nil
 	}
 	// Fee consistency with contract semantics: feeAmount + netAmountIn == amountIn.
 	// This validates observed emission only; it does not introduce an MCP fee.
 	sum := new(big.Int).Add(event.FeeAmount, event.NetAmountIn)
 	if sum.Cmp(event.AmountIn) != 0 {
-		base.Status = DomainFailed
-		base.ReasonCode = "SWAP_EXECUTED_FEE_SEMANTICS_MISMATCH"
-		return base, nil
+		return definitive(base, "SWAP_EXECUTED_FEE_SEMANTICS_MISMATCH"), nil
 	}
 
 	base.Status = DomainVerified
@@ -302,4 +286,11 @@ func topicsEqual(a, b []byte) bool {
 		}
 	}
 	return true
+}
+
+func definitive(result DomainResult, code string) DomainResult {
+	result.Status = DomainFailed
+	result.ReasonCode = code
+	result.definitiveFailure = true
+	return result
 }
