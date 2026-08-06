@@ -36,15 +36,6 @@ type rpcResponse struct {
 	Error  *rpcError       `json:"error"`
 }
 
-// receiptPayload is the subset of an EVM transaction receipt needed to verify
-// an execution. Logs and other payload fields are deliberately not decoded.
-type receiptPayload struct {
-	Status          string `json:"status"`
-	TransactionHash string `json:"transactionHash"`
-	BlockNumber     string `json:"blockNumber"`
-	BlockHash       string `json:"blockHash"`
-}
-
 // Client is the narrow read-only Arc JSON-RPC client.
 type Client struct {
 	config  Config
@@ -116,6 +107,10 @@ func (c *Client) BlockNumber(ctx context.Context) (uint64, error) {
 // Receipt reads a transaction receipt. A missing receipt is reported as not
 // found rather than as an error, because an unmined transaction is a normal
 // pending state and must never be mistaken for failure.
+//
+// Logs are extracted only from this known receipt (never eth_getLogs). Malformed
+// or oversized log material fails closed as an unreadable receipt rather than
+// returning partial evidence that domain verification might misread.
 func (c *Client) Receipt(ctx context.Context, transactionHash string) (receiptPayload, bool, error) {
 	if err := c.ensureChainIdentity(ctx); err != nil {
 		return receiptPayload{}, false, err
@@ -129,6 +124,11 @@ func (c *Client) Receipt(ctx context.Context, transactionHash string) (receiptPa
 	}
 	var payload receiptPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
+		return receiptPayload{}, false, fmt.Errorf("Arc receipt is unreadable")
+	}
+	// Validate log bounds early so a hostile payload cannot reach the verifier
+	// with partial/invalid log material. Empty logs are fine.
+	if _, err := normalizeReceiptLogs(payload.Logs, strings.ToLower(strings.TrimSpace(transactionHash))); err != nil {
 		return receiptPayload{}, false, fmt.Errorf("Arc receipt is unreadable")
 	}
 	return payload, true, nil

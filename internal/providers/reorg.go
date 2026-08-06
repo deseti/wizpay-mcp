@@ -18,6 +18,11 @@ import (
 // When Present is false after a prior present observation, BlockHash/BlockNumber
 // retain the last known inclusion identity so a later reappearance can still be
 // compared. Confirmations are only meaningful while Present is true.
+//
+// LogFingerprint, when non-empty, is a deterministic hash of normalized receipt
+// logs for the observed inclusion. A change under the same block identity is an
+// observation-integrity failure (fail closed). Full log bodies are never stored
+// here or in the adapter reference.
 type ReceiptObservation struct {
 	ChainID         string
 	TransactionHash string
@@ -30,6 +35,9 @@ type ReceiptObservation struct {
 	// Known is true when this observation carries durable inclusion history
 	// (present now, or retained last-known inclusion after a missing receipt).
 	Known bool
+	// LogFingerprint is the hex SHA-256 of normalized logs when any logs were
+	// observed. Empty means no logs (or pre-log-fingerprint observations).
+	LogFingerprint string
 }
 
 // HasInclusion reports whether last-known inclusion identity is available.
@@ -59,6 +67,9 @@ const (
 	// ReorgConfirmationsDecreased means confirmation depth fell after a prior
 	// present observation of the same inclusion (head/RPC regression).
 	ReorgConfirmationsDecreased ReorgSignal = "CONFIRMATIONS_DECREASED"
+	// ReorgLogsChanged means normalized receipt logs changed for the same
+	// transaction/block inclusion identity (defensive RPC integrity signal).
+	ReorgLogsChanged ReorgSignal = "LOGS_CHANGED"
 )
 
 func (s ReorgSignal) Inconsistent() bool {
@@ -94,6 +105,16 @@ func CompareReceiptObservations(prior, current ReceiptObservation) ReorgSignal {
 	if prior.Present && prior.Confirmations > 0 && current.Confirmations < prior.Confirmations {
 		return ReorgConfirmationsDecreased
 	}
+	// Log fingerprint mismatch under the same inclusion is fail-closed.
+	// - Both non-empty and unequal → changed
+	// - Prior non-empty, current empty while still present → logs disappeared
+	// An empty prior (legacy observation without logs) does not signal when the
+	// current observation first supplies one.
+	if prior.Present && current.Present && prior.LogFingerprint != "" {
+		if current.LogFingerprint == "" || prior.LogFingerprint != current.LogFingerprint {
+			return ReorgLogsChanged
+		}
+	}
 	return ReorgNone
 }
 
@@ -113,6 +134,7 @@ func MergeObservation(prior, current ReceiptObservation) ReceiptObservation {
 		out.BlockNumber = current.BlockNumber
 		out.Confirmations = current.Confirmations
 		out.Status = current.Status
+		out.LogFingerprint = strings.ToLower(strings.TrimSpace(current.LogFingerprint))
 		return out
 	}
 	// Missing now: retain last known inclusion if any.
@@ -125,6 +147,9 @@ func MergeObservation(prior, current ReceiptObservation) ReceiptObservation {
 		// rebuild confirmation depth against the retained inclusion identity.
 		out.Confirmations = 0
 		out.Status = ReceiptUnknown
+		// Retain log fingerprint with inclusion identity so a reappearance can
+		// still detect log mutation against the last known receipt body.
+		out.LogFingerprint = prior.LogFingerprint
 		return out
 	}
 	out.Known = false
@@ -207,7 +232,13 @@ func (t *ObservationTracker) Evaluate(durablePrior, current ReceiptObservation) 
 }
 
 // ObservationFromReceipt builds a current-pass observation from a chain receipt.
+// Normalized log fingerprint is included when logs are present so successive
+// observations can detect log mutation without persisting full log bodies.
 func ObservationFromReceipt(receipt Receipt, present bool) ReceiptObservation {
+	fp := ""
+	if present && len(receipt.Logs) > 0 {
+		fp = LogFingerprint(receipt.Logs)
+	}
 	return ReceiptObservation{
 		ChainID:         receipt.ChainID,
 		TransactionHash: receipt.TransactionHash,
@@ -217,6 +248,7 @@ func ObservationFromReceipt(receipt Receipt, present bool) ReceiptObservation {
 		Confirmations:   receipt.Confirmations,
 		Present:         present,
 		Known:           present,
+		LogFingerprint:  fp,
 	}
 }
 
@@ -234,6 +266,8 @@ func ReasonCodeForReorg(signal ReorgSignal) string {
 		return "ONCHAIN_REORG_BLOCK_NUMBER_CHANGED"
 	case ReorgConfirmationsDecreased:
 		return "ONCHAIN_REORG_CONFIRMATIONS_DECREASED"
+	case ReorgLogsChanged:
+		return "ONCHAIN_REORG_LOGS_CHANGED"
 	default:
 		return "ONCHAIN_REORG_INCONSISTENT"
 	}

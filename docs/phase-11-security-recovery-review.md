@@ -24,7 +24,7 @@
 | Bridge | Deferred — not implemented |
 | CCTP | Deferred — not implemented |
 | ANS | Deferred — not implemented |
-| Phase 12 business logic (payroll planning, swap quotes/routing, domain settlement success) | Deferred — not started |
+| Phase 12 business logic (payroll planning, swap quotes/routing, domain settlement success) | Steps 1–4 landed offline: intents, planners, UCW contract execution, Arc receipt logs + pure Payroll/Swap domain event verifiers. Worker orchestration / capability enablement / MCP tools remain deferred |
 | Capability enablement (Phase 10 remains disabled) | Deferred — availability separate |
 | Mainnet | Deferred — not configured |
 

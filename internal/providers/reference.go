@@ -48,6 +48,9 @@ type Reference struct {
 	ObsBlockHash     string
 	ObsBlockNumber   uint64
 	ObsConfirmations uint64
+	// ObsLogFingerprint is a hex SHA-256 of normalized receipt logs when any
+	// logs were observed. It is observation integrity only; never full logs.
+	ObsLogFingerprint string
 }
 
 func (r Reference) Validate() error {
@@ -72,6 +75,9 @@ func (r Reference) Validate() error {
 		// Block hashes use the same 32-byte 0x-hex shape as transaction hashes.
 		return fmt.Errorf("provider reference has an invalid observation block hash")
 	}
+	if r.ObsLogFingerprint != "" && !validLogFingerprint(r.ObsLogFingerprint) {
+		return fmt.Errorf("provider reference has an invalid observation log fingerprint")
+	}
 	if err := r.validateObservationMetadata(); err != nil {
 		return err
 	}
@@ -81,7 +87,8 @@ func (r Reference) Validate() error {
 // hasObservationMetadata reports whether any durable receipt-observation field
 // is set on the reference.
 func (r Reference) hasObservationMetadata() bool {
-	return r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0 || r.ObsConfirmations != 0
+	return r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0 ||
+		r.ObsConfirmations != 0 || r.ObsLogFingerprint != ""
 }
 
 func (r Reference) validateObservationMetadata() error {
@@ -113,6 +120,18 @@ func (r *Reference) normalizeObservationMetadata() {
 		r.ObsKnown = true
 		r.ObsBlockHash = strings.ToLower(strings.TrimSpace(r.ObsBlockHash))
 	}
+	if r.ObsLogFingerprint != "" {
+		r.ObsKnown = true
+		r.ObsLogFingerprint = strings.ToLower(strings.TrimSpace(r.ObsLogFingerprint))
+	}
+}
+
+// validLogFingerprint accepts a lowercase 32-byte hex SHA-256 digest (64 chars).
+func validLogFingerprint(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	return lowerHex(value)
 }
 
 // Encode returns the canonical single-line encoding stored as the adapter
@@ -135,7 +154,7 @@ func (r Reference) Encode() (string, error) {
 	if r.TransactionHash != "" {
 		parts = append(parts, "hash="+r.TransactionHash)
 	}
-	if r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0 {
+	if r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0 || r.ObsLogFingerprint != "" {
 		if r.ObsPresent {
 			parts = append(parts, "rp=1")
 		} else {
@@ -153,6 +172,9 @@ func (r Reference) Encode() (string, error) {
 		if r.ObsConfirmations != 0 {
 			parts = append(parts, "cf="+strconv.FormatUint(r.ObsConfirmations, 10))
 		}
+		if r.ObsLogFingerprint != "" {
+			parts = append(parts, "lf="+strings.ToLower(r.ObsLogFingerprint))
+		}
 	}
 	encoded := strings.Join(parts, ";")
 	if len(encoded) > maxReferenceLength {
@@ -164,17 +186,18 @@ func (r Reference) Encode() (string, error) {
 // ReceiptObservation reconstructs durable observation-integrity baseline
 // metadata from this reference. Empty when no observation fields were persisted.
 func (r Reference) ReceiptObservation() ReceiptObservation {
-	if !r.ObsKnown && !r.ObsPresent && r.ObsBlockHash == "" && r.ObsBlockNumber == 0 {
+	if !r.ObsKnown && !r.ObsPresent && r.ObsBlockHash == "" && r.ObsBlockNumber == 0 && r.ObsLogFingerprint == "" {
 		return ReceiptObservation{}
 	}
 	return ReceiptObservation{
 		ChainID:         r.ChainID,
 		TransactionHash: r.TransactionHash,
 		Present:         r.ObsPresent,
-		Known:           r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0,
+		Known:           r.ObsKnown || r.ObsPresent || r.ObsBlockHash != "" || r.ObsBlockNumber != 0 || r.ObsLogFingerprint != "",
 		BlockHash:       strings.ToLower(strings.TrimSpace(r.ObsBlockHash)),
 		BlockNumber:     r.ObsBlockNumber,
 		Confirmations:   r.ObsConfirmations,
+		LogFingerprint:  strings.ToLower(strings.TrimSpace(r.ObsLogFingerprint)),
 	}
 }
 
@@ -183,10 +206,11 @@ func (r Reference) ReceiptObservation() ReceiptObservation {
 func (r Reference) WithReceiptObservation(observation ReceiptObservation) Reference {
 	next := r
 	next.ObsPresent = observation.Present
-	next.ObsKnown = observation.Known || observation.Present || observation.BlockHash != "" || observation.BlockNumber != 0
+	next.ObsKnown = observation.Known || observation.Present || observation.BlockHash != "" || observation.BlockNumber != 0 || observation.LogFingerprint != ""
 	next.ObsBlockHash = strings.ToLower(strings.TrimSpace(observation.BlockHash))
 	next.ObsBlockNumber = observation.BlockNumber
 	next.ObsConfirmations = observation.Confirmations
+	next.ObsLogFingerprint = strings.ToLower(strings.TrimSpace(observation.LogFingerprint))
 	if next.TransactionHash == "" && observation.TransactionHash != "" {
 		next.TransactionHash = strings.ToLower(strings.TrimSpace(observation.TransactionHash))
 	}
@@ -269,6 +293,8 @@ func ParseReference(value string) (Reference, error) {
 				return Reference{}, fmt.Errorf("provider reference has an invalid observation confirmations")
 			}
 			reference.ObsConfirmations = parsed
+		case "lf":
+			reference.ObsLogFingerprint = fieldValue
 		default:
 			return Reference{}, fmt.Errorf("provider reference has an unknown field %q", key)
 		}

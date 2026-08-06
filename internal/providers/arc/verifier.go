@@ -86,12 +86,19 @@ func (v *Verifier) TransactionReceipt(ctx context.Context, chainID, transactionH
 		return pending, nil
 	}
 	blockHash := strings.ToLower(strings.TrimSpace(payload.BlockHash))
+	logs, err := normalizeReceiptLogs(payload.Logs, normalized)
+	if err != nil {
+		// Malformed logs fail closed: never return SUCCESS with untrusted logs,
+		// and never silently drop logs that domain verification would need.
+		return providers.Receipt{}, fmt.Errorf("Arc receipt logs are invalid")
+	}
 	receipt := providers.Receipt{
 		ChainID:         chainID,
 		TransactionHash: normalized,
 		BlockNumber:     blockNumber,
 		BlockHash:       blockHash,
 		Confirmations:   head - blockNumber + 1,
+		Logs:            logs,
 	}
 	switch strings.ToLower(strings.TrimSpace(payload.Status)) {
 	case "0x1":
@@ -103,14 +110,17 @@ func (v *Verifier) TransactionReceipt(ctx context.Context, chainID, transactionH
 		return providers.Receipt{
 			Status: providers.ReceiptUnknown, ChainID: chainID, TransactionHash: normalized,
 			BlockNumber: blockNumber, BlockHash: blockHash, Confirmations: receipt.Confirmations,
+			Logs: logs,
 		}, nil
 	}
 	if receipt.Status == providers.ReceiptSuccess && receipt.Confirmations < v.config.MinConfirmations {
-		// Confirmed too shallow to be treated as final, but block identity is
-		// retained so observation-integrity comparison still has a baseline.
+		// Confirmed too shallow to be treated as final, but block identity and
+		// logs are retained so observation-integrity comparison still has a
+		// baseline and domain verification can run once depth is sufficient.
 		return providers.Receipt{
 			Status: providers.ReceiptUnknown, ChainID: chainID, TransactionHash: normalized,
 			BlockNumber: blockNumber, BlockHash: blockHash, Confirmations: receipt.Confirmations,
+			Logs: logs,
 		}, nil
 	}
 	return receipt, nil

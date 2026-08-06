@@ -30,8 +30,16 @@ const (
 	ReceiptReorgInconsistent ReceiptStatus = "REORG_INCONSISTENT"
 )
 
-// Receipt is the minimal on-chain evidence needed to verify an execution. It
-// carries no logs, no raw response, and no decoded contract payload.
+// Receipt is the bounded on-chain evidence needed to verify an execution.
+//
+// It carries no raw RPC response body and no decoded contract payload. Optional
+// Logs are normalized fields from the already-known transaction receipt only
+// (never eth_getLogs search). Log presence is observation evidence for domain
+// event verification; it is never financial success by itself.
+//
+// Generic chain-level SUCCESS at the configured confirmation depth is still
+// only chain inclusion evidence. Payroll/Swap financial completion additionally
+// requires capability-specific domain event verification against these logs.
 type Receipt struct {
 	Status          ReceiptStatus
 	ChainID         string
@@ -41,6 +49,9 @@ type Receipt struct {
 	// used for observation-integrity comparison across verification passes.
 	BlockHash     string
 	Confirmations uint64
+	// Logs are bounded, normalized receipt logs in deterministic provider order.
+	// Empty when the receipt has no logs or logs were not extracted.
+	Logs []ReceiptLog
 }
 
 // ChainVerifier reads transaction receipts from a chain. Implementations must
@@ -83,13 +94,21 @@ func (c VerifierConfig) Validate() error {
 //
 // The rule it enforces is the reason this type exists: a provider status is
 // never sufficient for VERIFIED. Only a chain receipt, on the chain the
-// reference names, at the required confirmation depth, can verify an
-// execution, and only a receipt can fail one.
+// reference names, at the required confirmation depth, can produce generic
+// chain-level VERIFIED, and only a receipt can fail one.
+//
+// Generic chain-level VERIFIED is inclusion/finality evidence only. It is not
+// Payroll/Swap financial success. Those capabilities require a separate pure
+// domain event verifier (internal/payroll, internal/swap) against receipt logs
+// after this gate. Token-transfer chain verification does not use that domain
+// gate. Orchestration must not treat ClassVerifiedSuccess as domain completion
+// for contract-execution Payroll/Swap without domain event evidence.
 //
 // Observation-integrity tracking compares successive receipts for the same
-// transaction. Inconsistency yields a non-success, reconciliation-only outcome
-// and never triggers resubmission. On Arc this is a defensive guard against
-// contradictory RPC observations, not an expected consensus reorg path.
+// transaction (including log fingerprints when present). Inconsistency yields a
+// non-success, reconciliation-only outcome and never triggers resubmission. On
+// Arc this is a defensive guard against contradictory RPC observations, not an
+// expected consensus reorg path.
 type Verifier struct {
 	chain        ChainVerifier
 	resolver     ReferenceResolver

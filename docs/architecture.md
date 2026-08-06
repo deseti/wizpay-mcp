@@ -220,7 +220,27 @@ These primitives validate and encode already-approved immutable execution requir
 
 Phase 12 Step 3 extends the provider-neutral `providers.Plan` with a closed `CONTRACT_EXECUTION` variant that carries only a sealed `contracts.EncodedCall` (plus a first-submission freshness bound). External callers cannot set `contractAddress`, `callData`, function, or selector fields. The Circle adapter maps sealed plans to the official UCW challenge endpoint `POST /v1/w3s/user/transactions/contractExecution` using wallet identity from the trusted binding, `contractAddress`/`callData` from the EncodedCall, Arc Testnet from trusted configuration, and durable idempotency/`refId` from execution identity. Only `WIZPAY_PAYROLL` and `WIZPAY_SWAP_EXECUTOR` are allowed. Token-transfer plans remain on the existing transfer path. Pre-first-submission expiry uses an injected clock; after `submission_started=true` the runtime reconciles only. Circle challenge creation and `COMPLETE`/`CONFIRMED` are never WizPay `VERIFIED`. Domain payroll/swap packages do not import Circle. Capability enablement, MCP tools, allowances, Bridge/CCTP/ANS, and live transaction tests remain out of scope.
 
-**Provider-plane hardening (Payroll + Swap).** The plane also provides: (1) defensive receipt observation comparison (missing receipt after present, block hash/number change, confirmation depth decrease) that never triggers resubmission—on Arc this protects against RPC/observation inconsistency rather than expected consensus reorgs; (2) bounded non-financial health probes for configured Circle and Arc dependencies; (3) provider-neutral circuit breakers on outbound infrastructure calls; (4) optional sandbox/testnet integration tests that skip unless explicitly enabled. Process liveness (`/health`) does not depend on external providers. See [Phase 11 security and recovery review](phase-11-security-recovery-review.md).
+### Phase 12 Step 4 — Arc receipt logs + Payroll/Swap domain event verification
+
+Phase 12 Step 4 adds **narrow Arc receipt-log extraction** and **pure domain event verifiers** so a generic successful transaction receipt is not sufficient to mark Payroll/Swap financial success.
+
+**Arc receipt logs.** `eth_getTransactionReceipt` on the already-known transaction may yield bounded normalized logs on `providers.Receipt` (address, topics, data, optional log index / tx hash). Bounds: max logs, max topics per log, max data bytes, valid EVM addresses/hashes, deterministic receipt order. There is no eth_getLogs search API and no raw JSON-RPC passthrough. Malformed or oversized log material fails closed. Observation integrity may fingerprint logs (hex SHA-256) and persist only that fingerprint on the adapter reference (`lf=`); full logs are never stored in the reference. Log mutation under the same block identity is reconciliation-only (`LOGS_CHANGED`).
+
+**Provider-neutral evidence.** `providers.Receipt` remains the chain evidence carrier. Logs are observation material for domain packages; they are not financial success. Generic chain-level `VERIFIED` (Arc SUCCESS at min confirmations, default 1) is still only inclusion/finality evidence.
+
+**Domain verifiers.** Pure deterministic gates with no RPC, Circle, or wall-clock:
+
+| Package | Input | Canonical event | Financial complete when |
+|---|---|---|---|
+| `internal/payroll` | frozen intent + sealed plan + receipt | `PaymentRouted` (SINGLE) | exact sender/recipient/tokens/amountIn; amountOut ≥ min |
+| `internal/payroll` | same | `BatchPaymentRouted` (BATCH_*) | **never** full completion — aggregate-only (`DOMAIN_AGGREGATE_ONLY`) |
+| `internal/swap` | frozen intent + sealed plan + receipt | `WizPaySwapExecuted` | exact user/router/tokens/amountIn/recipient; amountOut ≥ **MinimumOutput** (not ExpectedOutput) |
+
+Batch `BatchPaymentRouted` proves aggregates (sender, tokenIn, totals, recipientCount, referenceId, and shared tokenOut for single-token-out). It does **not** emit per-recipient settlement; the verifier documents unprovable fields and refuses to claim full financial completion. Ambiguity (zero matches, multiple conflicting matches, wrong contract, malformed topics/data) fails closed to unverified/failed. Trusted static event definitions only — no arbitrary signature/ABI/decoder surface.
+
+**Execution integration.** Domain verifiers are the capability-specific gate after generic receipt success. Runtime/worker orchestration that marks Payroll/Swap financial completion must require **both** chain inclusion/finality **and** domain event verification. Token-transfer chain verification is unchanged. Worker wiring, MCP tools, capability enablement, allowances, Bridge/CCTP/ANS remain out of scope for this step.
+
+**Provider-plane hardening (Payroll + Swap).** The plane also provides: (1) defensive receipt observation comparison (missing receipt after present, block hash/number change, confirmation depth decrease, log fingerprint change) that never triggers resubmission—on Arc this protects against RPC/observation inconsistency rather than expected consensus reorgs; (2) bounded non-financial health probes for configured Circle and Arc dependencies; (3) provider-neutral circuit breakers on outbound infrastructure calls; (4) optional sandbox/testnet integration tests that skip unless explicitly enabled. Process liveness (`/health`) does not depend on external providers. See [Phase 11 security and recovery review](phase-11-security-recovery-review.md).
 
 ## Phase 8 authentication and authorization foundation
 
