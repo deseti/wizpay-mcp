@@ -69,6 +69,107 @@ type AuditRecord struct {
 	OperationVersion     int64              `json:"operation_version"`
 }
 
+type AutonomyDelegation struct {
+	TenantID        string             `json:"tenant_id"`
+	DelegationID    string             `json:"delegation_id"`
+	Version         int64              `json:"version"`
+	PrincipalUserID string             `json:"principal_user_id"`
+	AgentID         string             `json:"agent_id"`
+	Capabilities    []string           `json:"capabilities"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	Revoked         bool               `json:"revoked"`
+	NonTransitive   bool               `json:"non_transitive"`
+}
+
+type AutonomyEmergencyStop struct {
+	TenantID   string             `json:"tenant_id"`
+	Active     bool               `json:"active"`
+	Scope      string             `json:"scope"`
+	ActorID    string             `json:"actor_id"`
+	ReasonCode string             `json:"reason_code"`
+	ChangedAt  pgtype.Timestamptz `json:"changed_at"`
+}
+
+type AutonomyGrant struct {
+	TenantID              string             `json:"tenant_id"`
+	GrantID               string             `json:"grant_id"`
+	Version               int64              `json:"version"`
+	PrincipalUserID       string             `json:"principal_user_id"`
+	WalletBindingID       string             `json:"wallet_binding_id"`
+	IntentType            string             `json:"intent_type"`
+	ScheduleID            *string            `json:"schedule_id"`
+	ExpiresAt             pgtype.Timestamptz `json:"expires_at"`
+	Paused                bool               `json:"paused"`
+	Revoked               bool               `json:"revoked"`
+	PerActionBaseUnits    pgtype.Numeric     `json:"per_action_base_units"`
+	AggregateCapBaseUnits pgtype.Numeric     `json:"aggregate_cap_base_units"`
+	RollingCapBaseUnits   pgtype.Numeric     `json:"rolling_cap_base_units"`
+	RollingWindowSeconds  *int64             `json:"rolling_window_seconds"`
+	StepUpBaseUnits       pgtype.Numeric     `json:"step_up_base_units"`
+	AllowedRecipients     []string           `json:"allowed_recipients"`
+	AllowedTokens         []string           `json:"allowed_tokens"`
+	AllowedChains         []string           `json:"allowed_chains"`
+}
+
+type AutonomyOccurrence struct {
+	TenantID        string             `json:"tenant_id"`
+	OccurrenceID    string             `json:"occurrence_id"`
+	OccurrenceKey   string             `json:"occurrence_key"`
+	ScheduleID      string             `json:"schedule_id"`
+	ScheduleVersion int64              `json:"schedule_version"`
+	ScheduleDigest  string             `json:"schedule_digest"`
+	ScheduledAt     pgtype.Timestamptz `json:"scheduled_at"`
+	Status          string             `json:"status"`
+	GrantID         string             `json:"grant_id"`
+	GrantVersion    int64              `json:"grant_version"`
+	IntentID        *string            `json:"intent_id"`
+	ApprovalID      *string            `json:"approval_id"`
+	ExecutionID     *string            `json:"execution_id"`
+	LeaseOwner      *string            `json:"lease_owner"`
+	LeaseUntil      pgtype.Timestamptz `json:"lease_until"`
+	Fence           int64              `json:"fence"`
+	ReasonCode      string             `json:"reason_code"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AutonomySchedule struct {
+	TenantID             string             `json:"tenant_id"`
+	ScheduleID           string             `json:"schedule_id"`
+	Version              int64              `json:"version"`
+	UserID               string             `json:"user_id"`
+	AgentID              string             `json:"agent_id"`
+	WalletBindingID      string             `json:"wallet_binding_id"`
+	WalletBindingVersion int64              `json:"wallet_binding_version"`
+	IntentType           string             `json:"intent_type"`
+	GrantID              string             `json:"grant_id"`
+	GrantVersion         int64              `json:"grant_version"`
+	DelegationID         string             `json:"delegation_id"`
+	DelegationVersion    int64              `json:"delegation_version"`
+	Status               string             `json:"status"`
+	SpecDigest           string             `json:"spec_digest"`
+	ScheduleDigest       string             `json:"schedule_digest"`
+	Timezone             string             `json:"timezone"`
+	StartAt              pgtype.Timestamptz `json:"start_at"`
+	EndAt                pgtype.Timestamptz `json:"end_at"`
+	MaxRecipients        int32              `json:"max_recipients"`
+	Recurrence           string             `json:"recurrence"`
+	MissedRun            string             `json:"missed_run"`
+	Concurrency          string             `json:"concurrency"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AutonomySpendReservation struct {
+	TenantID        string             `json:"tenant_id"`
+	GrantID         string             `json:"grant_id"`
+	GrantVersion    int64              `json:"grant_version"`
+	OccurrenceID    string             `json:"occurrence_id"`
+	AmountBaseUnits pgtype.Numeric     `json:"amount_base_units"`
+	ReservedAt      pgtype.Timestamptz `json:"reserved_at"`
+	State           string             `json:"state"`
+}
+
 type Execution struct {
 	TenantID              string             `json:"tenant_id"`
 	ExecutionID           string             `json:"execution_id"`

@@ -14,6 +14,12 @@ const (
 	GetApprovalName      = "wizpay.get_approval"
 	EvaluatePolicyName   = "wizpay.evaluate_policy"
 	PrepareExecutionName = "wizpay.prepare_execution"
+	ListSchedulesName    = "wizpay.autonomy.list_schedules"
+	GetScheduleName      = "wizpay.autonomy.get_schedule"
+	SimulateScheduleName = "wizpay.autonomy.simulate"
+	CreateScheduleName   = "wizpay.autonomy.create_schedule"
+	ControlScheduleName  = "wizpay.autonomy.control_schedule"
+	EmergencyStopName    = "wizpay.autonomy.emergency_stop"
 )
 
 type Definition struct {

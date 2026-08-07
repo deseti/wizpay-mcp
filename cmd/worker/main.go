@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/autonomy/runtimeworker"
 	"github.com/deseti/wizpay-mcp/internal/config"
 	"github.com/deseti/wizpay-mcp/internal/execution/runtime"
 	"github.com/deseti/wizpay-mcp/internal/logging"
@@ -87,6 +88,22 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	autonomyEnabled, err := boolValue(os.LookupEnv, "WIZPAY_AUTONOMY_ENABLED", false)
+	if err != nil {
+		return err
+	}
+	if autonomyEnabled {
+		autonomyWorker, workerErr := runtimeworker.NewWorker(database, runtimeworker.UnavailableProcessor{Store: database}, runtimeworker.WorkerConfig{WorkerID: runtimeConfig.WorkerID, LeaseDuration: runtimeConfig.LeaseDuration, RetryInterval: runtimeConfig.RetryInterval, Enabled: true}, time.Now, sleep)
+		if workerErr != nil {
+			return workerErr
+		}
+		go func() {
+			if runErr := autonomyWorker.Run(ctx); runErr != nil && !errors.Is(runErr, context.Canceled) {
+				logger.Error("autonomy_worker_stopped", "error", runErr)
+			}
+		}()
+		logger.Warn("autonomy_runtime_enabled_but_financial_assembly_unavailable", "reason", "typed planner and execution integration are not assembled; occurrences block safely")
+	}
 	worker, configured, err := wiring.BuildWorker(plane, database, runtimeConfig, time.Now, sleep)
 	if err != nil {
 		return err
@@ -108,6 +125,21 @@ func run() error {
 	}
 	logger.Info("worker_shutdown", "reason", "context_cancelled")
 	return nil
+}
+
+func boolValue(lookup func(string) (string, bool), key string, fallback bool) (bool, error) {
+	value, ok := lookup(key)
+	if !ok {
+		return fallback, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes":
+		return true, nil
+	case "0", "false", "no":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be a boolean", key)
+	}
 }
 
 // loadRuntimeConfig reads the execution worker's lease and retry parameters. The

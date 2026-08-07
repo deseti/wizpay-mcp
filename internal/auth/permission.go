@@ -13,12 +13,15 @@ const (
 	PermissionReadApproval     Permission = "approval:read"
 	PermissionEvaluatePolicy   Permission = "policy:evaluate"
 	PermissionPrepareExecution Permission = "execution:prepare"
+	PermissionAutonomyRead     Permission = "autonomy:read"
+	PermissionAutonomyControl  Permission = "autonomy:control"
 )
 
 func (p Permission) Valid() bool {
 	switch p {
 	case PermissionCreateIntent, PermissionReadIntent, PermissionRequestApproval,
-		PermissionReadApproval, PermissionEvaluatePolicy, PermissionPrepareExecution:
+		PermissionReadApproval, PermissionEvaluatePolicy, PermissionPrepareExecution,
+		PermissionAutonomyRead, PermissionAutonomyControl:
 		return true
 	default:
 		return false

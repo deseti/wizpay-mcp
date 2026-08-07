@@ -71,3 +71,23 @@ An executor must fail closed if its verifier contract is not implemented and its
 ## Error response
 
 Tools return the standardized envelope in [errors.md](errors.md). Raw provider payloads, credentials, stack traces, signed transactions, and authorization material are never public error details.
+
+## Phase 13 authenticated autonomy tools
+
+The authenticated server additionally registers only these bounded autonomy
+surfaces. They require `autonomy:read` or `autonomy:control` permissions and
+derive tenant/user scope from the trusted request context:
+
+| Tool | Class | Effect |
+|---|---|---|
+| `wizpay.autonomy.list_schedules` | READ_ONLY | Lists schedule metadata |
+| `wizpay.autonomy.get_schedule` | READ_ONLY | Reads one immutable schedule version |
+| `wizpay.autonomy.simulate` | READ_ONLY | Returns bounded eligibility/reason metadata with zero financial mutation |
+| `wizpay.autonomy.create_schedule` | CONTROL | Persists one typed schedule |
+| `wizpay.autonomy.control_schedule` | CONTROL | Creates a paused/resumed/revoked schedule version |
+| `wizpay.autonomy.emergency_stop` | CONTROL | Changes durable tenant-scoped emergency-stop state |
+
+These tools do not expose calldata, shell/cron execution, signing, wallet
+material, provider bodies, or a generic transaction operation. Simulation
+returns capability-unavailable when the typed Payroll/Swap planner and
+execution assembly are not available; it does not silently enable them.

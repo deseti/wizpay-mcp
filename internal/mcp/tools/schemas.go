@@ -3,8 +3,81 @@ package tools
 import (
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/autonomy"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 )
+
+type ListSchedulesInput struct {
+	RequestID string `json:"request_id"`
+}
+type GetScheduleInput struct {
+	RequestID  string `json:"request_id"`
+	ScheduleID string `json:"schedule_id"`
+	Version    uint64 `json:"version"`
+}
+type SimulateScheduleInput struct {
+	RequestID  string    `json:"request_id"`
+	ScheduleID string    `json:"schedule_id"`
+	Version    uint64    `json:"version"`
+	At         time.Time `json:"at"`
+}
+type CreateScheduleInput struct {
+	RequestID string            `json:"request_id"`
+	Schedule  autonomy.Schedule `json:"schedule"`
+}
+type ControlScheduleInput struct {
+	RequestID  string                  `json:"request_id"`
+	ScheduleID string                  `json:"schedule_id"`
+	Version    uint64                  `json:"version"`
+	Status     autonomy.ScheduleStatus `json:"status"`
+}
+type EmergencyStopInput struct {
+	RequestID string `json:"request_id"`
+	Active    bool   `json:"active"`
+	Scope     string `json:"scope"`
+	Reason    string `json:"reason"`
+}
+type ScheduleOutput struct {
+	ScheduleID      string `json:"schedule_id"`
+	Version         uint64 `json:"version"`
+	Digest          string `json:"digest"`
+	Status          string `json:"status"`
+	IntentType      string `json:"intent_type"`
+	WalletBindingID string `json:"wallet_binding_id"`
+	GrantID         string `json:"grant_id"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+type DecisionOutput struct {
+	Eligible       bool   `json:"eligible"`
+	RequiresStepUp bool   `json:"requires_step_up"`
+	Reason         string `json:"reason"`
+	ScheduleID     string `json:"schedule_id"`
+	OccurrenceID   string `json:"occurrence_id"`
+	GrantID        string `json:"grant_id"`
+}
+type ListSchedulesResponse struct {
+	Result []ScheduleOutput `json:"result,omitempty"`
+	Error  *ToolError       `json:"error,omitempty"`
+}
+type ScheduleResponse struct {
+	Result *ScheduleOutput `json:"result,omitempty"`
+	Error  *ToolError      `json:"error,omitempty"`
+}
+type SimulateScheduleResponse struct {
+	Result *DecisionOutput `json:"result,omitempty"`
+	Error  *ToolError      `json:"error,omitempty"`
+}
+type EmergencyStopResponse struct {
+	Result *EmergencyStopOutput `json:"result,omitempty"`
+	Error  *ToolError           `json:"error,omitempty"`
+}
+type EmergencyStopOutput struct {
+	Active    bool   `json:"active"`
+	Scope     string `json:"scope"`
+	Reason    string `json:"reason"`
+	ChangedAt string `json:"changed_at"`
+}
 
 type CreateIntentInput struct {
 	RequestID       string                      `json:"request_id" jsonschema:"client correlation identifier"`

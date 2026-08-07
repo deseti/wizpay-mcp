@@ -185,6 +185,24 @@ The runtime has no Circle, Arc, wallet, chain, signer, receipt, or provider impl
 
 No microservices, Redis/River behavior, chain/provider calls, signing, broadcasting, OAuth server, wallet creation, approval UI, financial execution, compliance API, AI/ML risk scoring, fee logic, treasury routing, complex UI, or autonomous spending exists through Phase 9.
 
+## Phase 13 — final roadmap phase: bounded autonomous runtime
+
+Phase 13 is the final numbered roadmap phase; there is no Phase 14. The
+provider-neutral `internal/autonomy` domain and scoped PostgreSQL repositories
+add versioned typed schedules,
+deterministic UTC occurrences, bounded missed-run handling, lease/fencing
+ports, principal/delegation context, user-authorized autonomous grants,
+transactional spend reservations, simulation, safe reason codes, emergency
+stop, and autonomous audit vocabulary above the existing Phase 12 gates.
+PAYROLL and SWAP remain the only executable financial modules. The default
+`WIZPAY_AUTONOMY_ENABLED=false` rollout control and existing fail-closed
+provider assembly mean a schedule cannot enable unavailable execution. Once
+submission may have occurred, the occurrence remains reconciliation-only.
+See [Phase 13 autonomous runtime](phase-13-autonomous-runtime.md). Future
+work is maintenance/security review/release operations, not another numbered
+phase; production launch is a separate explicit decision requiring independent
+security review.
+
 ## Phase 10 capability registry
 
 Phase 10 adds `internal/capabilities` as a control-plane authority for typed, immutable, versioned capability metadata. The deterministic in-process registry supports exact-version lookup, latest-enabled lookup, canonical descriptor identity, and provider-neutral availability decisions for Payroll, Swap, Bridge, and ANS. Definitions reuse existing intent and permission types and declare approval, policy, execution, chain/network/token/route, and abstract provider-feature requirements.

@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/app"
+	"github.com/deseti/wizpay-mcp/internal/auth"
 	authjwt "github.com/deseti/wizpay-mcp/internal/auth/jwt"
 	"github.com/deseti/wizpay-mcp/internal/config"
 	"github.com/deseti/wizpay-mcp/internal/logging"
+	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
 	"github.com/deseti/wizpay-mcp/internal/requestauth"
+	"github.com/deseti/wizpay-mcp/internal/services"
 	storagepostgres "github.com/deseti/wizpay-mcp/internal/storage/postgres"
 )
 
@@ -78,7 +81,12 @@ func run() error {
 		if middlewareErr != nil {
 			return middlewareErr
 		}
-		server, err = app.NewAuthenticatedServer(cfg, logger, database, middleware.Wrap)
+		autonomyService := &services.PersistedAutonomyService{Repository: database, Authorizer: auth.NewPermissionAuthorizer(), Audit: database, Wallets: database, Now: time.Now, Enabled: cfg.AutonomousEnabled}
+		autonomyRegistry, registryErr := tools.NewAutonomyRegistry(autonomyService)
+		if registryErr != nil {
+			return registryErr
+		}
+		server, err = app.NewAuthenticatedServer(cfg, logger, database, middleware.Wrap, autonomyRegistry.Tools()...)
 	} else {
 		server, err = app.NewServerWithReadiness(cfg, logger, database)
 	}

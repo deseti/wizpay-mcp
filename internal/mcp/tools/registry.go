@@ -64,3 +64,11 @@ func NewFoundationRegistry(bundle services.Bundle) (*Registry, error) {
 	}
 	return NewRegistry(definitions...)
 }
+
+func NewAutonomyRegistry(service services.AutonomyService) (*Registry, error) {
+	definitions, err := autonomyDefinitions(service)
+	if err != nil {
+		return nil, err
+	}
+	return NewRegistry(definitions...)
+}

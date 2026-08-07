@@ -26,7 +26,10 @@ type Config struct {
 	AppEnv     string
 	ServerPort int
 	LogLevel   string
-	Auth       AuthConfig
+	// AutonomousEnabled is an explicit rollout control. It defaults false and
+	// does not assemble a provider or grant signing authority.
+	AutonomousEnabled bool
+	Auth              AuthConfig
 }
 
 func (c Config) Address() string { return ":" + strconv.Itoa(c.ServerPort) }
