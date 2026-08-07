@@ -14,11 +14,14 @@ import (
 
 	"github.com/deseti/wizpay-mcp/internal/autonomy/runtimeworker"
 	"github.com/deseti/wizpay-mcp/internal/config"
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/execution/runtime"
 	"github.com/deseti/wizpay-mcp/internal/logging"
+	"github.com/deseti/wizpay-mcp/internal/payroll"
 	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/providers/wiring"
 	storagepostgres "github.com/deseti/wizpay-mcp/internal/storage/postgres"
+	"github.com/deseti/wizpay-mcp/internal/swap"
 )
 
 func main() {
@@ -70,13 +73,28 @@ func run() error {
 		return err
 	}
 
-	// Planner is deliberately nil: turning an approved intent into a concrete
-	// transfer is domain capability logic that this phase does not implement.
-	// Without it the provider adapter stays unconfigured and the worker idles.
+	registry := contracts.DefaultRegistry()
+	payrollPlanner := payroll.NewPlanner(registry)
+	swapPlanner := swap.NewPlanner(registry)
+	payrollVerifier := payroll.NewVerifier(registry)
+	swapVerifier := swap.NewVerifier(registry)
+	planner, err := wiring.NewPlanner(database, payrollPlanner, swapPlanner)
+	if err != nil {
+		return err
+	}
 	plane, err := wiring.Build(providerConfig, wiring.Dependencies{
-		Planner:       nil,
-		Authorization: providers.ContextAuthorizationSource{},
+		Planner: planner,
+		// A request-context authorization source cannot supply a separate
+		// background worker process. Keep this dependency absent so production
+		// remains fail-closed until an approved non-persistent Circle user-session
+		// handoff exists.
+		Authorization: nil,
 		References:    references,
+		Intents:       database,
+		Payroll:       &payrollPlanner,
+		Swap:          &swapPlanner,
+		PayrollV:      &payrollVerifier,
+		SwapV:         &swapVerifier,
 		HTTPClient:    &http.Client{Timeout: 30 * time.Second},
 		Now:           time.Now,
 	})
@@ -102,7 +120,7 @@ func run() error {
 				logger.Error("autonomy_worker_stopped", "error", runErr)
 			}
 		}()
-		logger.Warn("autonomy_runtime_enabled_but_financial_assembly_unavailable", "reason", "typed planner and execution integration are not assembled; occurrences block safely")
+		logger.Warn("autonomy_runtime_enabled_but_dispatch_disabled", "reason", "no safe autonomy processor is wired; occurrences block safely")
 	}
 	worker, configured, err := wiring.BuildWorker(plane, database, runtimeConfig, time.Now, sleep)
 	if err != nil {

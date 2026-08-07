@@ -14,10 +14,14 @@ import (
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/capabilities"
+	"github.com/deseti/wizpay-mcp/internal/execution/runtime"
+	"github.com/deseti/wizpay-mcp/internal/payroll"
 	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/providers/arc"
 	"github.com/deseti/wizpay-mcp/internal/providers/circle"
 	"github.com/deseti/wizpay-mcp/internal/providers/circuit"
+	"github.com/deseti/wizpay-mcp/internal/storage"
+	"github.com/deseti/wizpay-mcp/internal/swap"
 )
 
 // Config is the resolved provider-plane configuration. Secrets live inside the
@@ -51,12 +55,17 @@ func LoadConfig(lookup func(string) (string, bool)) (Config, error) {
 // Dependencies are the ports the provider plane cannot supply itself.
 //
 // Planner is deliberately required from outside: turning an approved intent
-// into a concrete transfer is capability logic, which Phase 11 does not
-// implement. Without it the Circle provider registers as unconfigured.
+// into a concrete transfer is capability logic. Without it the Circle provider
+// registers as unconfigured.
 type Dependencies struct {
 	Planner       providers.Planner
 	Authorization providers.AuthorizationSource
 	References    circle.ReferenceStore
+	Intents       storage.IntentRepository
+	Payroll       *payroll.Planner
+	Swap          *swap.Planner
+	PayrollV      *payroll.Verifier
+	SwapV         *swap.Verifier
 	HTTPClient    *http.Client
 	Now           func() time.Time
 }
@@ -65,11 +74,14 @@ type Dependencies struct {
 type Plane struct {
 	// Registry answers which provider can serve a feature on a chain.
 	Registry *providers.Registry
-	// Verifier is the Phase 9 runtime.Verifier: provider reconciliation
-	// combined with Arc receipt verification. It is nil when Arc is not
+	// Verifier performs generic provider reconciliation combined with Arc receipt
+	// verification. It is nil when Arc is not
 	// configured, because no execution may be verified without chain evidence.
 	Verifier *providers.Verifier
-	// Adapter is the Phase 9 execution.Adapter, or nil when no provider is
+	// DomainVerifier is the only verifier permitted to drive runtime completion
+	// for typed Payroll/Swap contract executions.
+	DomainVerifier runtime.Verifier
+	// Adapter is the execution adapter, or nil when no provider is
 	// configured. A nil adapter must never be replaced with a permissive stub.
 	Adapter *circle.Adapter
 	// HealthCheckers are optional non-financial readiness probes. Process
@@ -117,11 +129,14 @@ func Build(config Config, dependencies Dependencies) (Plane, error) {
 	descriptor := providers.Descriptor{
 		ID:      providers.ProviderCircleUserControlled,
 		Version: 1,
-		// The declared features are exactly what this provider boundary
-		// implements: a user-controlled wallet and a token transfer. Contract
-		// execution, swap, bridge, and ANS features are deliberately not
-		// claimed, so Phase 10 keeps those capabilities unavailable.
-		Features:   []capabilities.ProviderFeature{capabilities.FeatureUserControlledWallet, capabilities.FeatureTokenTransfer},
+		// Contract execution is provider capability metadata only. The actual
+		// planner remains typed and allowlisted; it does not permit arbitrary
+		// contract targets or calldata. Bridge and ANS are intentionally absent.
+		Features: []capabilities.ProviderFeature{
+			capabilities.FeatureUserControlledWallet,
+			capabilities.FeatureContractExecution,
+			capabilities.FeatureSwapExecution,
+		},
 		ChainIDs:   []string{arc.ChainIDTestnet},
 		Networks:   []string{arc.NetworkTestnet},
 		Configured: configured,
@@ -170,6 +185,13 @@ func Build(config Config, dependencies Dependencies) (Plane, error) {
 		return Plane{}, err
 	}
 	plane.Verifier = verifier
+	if dependencies.Intents != nil && dependencies.Payroll != nil && dependencies.Swap != nil && dependencies.PayrollV != nil && dependencies.SwapV != nil {
+		composed, err := NewComposedVerifier(verifier, dependencies.Intents, dependencies.Payroll, dependencies.Swap, dependencies.PayrollV, dependencies.SwapV)
+		if err != nil {
+			return Plane{}, err
+		}
+		plane.DomainVerifier = composed
+	}
 	return plane, nil
 }
 
@@ -180,8 +202,7 @@ func (p Plane) Health(ctx context.Context) providers.HealthReport {
 }
 
 // ProviderFeatures reports the features actually available on a chain and
-// network. This is the value Phase 10 consumes as
-// capabilities.AvailabilityRequest.ProviderFeatures.
+// network for capabilities.AvailabilityRequest.ProviderFeatures.
 //
 // It reports provider reachability only. A capability still has to be enabled
 // in the capability registry on its own terms; a configured provider never

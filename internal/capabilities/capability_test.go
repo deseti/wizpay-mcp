@@ -2,6 +2,7 @@ package capabilities
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -151,12 +152,16 @@ func TestRegisteredDescriptorIsImmutableAndDigestDeterministic(t *testing.T) {
 func TestDefaultsAreRegisteredButUnavailable(t *testing.T) {
 	registry := DefaultRegistry()
 	for _, id := range []CapabilityID{CapabilityPayroll, CapabilitySwap, CapabilityBridge, CapabilityANS} {
-		descriptor, err := registry.GetLatest(id)
+		_, err := registry.GetLatest(id)
 		if err == nil {
 			t.Fatalf("disabled default %s selected as latest", id)
 		}
-		if _, err := registry.GetVersion(id, 1); err != nil {
+		descriptor, err := registry.GetVersion(id, 1)
+		if err != nil {
 			t.Fatalf("default %s not registered: %v", id, err)
+		}
+		if descriptor.Status != StatusDisabled {
+			t.Fatalf("default %s status = %s, want %s", id, descriptor.Status, StatusDisabled)
 		}
 		if _, err := registry.Resolve(id, AvailabilityRequest{}); !hasCode(err, apperrors.CodeCapabilityUnavailable) {
 			t.Fatalf("default %s implicit resolution error = %v", id, err)
@@ -165,8 +170,42 @@ func TestDefaultsAreRegisteredButUnavailable(t *testing.T) {
 		if err != nil || decision.Available || decision.Reason != ReasonDisabled {
 			t.Fatalf("default %s exact decision = %#v, error = %v", id, decision, err)
 		}
-		_ = descriptor
 	}
+}
+
+func TestTypedDefaultRequirementsAndDescriptions(t *testing.T) {
+	registry := DefaultRegistry()
+	checks := []struct {
+		id       CapabilityID
+		features []ProviderFeature
+	}{
+		{CapabilityPayroll, []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution}},
+		{CapabilitySwap, []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution, FeatureSwapExecution}},
+	}
+	for _, check := range checks {
+		descriptor, err := registry.GetVersion(check.id, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sameFeatures(descriptor.ProviderFeatures, check.features) {
+			t.Fatalf("%s features = %v, want %v", check.id, descriptor.ProviderFeatures, check.features)
+		}
+		if !strings.Contains(descriptor.Description, "typed allowlisted contract execution") || strings.Contains(descriptor.Description, "not implemented") {
+			t.Fatalf("%s has stale description: %q", check.id, descriptor.Description)
+		}
+	}
+}
+
+func sameFeatures(got, want []ProviderFeature) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for _, feature := range want {
+		if !contains(got, feature) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestDescriptorValidationAndMapping(t *testing.T) {

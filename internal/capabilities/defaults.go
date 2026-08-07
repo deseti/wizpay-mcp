@@ -17,8 +17,8 @@ func DefaultRegistry() *Registry {
 
 func DefaultDescriptors() []Descriptor {
 	return []Descriptor{
-		defaultDescriptor(CapabilityPayroll, intents.TypePayroll, "Payroll capability metadata; execution is not implemented.", []ProviderFeature{FeatureUserControlledWallet, FeatureTokenTransfer}),
-		defaultDescriptor(CapabilitySwap, intents.TypeSwap, "Swap capability metadata; execution is not implemented.", []ProviderFeature{FeatureUserControlledWallet, FeatureSwapExecution}),
+		defaultDescriptor(CapabilityPayroll, intents.TypePayroll, "Payroll supports typed allowlisted contract execution; production availability remains disabled by default and depends on complete provider and runtime authorization configuration.", []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution}),
+		defaultDescriptor(CapabilitySwap, intents.TypeSwap, "Swap supports typed allowlisted contract execution; production availability remains disabled by default and depends on complete provider and runtime authorization configuration.", []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution, FeatureSwapExecution}),
 		defaultDescriptor(CapabilityBridge, intents.TypeBridge, "Bridge capability metadata; execution is not implemented.", []ProviderFeature{FeatureUserControlledWallet, FeatureBridgeExecution}),
 		defaultDescriptor(CapabilityANS, intents.TypeANSRegistration, "ANS registration capability metadata; execution is not implemented.", []ProviderFeature{FeatureUserControlledWallet, FeatureANSRegistration}),
 	}

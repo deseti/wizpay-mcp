@@ -107,8 +107,8 @@ func TestBuildWorkerRequiresClockAndSleeper(t *testing.T) {
 }
 
 func TestBuildWorkerUnconfiguredWithoutAdapter(t *testing.T) {
-	// The Phase 11 state: no adapter on the plane means no worker is built, so
-	// the process idles and no execution — and no financial transaction — runs.
+	// No adapter on the plane means no worker is built, so the process idles and
+	// no execution — and no financial transaction — runs.
 	worker, configured, err := BuildWorker(unconfiguredPlane(t), stubRuntimeStore{}, workerConfig(), fixedClock(), noopSleep)
 	if err != nil {
 		t.Fatalf("BuildWorker: %v", err)
@@ -121,15 +121,25 @@ func TestBuildWorkerUnconfiguredWithoutAdapter(t *testing.T) {
 	}
 }
 
-func TestBuildWorkerConfigured(t *testing.T) {
-	worker, configured, err := BuildWorker(configuredPlane(t), stubRuntimeStore{}, workerConfig(), fixedClock(), noopSleep)
+func TestBuildWorkerConfiguredWithProductionComposedVerifier(t *testing.T) {
+	plane := configuredPlane(t)
+	worker, configured, err := BuildWorker(plane, stubRuntimeStore{}, workerConfig(), fixedClock(), noopSleep)
 	if err != nil {
 		t.Fatalf("BuildWorker: %v", err)
 	}
-	if !configured {
-		t.Fatalf("a fully configured plane must produce a worker")
+	if !configured || worker == nil {
+		t.Fatalf("fully assembled typed provider plane must produce a worker")
 	}
-	if worker == nil {
-		t.Fatalf("expected a worker when configured")
+}
+
+func TestBuildWorkerUnconfiguredWithGenericVerifierOnly(t *testing.T) {
+	plane := configuredPlane(t)
+	plane.DomainVerifier = nil
+	worker, configured, err := BuildWorker(plane, stubRuntimeStore{}, workerConfig(), fixedClock(), noopSleep)
+	if err != nil {
+		t.Fatalf("BuildWorker: %v", err)
+	}
+	if configured || worker != nil {
+		t.Fatalf("provider/generic verifier alone must not produce a worker")
 	}
 }

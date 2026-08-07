@@ -48,7 +48,11 @@ func newComposedVerifier(t *testing.T, intent intents.Intent, chain *composedCha
 		t.Fatal(err)
 	}
 	repository := &intentRepositoryStub{intent: approved}
-	composed, err := NewComposedVerifier(provider, repository, payroll.NewPlanner(nil), swap.NewPlanner(nil), payroll.NewVerifier(nil), swap.NewVerifier(nil))
+	payrollPlanner := payroll.NewPlanner(nil)
+	swapPlanner := swap.NewPlanner(nil)
+	payrollVerifier := payroll.NewVerifier(nil)
+	swapVerifier := swap.NewVerifier(nil)
+	composed, err := NewComposedVerifier(provider, repository, &payrollPlanner, &swapPlanner, &payrollVerifier, &swapVerifier)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +83,42 @@ func composedSuccessReceipt(logs ...providers.ReceiptLog) providers.Receipt {
 		TransactionHash: composedTxHash, BlockNumber: 10,
 		BlockHash:     "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		Confirmations: 1, Logs: logs,
+	}
+}
+
+func TestNewComposedVerifierRejectsMissingMandatoryDependency(t *testing.T) {
+	chain := &composedChainStub{}
+	provider, err := providers.NewVerifier(chain, composedResolverStub{}, providers.VerifierConfig{MinConfirmations: 1}, func() time.Time { return plannerTestNow })
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &intentRepositoryStub{}
+	payrollPlanner := payroll.NewPlanner(nil)
+	swapPlanner := swap.NewPlanner(nil)
+	payrollVerifier := payroll.NewVerifier(nil)
+	swapVerifier := swap.NewVerifier(nil)
+	tests := []struct {
+		name            string
+		provider        *providers.Verifier
+		repository      storage.IntentRepository
+		payrollPlanner  *payroll.Planner
+		swapPlanner     *swap.Planner
+		payrollVerifier *payroll.Verifier
+		swapVerifier    *swap.Verifier
+	}{
+		{name: "provider", repository: repository, payrollPlanner: &payrollPlanner, swapPlanner: &swapPlanner, payrollVerifier: &payrollVerifier, swapVerifier: &swapVerifier},
+		{name: "intent repository", provider: provider, payrollPlanner: &payrollPlanner, swapPlanner: &swapPlanner, payrollVerifier: &payrollVerifier, swapVerifier: &swapVerifier},
+		{name: "payroll planner", provider: provider, repository: repository, swapPlanner: &swapPlanner, payrollVerifier: &payrollVerifier, swapVerifier: &swapVerifier},
+		{name: "swap planner", provider: provider, repository: repository, payrollPlanner: &payrollPlanner, payrollVerifier: &payrollVerifier, swapVerifier: &swapVerifier},
+		{name: "payroll verifier", provider: provider, repository: repository, payrollPlanner: &payrollPlanner, swapPlanner: &swapPlanner, swapVerifier: &swapVerifier},
+		{name: "swap verifier", provider: provider, repository: repository, payrollPlanner: &payrollPlanner, swapPlanner: &swapPlanner, payrollVerifier: &payrollVerifier},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if verifier, err := NewComposedVerifier(test.provider, test.repository, test.payrollPlanner, test.swapPlanner, test.payrollVerifier, test.swapVerifier); err == nil || verifier != nil {
+				t.Fatalf("missing %s produced verifier %#v, err = %v", test.name, verifier, err)
+			}
+		})
 	}
 }
 
@@ -140,6 +180,55 @@ func TestComposedVerifierPayrollDomainMapping(t *testing.T) {
 	}
 }
 
+func TestComposedVerifierAcceptsReadyForExecutionPayrollIntent(t *testing.T) {
+	intent := frozenIntent(t, intents.TypePayroll)
+	financial := intent.Financial().Payroll
+	line := financial.Recipients[0]
+	log := payrollDomainLog(t, intent.Ownership().WalletAddress, line.Address, financial.TokenIn.Address, line.TokenOut.Address, big.NewInt(1000000), big.NewInt(1000000), big.NewInt(0))
+	assertReadyForExecutionDomainVerified(t, intent, composedSuccessReceipt(log))
+}
+
+func TestComposedVerifierAcceptsReadyForExecutionSwapIntent(t *testing.T) {
+	intent := frozenIntent(t, intents.TypeSwap)
+	financial := intent.Financial().Swap
+	log := swapDomainLog(t, intent.Ownership().WalletAddress, financial.Router, financial.InputToken.Address, financial.OutputToken.Address, big.NewInt(10000000), big.NewInt(1000000), big.NewInt(9000000), big.NewInt(9000000), financial.Recipient)
+	assertReadyForExecutionDomainVerified(t, intent, composedSuccessReceipt(log))
+}
+
+func assertReadyForExecutionDomainVerified(t *testing.T, intent intents.Intent, receipt providers.Receipt) {
+	t.Helper()
+	request, approved := executionRequest(t, intent)
+	ready, err := approved.Transition(intents.StatusReadyForExecution, plannerTestNow.Add(8*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := execution.New(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := &composedChainStub{receipt: receipt}
+	provider, err := providers.NewVerifier(chain, composedResolverStub{}, providers.VerifierConfig{MinConfirmations: 1}, func() time.Time { return plannerTestNow })
+	if err != nil {
+		t.Fatal(err)
+	}
+	payrollPlanner := payroll.NewPlanner(nil)
+	swapPlanner := swap.NewPlanner(nil)
+	payrollVerifier := payroll.NewVerifier(nil)
+	swapVerifier := swap.NewVerifier(nil)
+	verifier, err := NewComposedVerifier(provider, &intentRepositoryStub{intent: ready}, &payrollPlanner, &swapPlanner, &payrollVerifier, &swapVerifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, _ := storage.NewScope("tenant", "actor", "request", "trace")
+	result, err := verifier.Verify(storage.WithScope(context.Background(), scope), value, composedReference(t))
+	if err != nil || result.Outcome != runtime.VerificationVerified {
+		t.Fatalf("READY_FOR_EXECUTION result = %#v, err = %v", result, err)
+	}
+	if chain.calls != 1 {
+		t.Fatalf("receipt calls = %d, want 1", chain.calls)
+	}
+}
+
 func TestComposedVerifierPayrollBatchIsPending(t *testing.T) {
 	intent := frozenBatchIntent(t)
 	financial := intent.Financial().Payroll
@@ -172,13 +261,19 @@ func TestComposedVerifierRejectsPersistedBindingAndScope(t *testing.T) {
 		{name: "id mismatch", intent: mustApproved(t, frozenIntentVariant(t, intents.TypeSwap, "same")), ctx: storage.WithScope(context.Background(), baseScope)},
 		{name: "version mismatch", intent: mustApproved(t, frozenIntentVersion(t, intents.TypePayroll, "nonce", 2)), ctx: storage.WithScope(context.Background(), baseScope)},
 		{name: "digest mismatch", intent: mustApproved(t, frozenIntentVariant(t, intents.TypePayroll, "different")), ctx: storage.WithScope(context.Background(), baseScope)},
-		{name: "non approved", intent: frozenIntent(t, intents.TypePayroll), ctx: storage.WithScope(context.Background(), baseScope)},
+		{name: "approval required", intent: frozenIntent(t, intents.TypePayroll), ctx: storage.WithScope(context.Background(), baseScope)},
+		{name: "cancelled", intent: intentAtStatus(t, approved, intents.StatusCancelled), ctx: storage.WithScope(context.Background(), baseScope)},
+		{name: "expired", intent: intentAtStatus(t, approved, intents.StatusExpired), ctx: storage.WithScope(context.Background(), baseScope)},
 		{name: "missing scope", intent: approved, ctx: context.Background()},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			repository := &intentRepositoryStub{intent: test.intent}
-			verifier, err := NewComposedVerifier(provider, repository, payroll.NewPlanner(nil), swap.NewPlanner(nil), payroll.NewVerifier(nil), swap.NewVerifier(nil))
+			payrollPlanner := payroll.NewPlanner(nil)
+			swapPlanner := swap.NewPlanner(nil)
+			payrollVerifier := payroll.NewVerifier(nil)
+			swapVerifier := swap.NewVerifier(nil)
+			verifier, err := NewComposedVerifier(provider, repository, &payrollPlanner, &swapPlanner, &payrollVerifier, &swapVerifier)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -234,6 +329,22 @@ func TestComposedVerifierNonDefinitiveDomainFailuresRecover(t *testing.T) {
 	if result, err := mapSwapResult(generic, swap.DomainResult{Status: swap.DomainFailed, ReasonCode: "SWAP_PLAN_MISMATCH"}); err == nil || result.Outcome == runtime.VerificationFailed {
 		t.Fatalf("swap non-definitive failure mapped terminally: result=%#v err=%v", result, err)
 	}
+}
+
+func intentAtStatus(t *testing.T, intent intents.Intent, status intents.Status) intents.Intent {
+	t.Helper()
+	if intent.Status() == status {
+		return intent
+	}
+	at := plannerTestNow.Add(4 * time.Second)
+	if status == intents.StatusExpired {
+		at = intent.ExpiresAt()
+	}
+	transitioned, err := intent.Transition(status, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return transitioned
 }
 
 func mustApproved(t *testing.T, intent intents.Intent) intents.Intent {

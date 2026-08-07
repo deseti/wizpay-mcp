@@ -7,13 +7,14 @@ import (
 
 	"github.com/deseti/wizpay-mcp/internal/capabilities"
 	"github.com/deseti/wizpay-mcp/internal/execution"
+	"github.com/deseti/wizpay-mcp/internal/payroll"
 	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/providers/arc"
+	"github.com/deseti/wizpay-mcp/internal/swap"
 )
 
-// fakePlanner stands in for the domain planner this phase does not implement. It
-// is never invoked during assembly; its presence alone lets the Circle adapter
-// be constructed.
+// fakePlanner is never invoked during assembly; its presence alone lets the
+// Circle adapter be constructed.
 type fakePlanner struct{}
 
 func (fakePlanner) Plan(context.Context, execution.Request) (providers.Plan, error) {
@@ -52,13 +53,20 @@ func emptyLookup() func(string) (string, bool) {
 	return func(string) (string, bool) { return "", false }
 }
 
-// fullDependencies supplies every port the Circle adapter needs, so assembly
-// reflects a configured provider rather than the Phase 11 planner-absent state.
 func fullDependencies() Dependencies {
+	payrollPlanner := payroll.NewPlanner(nil)
+	swapPlanner := swap.NewPlanner(nil)
+	payrollVerifier := payroll.NewVerifier(nil)
+	swapVerifier := swap.NewVerifier(nil)
 	return Dependencies{
 		Planner:       fakePlanner{},
 		Authorization: providers.ContextAuthorizationSource{},
 		References:    fakeReferenceStore{},
+		Intents:       &intentRepositoryStub{},
+		Payroll:       &payrollPlanner,
+		Swap:          &swapPlanner,
+		PayrollV:      &payrollVerifier,
+		SwapV:         &swapVerifier,
 		Now:           fixedClock(),
 	}
 }
@@ -87,7 +95,7 @@ func TestBuildRequiresClock(t *testing.T) {
 
 func TestBuildUnconfiguredWithoutPlanner(t *testing.T) {
 	// Even with both providers configured, the absence of a planner must leave
-	// the adapter and verifier nil: no execution may be driven this phase.
+	// the adapter and verifier nil: no execution may be driven.
 	config, err := LoadConfig(configuredLookup())
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -144,13 +152,49 @@ func TestBuildConfigured(t *testing.T) {
 	if plane.Verifier == nil {
 		t.Fatalf("configured providers must produce a verifier")
 	}
+	if plane.DomainVerifier == nil {
+		t.Fatalf("configured providers must produce a typed domain verifier")
+	}
 	features := plane.ProviderFeatures(arc.ChainIDTestnet, arc.NetworkTestnet)
-	if !containsFeature(features, capabilities.FeatureUserControlledWallet) || !containsFeature(features, capabilities.FeatureTokenTransfer) {
+	if !containsFeature(features, capabilities.FeatureUserControlledWallet) || !containsFeature(features, capabilities.FeatureContractExecution) || !containsFeature(features, capabilities.FeatureSwapExecution) {
 		t.Fatalf("configured provider must expose its declared features, got %v", features)
 	}
 	// A different chain must expose nothing: features are chain-scoped.
 	if len(plane.ProviderFeatures("1", arc.NetworkTestnet)) != 0 {
 		t.Fatalf("features must not leak onto an unsupported chain")
+	}
+}
+
+func TestBuildLeavesDomainVerifierUnconfiguredWithIncompleteTypedDependencies(t *testing.T) {
+	config, err := LoadConfig(configuredLookup())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		drop func(*Dependencies)
+	}{
+		{name: "intent repository", drop: func(deps *Dependencies) { deps.Intents = nil }},
+		{name: "payroll planner", drop: func(deps *Dependencies) { deps.Payroll = nil }},
+		{name: "swap planner", drop: func(deps *Dependencies) { deps.Swap = nil }},
+		{name: "payroll verifier", drop: func(deps *Dependencies) { deps.PayrollV = nil }},
+		{name: "swap verifier", drop: func(deps *Dependencies) { deps.SwapV = nil }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			deps := fullDependencies()
+			test.drop(&deps)
+			plane, err := Build(config, deps)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if plane.Verifier == nil {
+				t.Fatal("generic verifier should remain assembled")
+			}
+			if plane.DomainVerifier != nil {
+				t.Fatalf("missing %s produced a domain verifier", test.name)
+			}
+		})
 	}
 }
 

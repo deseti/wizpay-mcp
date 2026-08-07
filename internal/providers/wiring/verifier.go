@@ -13,9 +13,8 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/swap"
 )
 
-// ComposedVerifier adds the Phase 12 domain gate after generic provider
-// reconciliation. It is intentionally not wired into a worker yet: Phase 12
-// capability availability remains disabled until the later enablement step.
+// ComposedVerifier adds the typed Payroll/Swap domain gate after generic provider
+// reconciliation.
 //
 // The generic verifier owns the single chain receipt read and returns the
 // exact receipt observation used for generic classification. Domain verifiers
@@ -23,14 +22,14 @@ import (
 type ComposedVerifier struct {
 	provider *providers.Verifier
 	intents  storage.IntentRepository
-	payroll  payroll.Planner
-	swap     swap.Planner
-	payrollV payroll.Verifier
-	swapV    swap.Verifier
+	payroll  *payroll.Planner
+	swap     *swap.Planner
+	payrollV *payroll.Verifier
+	swapV    *swap.Verifier
 }
 
-func NewComposedVerifier(provider *providers.Verifier, repository storage.IntentRepository, payrollPlanner payroll.Planner, swapPlanner swap.Planner, payrollVerifier payroll.Verifier, swapVerifier swap.Verifier) (*ComposedVerifier, error) {
-	if provider == nil || repository == nil {
+func NewComposedVerifier(provider *providers.Verifier, repository storage.IntentRepository, payrollPlanner *payroll.Planner, swapPlanner *swap.Planner, payrollVerifier *payroll.Verifier, swapVerifier *swap.Verifier) (*ComposedVerifier, error) {
+	if provider == nil || repository == nil || payrollPlanner == nil || swapPlanner == nil || payrollVerifier == nil || swapVerifier == nil {
 		return nil, fmt.Errorf("composed verifier dependencies are required")
 	}
 	return &ComposedVerifier{
@@ -68,8 +67,8 @@ func (v *ComposedVerifier) Verify(ctx context.Context, value execution.Execution
 	if err := intent.Validate(); err != nil {
 		return runtime.VerificationResult{}, fmt.Errorf("frozen intent is invalid: %w", err)
 	}
-	if intent.Status() != intents.StatusApproved {
-		return runtime.VerificationResult{}, fmt.Errorf("frozen intent is not approved")
+	if intent.Status() != intents.StatusApproved && intent.Status() != intents.StatusReadyForExecution {
+		return runtime.VerificationResult{}, fmt.Errorf("frozen intent is not execution-authorized")
 	}
 
 	switch intent.Type() {
