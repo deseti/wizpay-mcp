@@ -16,6 +16,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
 	"github.com/deseti/wizpay-mcp/internal/requestauth"
 	"github.com/deseti/wizpay-mcp/internal/services"
+	"github.com/deseti/wizpay-mcp/internal/storage"
 	storagepostgres "github.com/deseti/wizpay-mcp/internal/storage/postgres"
 )
 
@@ -81,12 +82,18 @@ func run() error {
 		if middlewareErr != nil {
 			return middlewareErr
 		}
-		autonomyService := &services.PersistedAutonomyService{Repository: database, Authorizer: auth.NewPermissionAuthorizer(), Audit: database, Wallets: database, Now: time.Now, Enabled: cfg.AutonomousEnabled}
+		authorizer := auth.NewPermissionAuthorizer()
+		foundationRegistry, registryErr := tools.NewFoundationRegistry(newFoundationBundle(database, authorizer, time.Now))
+		if registryErr != nil {
+			return registryErr
+		}
+		autonomyService := &services.PersistedAutonomyService{Repository: database, Authorizer: authorizer, Audit: database, Wallets: database, Now: time.Now, Enabled: cfg.AutonomousEnabled}
 		autonomyRegistry, registryErr := tools.NewAutonomyRegistry(autonomyService)
 		if registryErr != nil {
 			return registryErr
 		}
-		server, err = app.NewAuthenticatedServer(cfg, logger, database, middleware.Wrap, autonomyRegistry.Tools()...)
+		registrations := append(foundationRegistry.Tools(), autonomyRegistry.Tools()...)
+		server, err = app.NewAuthenticatedServer(cfg, logger, database, middleware.Wrap, registrations...)
 	} else {
 		server, err = app.NewServerWithReadiness(cfg, logger, database)
 	}
@@ -98,4 +105,23 @@ func run() error {
 	defer stop()
 
 	return server.Run(ctx)
+}
+
+type foundationRepository interface {
+	storage.IntentRepository
+	storage.ApprovalRepository
+	storage.PolicyRepository
+	storage.PolicyEvaluationRepository
+	storage.ExecutionRepository
+	storage.WalletBindingRepository
+	storage.AuditRepository
+}
+
+func newFoundationBundle(repository foundationRepository, authorizer auth.Authorizer, now func() time.Time) services.Bundle {
+	return services.Bundle{
+		Intents:    &services.PersistedIntentService{Intents: repository, Wallets: repository, Authorizer: authorizer, Audit: repository, Now: now},
+		Approvals:  &services.PersistedApprovalService{Approvals: repository, Intents: repository, Authorizer: authorizer, Audit: repository, Now: now},
+		Policies:   &services.PersistedPolicyService{Intents: repository, Policies: repository, Evaluations: repository, Wallets: repository, Authorizer: authorizer, Now: now},
+		Executions: &services.PersistedExecutionService{Intents: repository, Approvals: repository, Policies: repository, Evaluations: repository, Executions: repository, Wallets: repository, Authorizer: authorizer, Now: now},
+	}
 }
