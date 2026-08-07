@@ -7,6 +7,7 @@ import {
   ApprovalApiError,
   ApprovalDecision,
   decideApproval,
+  authorizeExecution,
   getApproval,
   listConfiguredApprovals,
 } from "@/lib/api";
@@ -87,6 +88,8 @@ export function ApprovalDetail({ approvalId }: { approvalId: string }) {
   const [error, setError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [submitting, setSubmitting] = useState<ApprovalDecision>();
+  const [authorizing, setAuthorizing] = useState(false);
+  const [authorizationId, setAuthorizationId] = useState<string>();
 
   useEffect(() => {
     getApproval(approvalId)
@@ -99,11 +102,27 @@ export function ApprovalDetail({ approvalId }: { approvalId: string }) {
     setSubmitting(decision);
     setActionError(undefined);
     try {
-      setApproval(await decideApproval(approvalId, decision));
+      const next = await decideApproval(approvalId, decision);
+      setApproval((current) => current ? { ...current, ...next } : next);
     } catch (reason) {
       setActionError(errorLabel(reason));
     } finally {
       setSubmitting(undefined);
+    }
+  }
+
+  async function confirmWalletExecution() {
+    if (!approval) return;
+    setAuthorizing(true);
+    setActionError(undefined);
+    try {
+      const authorization = await authorizeExecution(approval);
+      setAuthorizationId(authorization.execution_authorization_id);
+      setApproval((current) => current ? { ...current, ...authorization } : current);
+    } catch (reason) {
+      setActionError(errorLabel(reason));
+    } finally {
+      setAuthorizing(false);
     }
   }
 
@@ -126,15 +145,20 @@ export function ApprovalDetail({ approvalId }: { approvalId: string }) {
               <SafeField label="Wallet binding reference" value={approval.wallet_binding_reference ?? "Not provided by API"} mono />
               <SafeField label="Policy status" value={approval.policy_status ?? "Not provided by API"} />
               <SafeField label="Agent identity" value={approval.agent_identity ?? "Not provided by API"} />
+              <SafeField label="Amount" value={approval.amount && approval.token ? `${approval.amount} ${approval.token}` : "Not provided by API"} />
+              <SafeField label="Recipient" value={approval.recipient ?? "Not provided by API"} mono />
+              <SafeField label="Wallet reference" value={approval.wallet_reference ?? "Not provided by API"} mono />
               <SafeField label="Expires" value={formatDate(approval.expires_at)} />
               <SafeField label="Created" value={formatDate(approval.created_at)} />
             </div>
             <div className="rounded-xl bg-slate-50 p-4 text-sm text-[var(--muted)]">Approve or reject only after reviewing the server-provided summary. This page never receives keys, tokens, provider payloads, or signing material.</div>
             {actionError && <Failure message={actionError} />}
+            {authorizationId && <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">Wallet execution authorized for preparation. Authorization ID: <span className="font-mono">{authorizationId}</span>. No transaction was submitted.</div>}
             <div className="mt-6 flex flex-wrap gap-3">
               <button className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(submitting) || isExpired(approval) || approval.status !== "PENDING"} onClick={() => decide("APPROVED")} type="button">{submitting === "APPROVED" ? "Approving…" : "Approve"}</button>
               <button className="rounded-lg border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50" disabled={Boolean(submitting) || isExpired(approval) || approval.status !== "PENDING"} onClick={() => decide("REJECTED")} type="button">{submitting === "REJECTED" ? "Rejecting…" : "Reject"}</button>
             </div>
+            {(approval.status === "APPROVED" || approval.status === "READY_FOR_EXECUTION_CONFIRMATION") && !isExpired(approval) && !authorizationId && <button className="mt-4 rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" disabled={authorizing} onClick={confirmWalletExecution} type="button">{authorizing ? "Preparing confirmation…" : "Confirm Wallet Execution"}</button>}
           </>
         )}
       </section>

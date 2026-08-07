@@ -121,7 +121,7 @@ type foundationRepository interface {
 func newFoundationBundle(repository foundationRepository, authorizer auth.Authorizer, now func() time.Time) services.Bundle {
 	return services.Bundle{
 		Intents:    &services.PersistedIntentService{Intents: repository, Wallets: repository, Authorizer: authorizer, Audit: repository, Now: now},
-		Approvals:  &services.PersistedApprovalService{Approvals: repository, Intents: repository, Authorizer: authorizer, Audit: repository, Now: now},
+		Approvals:  &services.PersistedApprovalService{Approvals: repository, Intents: repository, Wallets: repository, Authorizer: authorizer, Audit: repository, Now: now},
 		Policies:   &services.PersistedPolicyService{Intents: repository, Policies: repository, Evaluations: repository, Wallets: repository, Authorizer: authorizer, Now: now},
 		Executions: &services.PersistedExecutionService{Intents: repository, Approvals: repository, Policies: repository, Evaluations: repository, Executions: repository, Wallets: repository, Authorizer: authorizer, Now: now},
 	}

@@ -107,6 +107,10 @@ func (a Approval) Validate() error {
 		if a.decision != DecisionApproved || a.decidedAt.IsZero() || !a.consumedAt.IsZero() || a.operationKey != "" || a.operationVersion != 0 {
 			return invalidLifecycle()
 		}
+	case StatusReadyForExecutionConfirmation:
+		if a.decision != DecisionApproved || a.decidedAt.IsZero() || !a.consumedAt.IsZero() || a.operationKey != "" || a.operationVersion != 0 {
+			return invalidLifecycle()
+		}
 	case StatusRejected:
 		if a.decision != DecisionRejected || a.decidedAt.IsZero() || !a.consumedAt.IsZero() || a.operationKey != "" || a.operationVersion != 0 {
 			return invalidLifecycle()
@@ -147,7 +151,7 @@ func (a Approval) EnsureAuthorizes(intent intents.Intent, at time.Time) error {
 		return apperrors.New(apperrors.CodeApprovalExpired, "Approval has expired.", false, true, true)
 	}
 	switch a.status {
-	case StatusApproved:
+	case StatusApproved, StatusReadyForExecutionConfirmation:
 		return nil
 	case StatusRejected:
 		return apperrors.New(apperrors.CodeApprovalRejected, "Approval was rejected.", false, true, true)

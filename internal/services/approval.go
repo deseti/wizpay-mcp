@@ -24,6 +24,7 @@ type PersistedApprovalService struct {
 	Intents    storage.IntentRepository
 	Authorizer auth.Authorizer
 	Audit      storage.AuditRepository
+	Wallets    storage.WalletBindingRepository
 	Now        func() time.Time
 }
 

@@ -13,9 +13,14 @@ import (
 )
 
 type serviceStub struct {
-	value    approvals.Approval
-	decision approvals.Decision
-	err      error
+	value         approvals.Approval
+	decision      approvals.Decision
+	authorization services.ExecutionAuthorization
+	err           error
+}
+
+func (s *serviceStub) AuthorizeExecution(context.Context, string, string, string, uint64) (services.ExecutionAuthorization, error) {
+	return s.authorization, s.err
 }
 
 func (s *serviceStub) RequestApproval(context.Context, string) (approvals.Approval, error) {
@@ -90,3 +95,30 @@ func TestWrongUserCannotAccessApproval(t *testing.T) {
 }
 
 var _ services.ApprovalService = (*serviceStub)(nil)
+
+func TestAuthorizeExecutionReturnsSafeHandoff(t *testing.T) {
+	service := &serviceStub{authorization: services.ExecutionAuthorization{AuthorizationID: "eauth_1", ApprovalID: "apr_1", IntentID: "int_1", WalletBindingID: "binding_1", WalletBindingVersion: 2, Status: approvals.StatusReadyForExecutionConfirmation}}
+	handler, err := NewHandler(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	body := strings.NewReader(`{"intent_id":"int_1","wallet_binding_id":"binding_1","wallet_binding_version":2}`)
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/approval/apr_1/authorize-execution", body))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"execution_authorization_id":"eauth_1"`) || strings.Contains(response.Body.String(), "private") {
+		t.Fatalf("response=%d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestAuthorizeExecutionFailureIsReturned(t *testing.T) {
+	service := &serviceStub{err: apperrors.New(apperrors.CodeApprovalRequired, "Approval is not approved.", false, true, true)}
+	handler, err := NewHandler(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/approval/apr_1/authorize-execution", strings.NewReader(`{"intent_id":"int_1","wallet_binding_id":"binding_1","wallet_binding_version":1}`)))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", response.Code)
+	}
+}

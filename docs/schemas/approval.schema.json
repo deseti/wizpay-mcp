@@ -33,11 +33,10 @@
     "revoked_at": {"type": "string", "format": "date-time"},
     "consumed_at": {"type": "string", "format": "date-time"},
     "execution_id": {"$ref": "common.schema.json#/$defs/opaqueId"},
-    "status": {"enum": ["PENDING", "EFFECTIVE", "REJECTED", "EXPIRED", "REVOKED", "CONSUMED"]}
+    "status": {"enum": ["PENDING", "APPROVED", "READY_FOR_EXECUTION_CONFIRMATION", "REJECTED", "EXPIRED", "CONSUMED"]}
   },
   "allOf": [
     {"if": {"properties": {"status": {"const": "CONSUMED"}}}, "then": {"required": ["consumed_at", "execution_id"]}},
     {"if": {"properties": {"status": {"const": "REVOKED"}}}, "then": {"required": ["revoked_at"]}}
   ]
 }
-

@@ -34,6 +34,7 @@ type ApprovalService interface {
 	RequestApproval(context.Context, string) (approvals.Approval, error)
 	GetApproval(context.Context, string) (approvals.Approval, error)
 	DecideApproval(context.Context, string, approvals.Decision) (approvals.Approval, error)
+	AuthorizeExecution(context.Context, string, string, string, uint64) (ExecutionAuthorization, error)
 }
 
 type PolicyService interface {

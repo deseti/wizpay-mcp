@@ -10,16 +10,17 @@ import (
 type Status string
 
 const (
-	StatusPending  Status = "PENDING"
-	StatusApproved Status = "APPROVED"
-	StatusRejected Status = "REJECTED"
-	StatusExpired  Status = "EXPIRED"
-	StatusConsumed Status = "CONSUMED"
+	StatusPending                       Status = "PENDING"
+	StatusApproved                      Status = "APPROVED"
+	StatusReadyForExecutionConfirmation Status = "READY_FOR_EXECUTION_CONFIRMATION"
+	StatusRejected                      Status = "REJECTED"
+	StatusExpired                       Status = "EXPIRED"
+	StatusConsumed                      Status = "CONSUMED"
 )
 
 func (s Status) Valid() bool {
 	switch s {
-	case StatusPending, StatusApproved, StatusRejected, StatusExpired, StatusConsumed:
+	case StatusPending, StatusApproved, StatusReadyForExecutionConfirmation, StatusRejected, StatusExpired, StatusConsumed:
 		return true
 	default:
 		return false
@@ -61,6 +62,27 @@ func (a Approval) Approve(at time.Time) (Approval, error) {
 	return next, next.Validate()
 }
 
+// ReadyForExecutionConfirmation records the authenticated handoff to a
+// future execution preparation boundary. It never signs or submits anything.
+func (a Approval) ReadyForExecutionConfirmation(at time.Time) (Approval, error) {
+	if err := a.Validate(); err != nil {
+		return Approval{}, err
+	}
+	if a.status == StatusReadyForExecutionConfirmation {
+		return a, nil
+	}
+	if a.status != StatusApproved {
+		return Approval{}, invalidTransition()
+	}
+	if at.IsZero() || !at.Before(a.expiresAt) {
+		return Approval{}, apperrors.New(apperrors.CodeApprovalExpired, "Approval has expired.", false, true, true)
+	}
+	next := a
+	next.status = StatusReadyForExecutionConfirmation
+	next.lifecycleRevision++
+	return next, next.Validate()
+}
+
 func (a Approval) Reject(at time.Time) (Approval, error) {
 	if err := a.Validate(); err != nil {
 		return Approval{}, err
@@ -87,7 +109,7 @@ func (a Approval) Expire(at time.Time) (Approval, error) {
 	if a.status == StatusExpired {
 		return a, nil
 	}
-	if a.status != StatusPending && a.status != StatusApproved {
+	if a.status != StatusPending && a.status != StatusApproved && a.status != StatusReadyForExecutionConfirmation {
 		return Approval{}, invalidTransition()
 	}
 	if at.IsZero() || at.Before(a.expiresAt) {
@@ -111,7 +133,7 @@ func (a Approval) Consume(at time.Time, operation intents.OperationIdentity) (Ap
 		}
 		return Approval{}, apperrors.New(apperrors.CodeApprovalAlreadyConsumed, "Approval has already been consumed.", false, true, true)
 	}
-	if a.status != StatusApproved {
+	if a.status != StatusApproved && a.status != StatusReadyForExecutionConfirmation {
 		return Approval{}, invalidTransition()
 	}
 	if at.IsZero() || at.Before(a.createdAt) {

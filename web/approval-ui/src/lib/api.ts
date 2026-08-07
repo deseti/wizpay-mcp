@@ -1,6 +1,7 @@
 export type ApprovalStatus =
   | "PENDING"
   | "APPROVED"
+  | "READY_FOR_EXECUTION_CONFIRMATION"
   | "REJECTED"
   | "EXPIRED"
   | "CONSUMED"
@@ -21,7 +22,14 @@ export type Approval = {
   wallet_binding_reference?: string;
   policy_status?: string;
   agent_identity?: string;
+  amount?: string;
+  token?: string;
+  recipient?: string;
+  wallet_reference?: string;
+  wallet_binding_version?: number;
 };
+
+export type ExecutionAuthorization = Approval & { execution_authorization_id: string; wallet_binding_reference: string };
 
 export class ApprovalApiError extends Error {
   readonly status: number;
@@ -73,6 +81,13 @@ export function decideApproval(approvalId: string, decision: ApprovalDecision): 
   return request<Approval>(`/approval/${encodeURIComponent(approvalId)}/decision`, {
     method: "POST",
     body: JSON.stringify({ decision }),
+  });
+}
+
+export function authorizeExecution(approval: Approval): Promise<ExecutionAuthorization> {
+  return request<ExecutionAuthorization>(`/approval/${encodeURIComponent(approval.approval_id)}/authorize-execution`, {
+    method: "POST",
+    body: JSON.stringify({ intent_id: approval.intent_id, wallet_binding_id: approval.wallet_binding_reference, wallet_binding_version: approval.wallet_binding_version }),
   });
 }
 

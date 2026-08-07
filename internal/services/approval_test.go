@@ -8,11 +8,18 @@ import (
 
 	"github.com/deseti/wizpay-mcp/internal/approvals"
 	"github.com/deseti/wizpay-mcp/internal/auth"
+	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 	"github.com/deseti/wizpay-mcp/internal/storage"
+	"github.com/deseti/wizpay-mcp/internal/wallet"
 )
 
 var approvalServiceNow = time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+
+func approvalHasCode(err error, code apperrors.Code) bool {
+	var value *apperrors.Error
+	return errors.As(err, &value) && value.Code == code
+}
 
 type approvalIntentRepository struct{ intent intents.Intent }
 
@@ -38,6 +45,21 @@ func (approvalIntentRepository) UpdateIntent(context.Context, storage.Scope, int
 type approvalRepositoryStub struct {
 	approval approvals.Approval
 	created  int
+}
+
+type approvalWalletRepository struct{ binding wallet.Binding }
+
+func (r approvalWalletRepository) FindBindingByID(context.Context, storage.Scope, string) (wallet.Binding, error) {
+	return r.binding, nil
+}
+func (r approvalWalletRepository) FindBindingByWallet(context.Context, storage.Scope, string, string, string) (wallet.Binding, error) {
+	return r.binding, nil
+}
+func (r approvalWalletRepository) CreateBinding(context.Context, storage.Scope, wallet.Binding) (storage.CreateBindingResult, error) {
+	panic("unused")
+}
+func (r approvalWalletRepository) UpdateBinding(context.Context, storage.Scope, wallet.Binding, uint64) (wallet.Binding, error) {
+	panic("unused")
 }
 
 func (r *approvalRepositoryStub) FindApprovalByID(context.Context, storage.Scope, string) (approvals.Approval, error) {
@@ -88,8 +110,12 @@ func approvalServiceFixture(t *testing.T, intentStatus intents.Status) (*Persist
 		}
 	}
 	approvalsRepo := &approvalRepositoryStub{}
-	service := &PersistedApprovalService{Approvals: approvalsRepo, Intents: approvalIntentRepository{intent: intent}, Authorizer: auth.NewPermissionAuthorizer(), Now: func() time.Time { return approvalServiceNow }}
-	principal, err := auth.NewAuthenticatedPrincipal(auth.PrincipalParams{TenantID: "tenant_1", ActorID: "user_1", IdentityProvider: "issuer", ProviderSubject: "subject_1", ExpiresAt: approvalServiceNow.Add(time.Hour), Permissions: []auth.Permission{auth.PermissionRequestApproval, auth.PermissionReadApproval}})
+	binding, err := wallet.NewBinding(wallet.BindingParams{BindingID: "binding_1", Version: 1, UserID: "user_1", Provider: "issuer", ProviderUserReference: "subject_1", WalletID: "wallet_1", Address: "0x2222222222222222222222222222222222222222", ChainID: "5042002", Network: "arc-testnet", Status: wallet.BindingStatusActive, VerificationReference: "verified", CreatedAt: approvalServiceNow.Add(-2 * time.Minute), VerifiedAt: approvalServiceNow.Add(-time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &PersistedApprovalService{Approvals: approvalsRepo, Intents: approvalIntentRepository{intent: intent}, Wallets: approvalWalletRepository{binding: binding}, Authorizer: auth.NewPermissionAuthorizer(), Now: func() time.Time { return approvalServiceNow }}
+	principal, err := auth.NewAuthenticatedPrincipal(auth.PrincipalParams{TenantID: "tenant_1", ActorID: "user_1", IdentityProvider: "issuer", ProviderSubject: "subject_1", ExpiresAt: approvalServiceNow.Add(time.Hour), Permissions: []auth.Permission{auth.PermissionRequestApproval, auth.PermissionReadApproval, auth.PermissionPrepareExecution}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +138,46 @@ func TestPersistedApprovalServiceRequestCreatesApproval(t *testing.T) {
 	}
 	if repository.created != 1 || value.IntentID() != intent.IntentID() || value.IntentVersion() != intent.Version() || value.IntentDigest() != intent.Digest() {
 		t.Fatalf("created=%d approval=%+v intent=%+v", repository.created, value, intent)
+	}
+}
+
+func TestPersistedApprovalServiceAuthorizeExecutionRequiresApprovalAndBinding(t *testing.T) {
+	service, repository, ctx, intent := approvalServiceFixture(t, intents.StatusApprovalRequired)
+	approval, err := service.RequestApproval(ctx, intent.IntentID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthorizeExecution(ctx, approval.ApprovalID(), intent.IntentID(), approval.WalletBindingID(), approval.WalletBindingVersion()); !approvalHasCode(err, apperrors.CodeApprovalRequired) {
+		t.Fatalf("pending authorization error = %v", err)
+	}
+	approved, err := service.DecideApproval(ctx, approval.ApprovalID(), approvals.DecisionApproved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthorizeExecution(ctx, approved.ApprovalID(), intent.IntentID(), "wrong-binding", approved.WalletBindingVersion()); !approvalHasCode(err, apperrors.CodeWalletMismatch) {
+		t.Fatalf("mismatch error = %v", err)
+	}
+	value, err := service.AuthorizeExecution(ctx, approved.ApprovalID(), intent.IntentID(), approved.WalletBindingID(), approved.WalletBindingVersion())
+	if err != nil || value.Status != approvals.StatusReadyForExecutionConfirmation || repository.approval.Status() != approvals.StatusReadyForExecutionConfirmation {
+		t.Fatalf("authorization = %#v err=%v", value, err)
+	}
+}
+
+func TestPersistedApprovalServiceAuthorizeExecutionRejectsUnauthorizedAndExpired(t *testing.T) {
+	service, _, ctx, intent := approvalServiceFixture(t, intents.StatusApprovalRequired)
+	approval, err := service.RequestApproval(ctx, intent.IntentID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthorizeExecution(context.Background(), approval.ApprovalID(), intent.IntentID(), approval.WalletBindingID(), approval.WalletBindingVersion()); err == nil {
+		t.Fatal("missing authentication was accepted")
+	}
+	if _, err := service.DecideApproval(ctx, approval.ApprovalID(), approvals.DecisionApproved); err != nil {
+		t.Fatal(err)
+	}
+	service.Now = func() time.Time { return intent.ExpiresAt().Add(time.Second) }
+	if _, err := service.AuthorizeExecution(ctx, approval.ApprovalID(), intent.IntentID(), approval.WalletBindingID(), approval.WalletBindingVersion()); !approvalHasCode(err, apperrors.CodeApprovalExpired) {
+		t.Fatalf("expired authorization error = %v", err)
 	}
 }
 

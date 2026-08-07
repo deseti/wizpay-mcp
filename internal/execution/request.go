@@ -54,7 +54,7 @@ func NewRequest(intent intents.Intent, approval approvals.Approval, policyResult
 		return Request{}, invalidExecution(fmt.Errorf("request creation time is required"))
 	}
 	at = at.UTC()
-	if intent.Status() != intents.StatusApproved {
+	if intent.Status() != intents.StatusApproved && intent.Status() != intents.StatusReadyForExecution {
 		return Request{}, apperrors.New(apperrors.CodeExecutionNotAuthorized, "Execution request is not authorized.", false, true, true)
 	}
 	if !at.Before(intent.ExpiresAt()) || !at.Before(intent.Constraints().Deadline) {
