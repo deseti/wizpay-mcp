@@ -10,6 +10,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/approvals"
 	"github.com/deseti/wizpay-mcp/internal/audit"
 	"github.com/deseti/wizpay-mcp/internal/auth"
+	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 	"github.com/deseti/wizpay-mcp/internal/requestauth"
 	"github.com/deseti/wizpay-mcp/internal/storage"
@@ -127,6 +128,57 @@ func (s *PersistedApprovalService) GetApproval(ctx context.Context, approvalID s
 		return approvals.Approval{}, fmt.Errorf("approval service is not configured")
 	}
 	return s.Approvals.FindApprovalByID(ctx, scope, approvalID)
+}
+
+// DecideApproval records the authenticated user's explicit decision on one
+// pending approval. It only changes the approval lifecycle artifact; it does
+// not approve the intent, create execution authority, or invoke providers.
+func (s *PersistedApprovalService) DecideApproval(ctx context.Context, approvalID string, decision approvals.Decision) (approvals.Approval, error) {
+	scope, err := s.scope(ctx, auth.PermissionRequestApproval)
+	if err != nil {
+		return approvals.Approval{}, err
+	}
+	if s.Approvals == nil || s.Now == nil {
+		return approvals.Approval{}, fmt.Errorf("approval service is not configured")
+	}
+	current, err := s.Approvals.FindApprovalByID(ctx, scope, approvalID)
+	if err != nil {
+		return approvals.Approval{}, err
+	}
+	if current.UserID() != scope.ActorID() {
+		return approvals.Approval{}, apperrors.New(apperrors.CodeAuthorizationRequired, "Approval is not accessible.", false, true, true)
+	}
+	if decision != approvals.DecisionApproved && decision != approvals.DecisionRejected {
+		return approvals.Approval{}, fmt.Errorf("invalid approval decision")
+	}
+	if (decision == approvals.DecisionApproved && current.Status() == approvals.StatusApproved) ||
+		(decision == approvals.DecisionRejected && current.Status() == approvals.StatusRejected) {
+		return current, nil
+	}
+	now := s.Now().UTC()
+	var next approvals.Approval
+	if decision == approvals.DecisionApproved {
+		next, err = current.Approve(now)
+	} else {
+		next, err = current.Reject(now)
+	}
+	if err != nil {
+		return approvals.Approval{}, err
+	}
+	updated, err := s.Approvals.UpdateApproval(ctx, scope, next, current.LifecycleRevision())
+	if err != nil {
+		return approvals.Approval{}, err
+	}
+	if s.Audit != nil {
+		eventType := audit.EventApprovalGranted
+		if decision == approvals.DecisionRejected {
+			eventType = audit.EventApprovalRejected
+		}
+		if err := s.Audit.AppendAudit(ctx, scope, audit.Record{Event: audit.Event{EventID: scope.RequestID() + "/" + updated.ApprovalID() + "/" + string(eventType), Type: eventType, OccurredAt: now, IntentID: updated.IntentID(), IntentVersion: updated.IntentVersion(), IntentDigest: updated.IntentDigest(), ApprovalID: updated.ApprovalID(), UserID: updated.UserID()}, ActorType: "user", ActorID: scope.ActorID(), RequestID: scope.RequestID(), TraceID: scope.TraceID(), ResourceType: "approval", ResourceID: updated.ApprovalID(), PreviousState: string(current.Status()), NewState: string(updated.Status()), SourceComponent: "approval.service"}); err != nil {
+			return approvals.Approval{}, err
+		}
+	}
+	return updated, nil
 }
 
 var _ ApprovalService = (*PersistedApprovalService)(nil)

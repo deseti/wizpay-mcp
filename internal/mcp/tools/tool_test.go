@@ -38,6 +38,9 @@ func (*approvalServiceStub) RequestApproval(context.Context, string) (approvals.
 func (*approvalServiceStub) GetApproval(context.Context, string) (approvals.Approval, error) {
 	return approvals.Approval{}, nil
 }
+func (*approvalServiceStub) DecideApproval(context.Context, string, approvals.Decision) (approvals.Approval, error) {
+	return approvals.Approval{}, nil
+}
 
 type policyServiceStub struct{}
 

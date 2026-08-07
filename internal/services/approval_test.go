@@ -60,8 +60,9 @@ func (r *approvalRepositoryStub) CreateApproval(_ context.Context, _ storage.Sco
 	r.approval = value
 	return storage.CreateApprovalResult{Approval: value, Created: true}, nil
 }
-func (r *approvalRepositoryStub) UpdateApproval(context.Context, storage.Scope, approvals.Approval, uint64) (approvals.Approval, error) {
-	panic("unused")
+func (r *approvalRepositoryStub) UpdateApproval(_ context.Context, _ storage.Scope, value approvals.Approval, _ uint64) (approvals.Approval, error) {
+	r.approval = value
+	return value, nil
 }
 
 func approvalServiceFixture(t *testing.T, intentStatus intents.Status) (*PersistedApprovalService, *approvalRepositoryStub, context.Context, intents.Intent) {
@@ -156,5 +157,24 @@ func TestPersistedApprovalServiceRejectsUnfrozenIntent(t *testing.T) {
 	}
 	if repository.created != 0 {
 		t.Fatal("RequestApproval persisted an approval for an unfrozen intent")
+	}
+}
+
+func TestPersistedApprovalServiceApproveAndReject(t *testing.T) {
+	for _, decision := range []approvals.Decision{approvals.DecisionApproved, approvals.DecisionRejected} {
+		t.Run(string(decision), func(t *testing.T) {
+			service, _, ctx, intent := approvalServiceFixture(t, intents.StatusApprovalRequired)
+			pending, err := service.RequestApproval(ctx, intent.IntentID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			updated, err := service.DecideApproval(ctx, pending.ApprovalID(), decision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if updated.Decision() != decision || updated.Status() != approvals.Status(decision) {
+				t.Fatalf("status=%s decision=%s", updated.Status(), updated.Decision())
+			}
+		})
 	}
 }

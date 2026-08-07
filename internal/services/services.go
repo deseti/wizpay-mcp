@@ -33,6 +33,7 @@ type IntentService interface {
 type ApprovalService interface {
 	RequestApproval(context.Context, string) (approvals.Approval, error)
 	GetApproval(context.Context, string) (approvals.Approval, error)
+	DecideApproval(context.Context, string, approvals.Decision) (approvals.Approval, error)
 }
 
 type PolicyService interface {

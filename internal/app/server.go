@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/config"
+	approvalhttp "github.com/deseti/wizpay-mcp/internal/http/approval"
 	internalmcp "github.com/deseti/wizpay-mcp/internal/mcp"
 	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
+	"github.com/deseti/wizpay-mcp/internal/services"
 )
 
 const (
@@ -53,7 +55,24 @@ func NewAuthenticatedServer(cfg config.Config, logger *slog.Logger, readiness Re
 	return newServer(cfg, logger, readiness, authentication, registrations...)
 }
 
+// NewAuthenticatedServerWithApproval adds the authenticated approval HTTP
+// surface while preserving the existing MCP and health/readiness routes.
+func NewAuthenticatedServerWithApproval(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, authentication func(http.Handler) http.Handler, approvalService services.ApprovalService, registrations ...tools.Tool) (*Server, error) {
+	if !cfg.Auth.Required || authentication == nil {
+		return nil, fmt.Errorf("required authentication middleware is missing")
+	}
+	approvalHandler, err := approvalhttp.NewHandler(approvalService)
+	if err != nil {
+		return nil, err
+	}
+	return newServerWithApproval(cfg, logger, readiness, authentication, approvalHandler, registrations...)
+}
+
 func newServer(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, authentication func(http.Handler) http.Handler, registrations ...tools.Tool) (*Server, error) {
+	return newServerWithApproval(cfg, logger, readiness, authentication, nil, registrations...)
+}
+
+func newServerWithApproval(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, authentication func(http.Handler) http.Handler, approvalHandler http.Handler, registrations ...tools.Tool) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate application configuration: %w", err)
 	}
@@ -79,6 +98,9 @@ func newServer(cfg config.Config, logger *slog.Logger, readiness ReadinessChecke
 		mcpHandler = authentication(mcpHandler)
 	}
 	mux.Handle("/mcp", mcpHandler)
+	if approvalHandler != nil {
+		mux.Handle("/approval/", authentication(approvalHandler))
+	}
 	mux.HandleFunc("/health", server.healthHandler)
 	mux.HandleFunc("/readiness", server.readinessHandler)
 

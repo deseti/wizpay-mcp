@@ -83,7 +83,8 @@ func run() error {
 			return middlewareErr
 		}
 		authorizer := auth.NewPermissionAuthorizer()
-		foundationRegistry, registryErr := tools.NewFoundationRegistry(newFoundationBundle(database, authorizer, time.Now))
+		foundationBundle := newFoundationBundle(database, authorizer, time.Now)
+		foundationRegistry, registryErr := tools.NewFoundationRegistry(foundationBundle)
 		if registryErr != nil {
 			return registryErr
 		}
@@ -93,7 +94,7 @@ func run() error {
 			return registryErr
 		}
 		registrations := append(foundationRegistry.Tools(), autonomyRegistry.Tools()...)
-		server, err = app.NewAuthenticatedServer(cfg, logger, database, middleware.Wrap, registrations...)
+		server, err = app.NewAuthenticatedServerWithApproval(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, registrations...)
 	} else {
 		server, err = app.NewServerWithReadiness(cfg, logger, database)
 	}
