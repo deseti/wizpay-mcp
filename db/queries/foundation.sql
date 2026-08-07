@@ -59,6 +59,14 @@ SELECT * FROM approvals WHERE tenant_id=$1 AND approval_id=$2 AND user_id=sqlc.a
 -- name: FindApprovalByIntent :one
 SELECT * FROM approvals WHERE tenant_id=$1 AND intent_id=$2 AND intent_version=$3 AND intent_digest=$4 AND user_id=sqlc.arg(actor_id);
 
+-- name: ListApprovals :many
+SELECT * FROM approvals
+WHERE tenant_id=$1 AND user_id=sqlc.arg(actor_id)
+  AND (sqlc.arg(status)::text = '' OR status=sqlc.arg(status)::text)
+  AND (sqlc.arg(cursor)::text = '' OR approval_id > sqlc.arg(cursor)::text)
+ORDER BY approval_id ASC
+LIMIT sqlc.arg(limit_count)::integer;
+
 -- name: UpdateApproval :one
 UPDATE approvals SET status=$3,decision=$4,decided_at=$5,consumed_at=$6,operation_key=$7,operation_version=$8,lifecycle_version=$9
 WHERE tenant_id=$1 AND approval_id=$2 AND lifecycle_version=$10 AND $9=$10+1 AND user_id=sqlc.arg(actor_id) RETURNING *;

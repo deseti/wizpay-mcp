@@ -31,10 +31,16 @@ type IntentService interface {
 }
 
 type ApprovalService interface {
+	ListApprovals(context.Context, int, string, string) (ApprovalPage, error)
 	RequestApproval(context.Context, string) (approvals.Approval, error)
 	GetApproval(context.Context, string) (approvals.Approval, error)
 	DecideApproval(context.Context, string, approvals.Decision) (approvals.Approval, error)
 	AuthorizeExecution(context.Context, string, string, string, uint64) (ExecutionAuthorization, error)
+}
+
+type ApprovalPage struct {
+	Approvals  []approvals.Approval
+	NextCursor string
 }
 
 type PolicyService interface {

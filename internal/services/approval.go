@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/approvals"
@@ -26,6 +27,35 @@ type PersistedApprovalService struct {
 	Audit      storage.AuditRepository
 	Wallets    storage.WalletBindingRepository
 	Now        func() time.Time
+}
+
+const maxApprovalListLimit = 100
+
+func (s *PersistedApprovalService) ListApprovals(ctx context.Context, limit int, cursor string, status string) (ApprovalPage, error) {
+	scope, err := s.scope(ctx, auth.PermissionReadApproval)
+	if err != nil {
+		return ApprovalPage{}, err
+	}
+	if s.Approvals == nil {
+		return ApprovalPage{}, fmt.Errorf("approval service is not configured")
+	}
+	if limit <= 0 || limit > maxApprovalListLimit {
+		return ApprovalPage{}, apperrors.New(apperrors.CodeValidationError, "Approval list limit is invalid.", false, true, true)
+	}
+	status = strings.TrimSpace(status)
+	if status != "" && !approvals.Status(status).Valid() {
+		return ApprovalPage{}, apperrors.New(apperrors.CodeValidationError, "Approval status filter is invalid.", false, true, true)
+	}
+	values, err := s.Approvals.ListApprovals(ctx, scope, storage.ApprovalListOptions{Limit: limit + 1, Cursor: strings.TrimSpace(cursor), Status: status})
+	if err != nil {
+		return ApprovalPage{}, err
+	}
+	page := ApprovalPage{Approvals: values}
+	if len(values) > limit {
+		page.Approvals = values[:limit]
+		page.NextCursor = page.Approvals[len(page.Approvals)-1].ApprovalID()
+	}
+	return page, nil
 }
 
 func (s *PersistedApprovalService) scope(ctx context.Context, permission auth.Permission) (storage.Scope, error) {

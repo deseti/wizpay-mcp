@@ -1741,6 +1741,72 @@ func (q *Queries) FreezeIntent(ctx context.Context, arg FreezeIntentParams) (Int
 	return i, err
 }
 
+const listApprovals = `-- name: ListApprovals :many
+SELECT tenant_id, approval_id, approval_version, approval_request_id, intent_id, intent_version, intent_digest, user_id, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, status, decision, created_at, expires_at, decided_at, consumed_at, operation_key, operation_version, lifecycle_version FROM approvals
+WHERE tenant_id=$1 AND user_id=$2
+  AND ($3::text = '' OR status=$3::text)
+  AND ($4::text = '' OR approval_id > $4::text)
+ORDER BY approval_id ASC
+LIMIT $5::integer
+`
+
+type ListApprovalsParams struct {
+	TenantID   string `json:"tenant_id"`
+	ActorID    string `json:"actor_id"`
+	Status     string `json:"status"`
+	Cursor     string `json:"cursor"`
+	LimitCount int32  `json:"limit_count"`
+}
+
+func (q *Queries) ListApprovals(ctx context.Context, arg ListApprovalsParams) ([]Approval, error) {
+	rows, err := q.db.Query(ctx, listApprovals,
+		arg.TenantID,
+		arg.ActorID,
+		arg.Status,
+		arg.Cursor,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Approval{}
+	for rows.Next() {
+		var i Approval
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.ApprovalID,
+			&i.ApprovalVersion,
+			&i.ApprovalRequestID,
+			&i.IntentID,
+			&i.IntentVersion,
+			&i.IntentDigest,
+			&i.UserID,
+			&i.WalletBindingID,
+			&i.WalletBindingVersion,
+			&i.WalletID,
+			&i.WalletAddress,
+			&i.ChainID,
+			&i.Status,
+			&i.Decision,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.DecidedAt,
+			&i.ConsumedAt,
+			&i.OperationKey,
+			&i.OperationVersion,
+			&i.LifecycleVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markSubmissionStarted = `-- name: MarkSubmissionStarted :one
 UPDATE execution_runtime_work
 SET submission_started=true

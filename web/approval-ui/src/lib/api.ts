@@ -91,14 +91,13 @@ export function authorizeExecution(approval: Approval): Promise<ExecutionAuthori
   });
 }
 
-export async function listConfiguredApprovals(): Promise<Approval[]> {
-  const configuredIds = (process.env.NEXT_PUBLIC_APPROVAL_IDS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
+export type ApprovalListResponse = { approvals: Approval[]; next_cursor?: string };
 
-  if (configuredIds.length === 0) {
-    return [];
-  }
-  return Promise.all(configuredIds.map((approvalId) => getApproval(approvalId)));
+export function listApprovals(options: { limit?: number; cursor?: string; status?: string } = {}): Promise<ApprovalListResponse> {
+  const query = new URLSearchParams();
+  if (options.limit) query.set("limit", String(options.limit));
+  if (options.cursor) query.set("cursor", options.cursor);
+  if (options.status) query.set("status", options.status);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return request<ApprovalListResponse>(`/approvals${suffix}`);
 }

@@ -9,7 +9,7 @@ import {
   decideApproval,
   authorizeExecution,
   getApproval,
-  listConfiguredApprovals,
+  listApprovals,
 } from "@/lib/api";
 
 function formatDate(value: string) {
@@ -44,8 +44,8 @@ export function ApprovalList() {
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    listConfiguredApprovals()
-      .then(setApprovals)
+    listApprovals({ status: "PENDING", limit: 50 })
+      .then((page) => setApprovals(page.approvals))
       .catch((reason: unknown) => setError(errorLabel(reason)))
       .finally(() => setLoading(false));
   }, []);
@@ -175,5 +175,5 @@ function SafeField({ label, value, mono = false }: { label: string; value: strin
 }
 
 function Loading() { return <div className="animate-pulse py-12 text-center text-sm text-[var(--muted)]">Loading approval data…</div>; }
-function EmptyState() { return <div className="rounded-xl border border-dashed border-[var(--line)] py-12 text-center"><p className="font-semibold">No approvals configured</p><p className="mt-2 text-sm text-[var(--muted)]">Configure approval IDs for the current API foundation.</p></div>; }
+function EmptyState() { return <div className="rounded-xl border border-dashed border-[var(--line)] py-12 text-center"><p className="font-semibold">No pending approvals</p><p className="mt-2 text-sm text-[var(--muted)]">New approval requests will appear here automatically.</p></div>; }
 function Failure({ message }: { message: string }) { return <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{message}</div>; }

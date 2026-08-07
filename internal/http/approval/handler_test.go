@@ -16,7 +16,12 @@ type serviceStub struct {
 	value         approvals.Approval
 	decision      approvals.Decision
 	authorization services.ExecutionAuthorization
+	page          services.ApprovalPage
 	err           error
+}
+
+func (s *serviceStub) ListApprovals(context.Context, int, string, string) (services.ApprovalPage, error) {
+	return s.page, s.err
 }
 
 func (s *serviceStub) AuthorizeExecution(context.Context, string, string, string, uint64) (services.ExecutionAuthorization, error) {
@@ -119,6 +124,32 @@ func TestAuthorizeExecutionFailureIsReturned(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/approval/apr_1/authorize-execution", strings.NewReader(`{"intent_id":"int_1","wallet_binding_id":"binding_1","wallet_binding_version":1}`)))
 	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", response.Code)
+	}
+}
+
+func TestListApprovalsReturnsSafeMetadata(t *testing.T) {
+	service := &serviceStub{page: services.ApprovalPage{NextCursor: "cursor_2"}}
+	handler, err := NewHandler(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/approvals?limit=2&status=PENDING", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"approvals":[]`) || !strings.Contains(response.Body.String(), `"next_cursor":"cursor_2"`) || strings.Contains(response.Body.String(), "private_key") {
+		t.Fatalf("response=%d %q", response.Code, response.Body.String())
+	}
+}
+
+func TestListApprovalsUnauthorized(t *testing.T) {
+	service := &serviceStub{err: apperrors.New(apperrors.CodeAuthenticationRequired, "Authentication is required.", false, true, true)}
+	handler, err := NewHandler(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/approvals", nil))
+	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", response.Code)
 	}
 }

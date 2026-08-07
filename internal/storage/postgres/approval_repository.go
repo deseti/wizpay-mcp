@@ -135,6 +135,30 @@ func (s *Store) FindApprovalByIntent(ctx context.Context, scope storage.Scope, i
 	}
 	return approvalFromRow(row)
 }
+
+func (s *Store) ListApprovals(ctx context.Context, scope storage.Scope, options storage.ApprovalListOptions) ([]approvals.Approval, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	bounded, cancel, err := s.queryContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	rows, err := s.queries.ListApprovals(bounded, dbsqlc.ListApprovalsParams{TenantID: scope.TenantID(), Status: options.Status, Cursor: options.Cursor, LimitCount: int32(options.Limit), ActorID: scope.ActorID()})
+	if err != nil {
+		return nil, mapDatabaseError(err)
+	}
+	result := make([]approvals.Approval, 0, len(rows))
+	for _, row := range rows {
+		value, restoreErr := approvalFromRow(row)
+		if restoreErr != nil {
+			return nil, restoreErr
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
 func (s *Store) UpdateApproval(ctx context.Context, scope storage.Scope, value approvals.Approval, expectedRevision uint64) (approvals.Approval, error) {
 	if err := scope.Validate(); err != nil {
 		return approvals.Approval{}, err

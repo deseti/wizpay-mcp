@@ -131,6 +131,24 @@ func TestTenantIsolationAndCrossTenantForeignKeys(t *testing.T) {
 			}
 		})
 	}
+	values, err := integrationStore.ListApprovals(context.Background(), otherScope, storage.ApprovalListOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("cross-tenant approval list returned %d rows", len(values))
+	}
+	sameTenantOtherUser, err := storage.NewScope(f.scope.TenantID(), unique("other-user"), unique("request"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err = integrationStore.ListApprovals(context.Background(), sameTenantOtherUser, storage.ApprovalListOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("cross-user approval list returned %d rows", len(values))
+	}
 }
 
 func TestOptimisticConcurrencyFailsClosed(t *testing.T) {

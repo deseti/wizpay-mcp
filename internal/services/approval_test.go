@@ -45,6 +45,8 @@ func (approvalIntentRepository) UpdateIntent(context.Context, storage.Scope, int
 type approvalRepositoryStub struct {
 	approval approvals.Approval
 	created  int
+	listed   []approvals.Approval
+	options  storage.ApprovalListOptions
 }
 
 type approvalWalletRepository struct{ binding wallet.Binding }
@@ -73,6 +75,16 @@ func (r *approvalRepositoryStub) FindApprovalByIntent(context.Context, storage.S
 		return approvals.Approval{}, errors.New("approval not found")
 	}
 	return r.approval, nil
+}
+func (r *approvalRepositoryStub) ListApprovals(_ context.Context, _ storage.Scope, options storage.ApprovalListOptions) ([]approvals.Approval, error) {
+	r.options = options
+	if r.listed != nil {
+		return r.listed, nil
+	}
+	if r.approval.ApprovalID() == "" {
+		return nil, errors.New("approval not found")
+	}
+	return []approvals.Approval{r.approval}, nil
 }
 func (r *approvalRepositoryStub) CreateApproval(_ context.Context, _ storage.Scope, value approvals.Approval) (storage.CreateApprovalResult, error) {
 	r.created++
@@ -213,6 +225,35 @@ func TestPersistedApprovalServiceAuthorizationFailure(t *testing.T) {
 	service, _, _, _ := approvalServiceFixture(t, intents.StatusApprovalRequired)
 	if _, err := service.GetApproval(context.Background(), "approval_1"); err == nil {
 		t.Fatal("GetApproval accepted unauthenticated request")
+	}
+}
+
+func TestPersistedApprovalServiceListIsScopedAndPaginated(t *testing.T) {
+	service, repository, ctx, intent := approvalServiceFixture(t, intents.StatusApprovalRequired)
+	approval, err := service.RequestApproval(ctx, intent.IntentID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.listed = []approvals.Approval{approval, approval, approval}
+	page, err := service.ListApprovals(ctx, 2, "cursor_1", string(approvals.StatusApproved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Approvals) != 2 || page.NextCursor != approval.ApprovalID() {
+		t.Fatalf("page=%#v", page)
+	}
+	if repository.options.Cursor != "cursor_1" || repository.options.Status != string(approvals.StatusApproved) || repository.options.Limit != 3 {
+		t.Fatalf("options=%#v", repository.options)
+	}
+	if _, err := service.ListApprovals(context.Background(), 2, "", ""); err == nil {
+		t.Fatal("unauthorized listing was accepted")
+	}
+}
+
+func TestPersistedApprovalServiceListRejectsInvalidStatus(t *testing.T) {
+	service, _, ctx, _ := approvalServiceFixture(t, intents.StatusApprovalRequired)
+	if _, err := service.ListApprovals(ctx, 10, "", "NOT_A_STATUS"); !approvalHasCode(err, apperrors.CodeValidationError) {
+		t.Fatalf("invalid status error=%v", err)
 	}
 }
 

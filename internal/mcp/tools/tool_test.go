@@ -32,6 +32,10 @@ func (s *intentServiceStub) GetIntent(context.Context, string) (intents.Intent, 
 
 type approvalServiceStub struct{}
 
+func (*approvalServiceStub) ListApprovals(context.Context, int, string, string) (services.ApprovalPage, error) {
+	return services.ApprovalPage{}, nil
+}
+
 func (*approvalServiceStub) RequestApproval(context.Context, string) (approvals.Approval, error) {
 	return approvals.Approval{}, nil
 }

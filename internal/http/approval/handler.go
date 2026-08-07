@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,15 @@ func NewHandler(service services.ApprovalService) (*Handler, error) {
 // /approval/{approvalID}/decision and /approval/{approvalID}/authorize-execution. Authentication is intentionally supplied by
 // the application server's existing middleware wrapper.
 func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/approvals" {
+		if request.Method != http.MethodGet {
+			response.Header().Set("Allow", http.MethodGet)
+			writeError(response, http.StatusMethodNotAllowed, nil)
+			return
+		}
+		h.list(response, request)
+		return
+	}
 	approvalID, path, ok := approvalPath(request.URL.Path)
 	if !ok {
 		writeError(response, http.StatusNotFound, nil)
@@ -106,6 +116,44 @@ type authorizationOutput struct {
 
 type errorOutput struct {
 	Error apperrors.PublicError `json:"error"`
+}
+
+type approvalListOutput struct {
+	ApprovalID    string `json:"approval_id"`
+	Status        string `json:"status"`
+	Decision      string `json:"decision"`
+	IntentID      string `json:"intent_id"`
+	IntentVersion uint64 `json:"intent_version"`
+	CreatedAt     string `json:"created_at"`
+	ExpiresAt     string `json:"expires_at"`
+}
+
+type approvalListResponse struct {
+	Approvals  []approvalListOutput `json:"approvals"`
+	NextCursor string               `json:"next_cursor,omitempty"`
+}
+
+func (h *Handler) list(response http.ResponseWriter, request *http.Request) {
+	query := request.URL.Query()
+	limit := 50
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(response, http.StatusBadRequest, apperrors.New(apperrors.CodeValidationError, "Approval list limit is invalid.", false, true, true))
+			return
+		}
+		limit = parsed
+	}
+	page, err := h.service.ListApprovals(request.Context(), limit, query.Get("cursor"), query.Get("status"))
+	if err != nil {
+		writeError(response, statusFor(err), err)
+		return
+	}
+	result := approvalListResponse{Approvals: make([]approvalListOutput, 0, len(page.Approvals)), NextCursor: page.NextCursor}
+	for _, value := range page.Approvals {
+		result.Approvals = append(result.Approvals, approvalListOutput{ApprovalID: value.ApprovalID(), Status: string(value.Status()), Decision: string(value.Decision()), IntentID: value.IntentID(), IntentVersion: value.IntentVersion(), CreatedAt: value.CreatedAt().UTC().Format(time.RFC3339Nano), ExpiresAt: value.ExpiresAt().UTC().Format(time.RFC3339Nano)})
+	}
+	writeJSON(response, http.StatusOK, result)
 }
 
 func (h *Handler) get(response http.ResponseWriter, request *http.Request, approvalID string) {

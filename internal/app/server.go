@@ -100,6 +100,7 @@ func newServerWithApproval(cfg config.Config, logger *slog.Logger, readiness Rea
 	mux.Handle("/mcp", mcpHandler)
 	if approvalHandler != nil {
 		mux.Handle("/approval/", authentication(approvalHandler))
+		mux.Handle("/approvals", authentication(approvalHandler))
 	}
 	mux.HandleFunc("/health", server.healthHandler)
 	mux.HandleFunc("/readiness", server.readinessHandler)

@@ -42,6 +42,7 @@ type Querier interface {
 	FindWalletBindingByID(ctx context.Context, arg FindWalletBindingByIDParams) (WalletBinding, error)
 	FindWalletBindingByWallet(ctx context.Context, arg FindWalletBindingByWalletParams) (WalletBinding, error)
 	FreezeIntent(ctx context.Context, arg FreezeIntentParams) (Intent, error)
+	ListApprovals(ctx context.Context, arg ListApprovalsParams) ([]Approval, error)
 	MarkSubmissionStarted(ctx context.Context, arg MarkSubmissionStartedParams) (ExecutionRuntimeWork, error)
 	ReleaseExecutionWork(ctx context.Context, arg ReleaseExecutionWorkParams) (int64, error)
 	ResetSubmissionStarted(ctx context.Context, arg ResetSubmissionStartedParams) (int64, error)
