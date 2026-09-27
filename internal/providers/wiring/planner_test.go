@@ -52,8 +52,8 @@ func (intentRepositoryStub) UpdateIntent(context.Context, storage.Scope, intents
 	panic("not used")
 }
 
-func TestPlannerRefusesPayrollAndSwapExecutionInTrackA(t *testing.T) {
-	for _, kind := range []intents.Type{intents.TypePayroll, intents.TypeSwap} {
+func TestPlannerRefusesSwapExecutionInTrackC(t *testing.T) {
+	for _, kind := range []intents.Type{intents.TypeSwap} {
 		t.Run(string(kind), func(t *testing.T) {
 			request, intent := executionRequest(t, frozenIntent(t, kind))
 			scope, err := storage.NewScope("tenant", "actor", "request", "trace")
@@ -73,6 +73,36 @@ func TestPlannerRefusesPayrollAndSwapExecutionInTrackA(t *testing.T) {
 				t.Fatalf("repository lookup = calls %d, id %q, scope tenant=%q actor=%q", repository.findCalls, repository.requestedID, repository.requestedScope.TenantID(), repository.requestedScope.ActorID())
 			}
 		})
+	}
+}
+
+func TestPlannerBuildsStableSameTokenPayrollPlanAndIdempotencyIdentity(t *testing.T) {
+	request, intent := executionRequest(t, frozenIntent(t, intents.TypePayroll))
+	planner, err := NewPlanner(&intentRepositoryStub{intent: intent}, payroll.NewPlanner(nil), swap.NewPlanner(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, _ := storage.NewScope("tenant", "actor", "request", "trace")
+	first, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCall, ok1 := first.EncodedCall()
+	secondCall, ok2 := second.EncodedCall()
+	if first.EffectiveKind() != providers.PlanKindContractExecution || !ok1 || !ok2 || first.WalletAddress != intent.Ownership().WalletAddress || firstCall.To() != contracts.AddressWizPayPayroll || string(firstCall.CallData()) != string(secondCall.CallData()) {
+		t.Fatalf("unstable payroll plans: %#v / %#v", first, second)
+	}
+	key1, err := providers.IdempotencyKey(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key2, err := providers.IdempotencyKey(request)
+	if err != nil || key1 != key2 {
+		t.Fatalf("keys = %q/%q err=%v", key1, key2, err)
 	}
 }
 
@@ -272,7 +302,7 @@ func frozenIntentVersion(t *testing.T, kind intents.Type, nonce string, version 
 	if kind == intents.TypeSend {
 		params.Financial = intents.FinancialParameters{Send: &intents.SendParameters{Token: token, Recipient: "0x3333333333333333333333333333333333333333", Amount: amount("1")}}
 	} else if kind == intents.TypePayroll {
-		params.Financial = intents.FinancialParameters{Payroll: &intents.PayrollParameters{SchemaVersion: intents.FinancialSchemaPhase12, Variant: intents.PayrollVariantSingle, TokenIn: token, Recipients: []intents.Recipient{{Address: "0x3333333333333333333333333333333333333333", TokenOut: token, AmountIn: amount("1"), MinAmountOut: amount("1")}}, Total: amount("1")}}
+		params.Financial = intents.FinancialParameters{Payroll: &intents.PayrollParameters{SchemaVersion: intents.FinancialSchemaPhase12, Variant: intents.PayrollVariantSingle, TokenIn: token, Recipients: []intents.Recipient{{Address: "0x3333333333333333333333333333333333333333", TokenOut: token, AmountIn: amount("1"), MinAmountOut: amount("1")}}, Total: amount("1"), ReferenceID: "payroll-reference"}}
 	} else {
 		output := token
 		output.Address = contracts.AddressEURCMainnet

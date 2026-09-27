@@ -254,6 +254,52 @@ func (in SendStatusInput) Validate() error {
 	return validateReference("execution_id", in.ExecutionID)
 }
 
+func (in PayrollDraftInput) Validate() error {
+	for name, value := range map[string]string{"request_id": in.RequestID, "client_request_id": in.ClientRequestID, "nonce": in.Nonce, "wallet_binding_id": in.WalletBindingID, "reference_id": in.ReferenceID, "policy_reference": in.PolicyReference} {
+		if err := validateReference(name, value); err != nil {
+			return err
+		}
+	}
+	if in.Token != "USDC" && in.Token != "EURC" {
+		return fmt.Errorf("token must be USDC or EURC")
+	}
+	if len(in.Recipients) < 1 || len(in.Recipients) > 50 {
+		return fmt.Errorf("recipients must contain 1 to 50 entries")
+	}
+	if len(in.ReferenceID) > 64 {
+		return fmt.Errorf("reference_id exceeds 64 UTF-8 bytes")
+	}
+	for i, recipient := range in.Recipients {
+		if err := validateReference(fmt.Sprintf("recipients[%d].address", i), recipient.Address); err != nil {
+			return err
+		}
+		if !recipient.Amount.IsPositive() {
+			return fmt.Errorf("recipients[%d].amount must be positive and exact", i)
+		}
+	}
+	if in.Deadline.IsZero() {
+		return fmt.Errorf("deadline is required")
+	}
+	return nil
+}
+func (in PayrollExecuteInput) Validate() error {
+	for name, value := range map[string]string{"request_id": in.RequestID, "intent_id": in.IntentID, "approval_id": in.ApprovalID, "policy_id": in.PolicyID} {
+		if err := validateReference(name, value); err != nil {
+			return err
+		}
+	}
+	if in.PolicyVersion == 0 {
+		return fmt.Errorf("policy_version must be at least 1")
+	}
+	return nil
+}
+func (in PayrollStatusInput) Validate() error {
+	if err := validateRequestID(in.RequestID); err != nil {
+		return err
+	}
+	return validateReference("execution_id", in.ExecutionID)
+}
+
 func publicToolError(requestID string, err error) *ToolError {
 	public := apperrors.ToPublic(err)
 	return &ToolError{Code: string(public.Code), Message: public.Message, RequestID: requestID, Retryable: public.Retryable, UserActionRequired: public.UserActionRequired, Terminal: public.Terminal}

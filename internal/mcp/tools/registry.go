@@ -83,3 +83,14 @@ func NewSendRegistry(service services.SendService) (*Registry, error) {
 	}
 	return NewRegistry(definitions...)
 }
+
+func NewPayrollRegistry(service services.PayrollService) (*Registry, error) {
+	if service == nil {
+		return nil, fmt.Errorf("payroll service is required")
+	}
+	definitions, err := payrollDefinitions(service)
+	if err != nil {
+		return nil, err
+	}
+	return NewRegistry(definitions...)
+}

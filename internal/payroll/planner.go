@@ -2,6 +2,7 @@ package payroll
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 	contractpayroll "github.com/deseti/wizpay-mcp/internal/contracts/payroll"
@@ -36,14 +37,30 @@ func (p Planner) Plan(intent intents.Intent) (Plan, error) {
 	if financial == nil {
 		return Plan{}, fmt.Errorf("payroll financial parameters are required")
 	}
-	if !financial.Phase12Executable() {
-		return Plan{}, fmt.Errorf("payroll intent is not Phase 12 executable")
+	if err := financial.ValidateSameToken(); err != nil {
+		return Plan{}, fmt.Errorf("payroll intent is not Track C same-token executable: %w", err)
 	}
 	ownership := intent.Ownership()
 	if err := p.validateBinding(intent.Route(), ownership); err != nil {
 		return Plan{}, err
 	}
-	return Plan{}, fmt.Errorf("Arc Mainnet payroll execution is disabled in Track A")
+	recipients := make([]string, len(financial.Recipients))
+	amounts := make([]*big.Int, len(financial.Recipients))
+	for i, recipient := range financial.Recipients {
+		recipients[i] = recipient.Address
+		amount, err := recipient.AmountIn.BaseInt()
+		if err != nil {
+			return Plan{}, fmt.Errorf("recipient %d amount: %w", i, err)
+		}
+		amounts[i] = amount
+	}
+	call, err := contractpayroll.EncodeSameTokenPayroll(p.registry, contractpayroll.SameTokenPayrollInput{
+		Token: financial.TokenIn.Address, Recipients: recipients, Amounts: amounts, ReferenceID: financial.ReferenceID,
+	})
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode same-token payroll: %w", err)
+	}
+	return newPlan(intent, call), nil
 }
 
 func (p Planner) validateBinding(route intents.Route, ownership intents.Ownership) error {
@@ -61,6 +78,9 @@ func (p Planner) validateBinding(route intents.Route, ownership intents.Ownershi
 	}
 	if ownership.ChainID != contracts.ChainIDArcMainnet {
 		return fmt.Errorf("payroll ownership chain must be %s", contracts.ChainIDArcMainnet)
+	}
+	if ownership.Network != contracts.NetworkArcMainnet {
+		return fmt.Errorf("payroll ownership network must be %s", contracts.NetworkArcMainnet)
 	}
 	deployment, err := contractpayroll.ExpectedDeployment(p.registry)
 	if err != nil {

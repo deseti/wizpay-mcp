@@ -92,19 +92,24 @@ func TestTrackAComposedVerifierPreservesGenericPendingWithoutDomainLookup(t *tes
 	}
 }
 
-func TestTrackAComposedVerifierCannotPromoteGenericSuccess(t *testing.T) {
-	for _, kind := range []intents.Type{intents.TypePayroll, intents.TypeSwap} {
-		t.Run(string(kind), func(t *testing.T) {
-			receipt := providers.Receipt{Status: providers.ReceiptSuccess, ChainID: contracts.ChainIDArcMainnet, TransactionHash: mainnetVerifierHash, BlockNumber: 10, BlockHash: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Confirmations: 1}
-			verifier, repository, value, ctx, chain := mainnetComposedVerifier(t, kind, receipt)
-			result, err := verifier.Verify(ctx, value, mainnetReference(t))
-			if err == nil || !strings.Contains(err.Error(), "disabled in Track A") || result.Outcome == runtime.VerificationVerified {
-				t.Fatalf("result=%#v err=%v", result, err)
-			}
-			if repository.findCalls != 1 || chain.calls != 1 {
-				t.Fatalf("repository/chain calls=%d/%d", repository.findCalls, chain.calls)
-			}
-		})
+func TestTrackCComposedVerifierCannotPromoteIncompletePayrollEvidence(t *testing.T) {
+	receipt := providers.Receipt{Status: providers.ReceiptSuccess, ChainID: contracts.ChainIDArcMainnet, TransactionHash: mainnetVerifierHash, BlockNumber: 10, BlockHash: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Confirmations: 1}
+	verifier, repository, value, ctx, chain := mainnetComposedVerifier(t, intents.TypePayroll, receipt)
+	result, err := verifier.Verify(ctx, value, mainnetReference(t))
+	if err != nil || result.Outcome != runtime.VerificationPending {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if repository.findCalls != 1 || chain.calls != 1 {
+		t.Fatalf("repository/chain calls=%d/%d", repository.findCalls, chain.calls)
+	}
+}
+
+func TestTrackCSwapRemainsDisabled(t *testing.T) {
+	receipt := providers.Receipt{Status: providers.ReceiptSuccess, ChainID: contracts.ChainIDArcMainnet, TransactionHash: mainnetVerifierHash, BlockNumber: 10, BlockHash: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Confirmations: 1}
+	verifier, _, value, ctx, _ := mainnetComposedVerifier(t, intents.TypeSwap, receipt)
+	result, err := verifier.Verify(ctx, value, mainnetReference(t))
+	if err == nil || !strings.Contains(err.Error(), "disabled in Track A") || result.Outcome == runtime.VerificationVerified {
+		t.Fatalf("result=%#v err=%v", result, err)
 	}
 }
 

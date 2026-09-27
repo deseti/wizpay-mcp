@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/auth"
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 	"github.com/deseti/wizpay-mcp/internal/wallet"
@@ -168,6 +170,12 @@ func newIntentView(intent intents.Intent) (intentView, error) {
 	case intents.TypePayroll:
 		source := financial.Payroll.SourceToken()
 		view.spendToken, view.spendAmount = tokenReference(source), financial.Payroll.Total
+		// Same-token employer exposure includes fees on top of recipient
+		// obligations. Until an attested live fee is bound into an intent, policy
+		// evaluation conservatively uses the canonical contract MAX_FEE_BPS.
+		if financial.Payroll.SameTokenExecutable() {
+			view.spendAmount = payrollMaximumEmployerExposure(financial.Payroll.Total)
+		}
 		view.chains = []string{source.ChainID}
 		view.tokens = []TokenReference{tokenReference(source)}
 		for _, recipient := range financial.Payroll.Recipients {
@@ -201,6 +209,33 @@ func newIntentView(intent intents.Intent) (intentView, error) {
 	}
 	view.tokens = uniqueTokens
 	return view, nil
+}
+
+func payrollMaximumEmployerExposure(obligations intents.Amount) intents.Amount {
+	base, err := obligations.BaseInt()
+	if err != nil {
+		return obligations
+	}
+	fee := new(big.Int).Mul(new(big.Int).Set(base), new(big.Int).SetUint64(contracts.ContractMaxFeeBPS))
+	fee.Quo(fee, big.NewInt(10_000))
+	total := new(big.Int).Add(base, fee)
+	return intents.Amount{Decimal: canonicalAmountDecimal(total, obligations.Decimals), BaseUnits: total.String(), Decimals: obligations.Decimals}
+}
+
+func canonicalAmountDecimal(value *big.Int, decimals uint8) string {
+	digits := value.String()
+	width := int(decimals)
+	if width == 0 {
+		return digits
+	}
+	if len(digits) <= width {
+		digits = strings.Repeat("0", width-len(digits)+1) + digits
+	}
+	whole, fraction := digits[:len(digits)-width], strings.TrimRight(digits[len(digits)-width:], "0")
+	if fraction == "" {
+		return whole
+	}
+	return whole + "." + fraction
 }
 
 func uniqueSorted(values []string) []string {

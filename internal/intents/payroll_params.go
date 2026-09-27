@@ -9,11 +9,11 @@ import (
 
 const (
 	// maxPayrollRecipientsPhase12 matches the contract encoder batch limit.
-	maxPayrollRecipientsPhase12 = 256
+	maxPayrollRecipientsPhase12 = 50
 	// maxPayrollRecipientsLegacy is the pre-Phase-12 limit.
 	maxPayrollRecipientsLegacy = 500
 	// maxPayrollReferenceIDLength matches contracts/payroll validation.
-	maxPayrollReferenceIDLength = 128
+	maxPayrollReferenceIDLength = 64
 )
 
 // Route reference constants for allowlisted Payroll contract binding.
@@ -48,6 +48,34 @@ func (p PayrollParameters) IsPhase12() bool {
 func (p PayrollParameters) Phase12Executable() bool {
 	return p.IsPhase12() && p.validatePhase12() == nil
 }
+
+// ValidateSameToken verifies the only Payroll variant executable in Track C.
+// It deliberately rejects every cross-token or slippage-bearing shape.
+func (p PayrollParameters) ValidateSameToken() error {
+	if err := p.validatePhase12(); err != nil {
+		return err
+	}
+	if err := validatePayrollReferenceID(p.ReferenceID); err != nil {
+		return err
+	}
+	if p.Variant != PayrollVariantSingle && p.Variant != PayrollVariantBatchSingleTokenOut {
+		return fmt.Errorf("cross-token payroll is unavailable")
+	}
+	if !canonicalPayrollToken(p.TokenIn) {
+		return fmt.Errorf("token_in must be canonical Arc Mainnet USDC or EURC")
+	}
+	for i, recipient := range p.Recipients {
+		if !samePayrollToken(p.TokenIn, recipient.TokenOut) {
+			return fmt.Errorf("recipients[%d].token_out must exactly match token_in", i)
+		}
+		if recipient.AmountIn != recipient.MinAmountOut {
+			return fmt.Errorf("recipients[%d] same-token amount must be exact", i)
+		}
+	}
+	return nil
+}
+
+func (p PayrollParameters) SameTokenExecutable() bool { return p.ValidateSameToken() == nil }
 
 // SourceToken returns the source token for policy/spend views.
 func (p PayrollParameters) SourceToken() Token {
@@ -126,12 +154,12 @@ func (p PayrollParameters) validatePhase12() error {
 
 	switch p.Variant {
 	case PayrollVariantBatchSingleTokenOut, PayrollVariantBatchMultiTokenOut:
-		if err := validateBoundedReferenceID("reference_id", p.ReferenceID, maxPayrollReferenceIDLength); err != nil {
+		if err := validatePayrollReferenceID(p.ReferenceID); err != nil {
 			return err
 		}
 	case PayrollVariantSingle:
 		if p.ReferenceID != "" {
-			if err := validateBoundedReferenceID("reference_id", p.ReferenceID, maxPayrollReferenceIDLength); err != nil {
+			if err := validatePayrollReferenceID(p.ReferenceID); err != nil {
 				return err
 			}
 		}
@@ -216,4 +244,33 @@ func (p PayrollParameters) validatePhase12() error {
 		}
 	}
 	return nil
+}
+
+func validatePayrollReferenceID(value string) error {
+	if err := validateText("reference_id", value); err != nil {
+		return err
+	}
+	if len(value) > maxPayrollReferenceIDLength {
+		return fmt.Errorf("reference_id exceeds maximum UTF-8 byte length %d", maxPayrollReferenceIDLength)
+	}
+	return nil
+}
+
+func canonicalPayrollToken(token Token) bool {
+	if token.ChainID != contracts.ChainIDArcMainnet || token.Standard != "ERC20" || token.Decimals != 6 {
+		return false
+	}
+	switch token.Symbol {
+	case "USDC":
+		return addressesEqual(token.Address, contracts.AddressUSDCMainnet)
+	case "EURC":
+		return addressesEqual(token.Address, contracts.AddressEURCMainnet)
+	default:
+		return false
+	}
+}
+
+func samePayrollToken(a, b Token) bool {
+	return canonicalPayrollToken(a) && canonicalPayrollToken(b) && a.ChainID == b.ChainID &&
+		a.Standard == b.Standard && a.Decimals == b.Decimals && a.Symbol == b.Symbol && addressesEqual(a.Address, b.Address)
 }

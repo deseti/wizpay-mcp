@@ -259,3 +259,55 @@ type SendStatusResponse struct {
 	Result *ExecutionOutput `json:"result,omitempty"`
 	Error  *ToolError       `json:"error,omitempty"`
 }
+
+type PayrollRecipientInput struct {
+	Address string         `json:"address"`
+	Amount  intents.Amount `json:"amount"`
+}
+type PayrollDraftInput struct {
+	RequestID       string                  `json:"request_id"`
+	ClientRequestID string                  `json:"client_request_id"`
+	Nonce           string                  `json:"nonce"`
+	WalletBindingID string                  `json:"wallet_binding_id"`
+	Token           string                  `json:"token" jsonschema:"one of USDC, EURC"`
+	Recipients      []PayrollRecipientInput `json:"recipients"`
+	ReferenceID     string                  `json:"reference_id"`
+	Deadline        time.Time               `json:"deadline"`
+	PolicyReference string                  `json:"policy_reference"`
+}
+type PayrollExecuteInput struct {
+	RequestID     string `json:"request_id"`
+	IntentID      string `json:"intent_id"`
+	ApprovalID    string `json:"approval_id"`
+	PolicyID      string `json:"policy_id"`
+	PolicyVersion uint64 `json:"policy_version"`
+}
+type PayrollStatusInput struct {
+	RequestID   string `json:"request_id"`
+	ExecutionID string `json:"execution_id"`
+}
+type PayrollPreviewOutput struct {
+	Token        string                  `json:"token"`
+	TokenAddress string                  `json:"token_address"`
+	Recipients   []PayrollRecipientInput `json:"recipients"`
+	Total        intents.Amount          `json:"total"`
+	ReferenceID  string                  `json:"reference_id"`
+	ChainID      string                  `json:"chain_id"`
+	Network      string                  `json:"network"`
+}
+type PayrollPreviewResponse struct {
+	Result *PayrollPreviewOutput `json:"result,omitempty"`
+	Error  *ToolError            `json:"error,omitempty"`
+}
+type PayrollIntentResponse struct {
+	Result *IntentOutput `json:"result,omitempty"`
+	Error  *ToolError    `json:"error,omitempty"`
+}
+type PayrollExecuteResponse struct {
+	Result *ExecutionOutput `json:"result,omitempty"`
+	Error  *ToolError       `json:"error,omitempty"`
+}
+type PayrollStatusResponse struct {
+	Result *ExecutionOutput `json:"result,omitempty"`
+	Error  *ToolError       `json:"error,omitempty"`
+}
