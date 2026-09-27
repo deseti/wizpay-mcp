@@ -261,6 +261,9 @@ type SwapParameters struct {
 	// QuoteReference is the legacy opaque quote id. Phase 12 prefers Quote.QuoteID.
 	QuoteReference string `json:"quote_reference,omitempty"`
 	MaxSlippageBPS uint16 `json:"max_slippage_bps"`
+	// MinHopPriceX36 is the exact positive integer price guard passed to the
+	// canonical executor. A decimal string avoids JSON number precision loss.
+	MinHopPriceX36 string `json:"min_hop_price_x36,omitempty"`
 	// Phase 12 execution-critical fields.
 	Router    string     `json:"router,omitempty"`
 	Recipient string     `json:"recipient,omitempty"`

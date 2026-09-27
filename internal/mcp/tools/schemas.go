@@ -311,3 +311,66 @@ type PayrollStatusResponse struct {
 	Result *ExecutionOutput `json:"result,omitempty"`
 	Error  *ToolError       `json:"error,omitempty"`
 }
+
+type SwapDraftInput struct {
+	RequestID         string         `json:"request_id"`
+	ClientRequestID   string         `json:"client_request_id"`
+	Nonce             string         `json:"nonce"`
+	WalletBindingID   string         `json:"wallet_binding_id"`
+	TokenIn           string         `json:"token_in" jsonschema:"one of USDC, EURC"`
+	TokenOut          string         `json:"token_out" jsonschema:"one of USDC, EURC"`
+	AmountIn          intents.Amount `json:"amount_in"`
+	ExpectedOutput    intents.Amount `json:"expected_output"`
+	MinAmountOut      intents.Amount `json:"min_amount_out"`
+	MaxSlippageBPS    uint16         `json:"max_slippage_bps"`
+	MinHopPriceX36    string         `json:"min_hop_price_x36"`
+	QuoteID           string         `json:"quote_id"`
+	QuoteSource       string         `json:"quote_source"`
+	EvidenceReference string         `json:"evidence_reference"`
+	QuoteExpiresAt    time.Time      `json:"quote_expires_at"`
+	SwapDeadline      time.Time      `json:"swap_deadline"`
+	Deadline          time.Time      `json:"deadline"`
+	PolicyReference   string         `json:"policy_reference"`
+}
+type SwapExecuteInput struct {
+	RequestID     string `json:"request_id"`
+	IntentID      string `json:"intent_id"`
+	ApprovalID    string `json:"approval_id"`
+	PolicyID      string `json:"policy_id"`
+	PolicyVersion uint64 `json:"policy_version"`
+}
+type SwapStatusInput struct {
+	RequestID   string `json:"request_id"`
+	ExecutionID string `json:"execution_id"`
+}
+type SwapPreviewOutput struct {
+	TokenIn         string         `json:"token_in"`
+	TokenInAddress  string         `json:"token_in_address"`
+	TokenOut        string         `json:"token_out"`
+	TokenOutAddress string         `json:"token_out_address"`
+	AmountIn        intents.Amount `json:"amount_in"`
+	ExpectedOutput  intents.Amount `json:"expected_output"`
+	MinAmountOut    intents.Amount `json:"min_amount_out"`
+	MinHopPriceX36  string         `json:"min_hop_price_x36"`
+	SwapDeadline    string         `json:"swap_deadline"`
+	QuoteExpiresAt  string         `json:"quote_expires_at"`
+	Executor        string         `json:"executor"`
+	ChainID         string         `json:"chain_id"`
+	Network         string         `json:"network"`
+}
+type SwapPreviewResponse struct {
+	Result *SwapPreviewOutput `json:"result,omitempty"`
+	Error  *ToolError         `json:"error,omitempty"`
+}
+type SwapIntentResponse struct {
+	Result *IntentOutput `json:"result,omitempty"`
+	Error  *ToolError    `json:"error,omitempty"`
+}
+type SwapExecuteResponse struct {
+	Result *ExecutionOutput `json:"result,omitempty"`
+	Error  *ToolError       `json:"error,omitempty"`
+}
+type SwapStatusResponse struct {
+	Result *ExecutionOutput `json:"result,omitempty"`
+	Error  *ToolError       `json:"error,omitempty"`
+}

@@ -3,6 +3,7 @@ package wiring
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
@@ -100,20 +101,29 @@ func contractPlan(intent intents.Intent, planIntentID, planDigest string, call c
 	}
 	owner := intent.Ownership()
 	deadlines := []time.Time{intent.ExpiresAt(), intent.Constraints().Deadline}
+	nativeValue := "0"
 	if financial := intent.Financial().Swap; financial != nil {
 		deadlines = append(deadlines, financial.Deadline)
 		if financial.Quote != nil {
 			deadlines = append(deadlines, financial.Quote.ExpiresAt)
 		}
+		if contracts.AddressesEqual(financial.InputToken.Address, contracts.AddressUSDCMainnet) {
+			amount, err := financial.InputAmount.BaseInt()
+			if err != nil {
+				return providers.Plan{}, fmt.Errorf("derive swap native value: %w", err)
+			}
+			nativeValue = new(big.Int).Mul(amount, big.NewInt(1_000_000_000_000)).String()
+		}
 	}
 	plan, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
-		WalletBindingID: owner.WalletBindingID,
-		WalletID:        owner.WalletID,
-		WalletAddress:   owner.WalletAddress,
-		ChainID:         owner.ChainID,
-		Network:         owner.Network,
-		Call:            call,
-		SubmitNotAfter:  providers.EarliestDeadline(deadlines...),
+		WalletBindingID:      owner.WalletBindingID,
+		WalletID:             owner.WalletID,
+		WalletAddress:        owner.WalletAddress,
+		ChainID:              owner.ChainID,
+		Network:              owner.Network,
+		Call:                 call,
+		SubmitNotAfter:       providers.EarliestDeadline(deadlines...),
+		NativeValueBaseUnits: nativeValue,
 	})
 	if err != nil {
 		return providers.Plan{}, fmt.Errorf("build contract execution plan: %w", err)

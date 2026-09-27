@@ -76,6 +76,32 @@ func TestNewContractExecutionPlanPayrollAndSwap(t *testing.T) {
 	}
 }
 
+func TestSwapContractExecutionPlanBindsExactNativeFunding(t *testing.T) {
+	for _, tc := range []struct{ name, tokenIn, tokenOut, want string }{
+		{"USDC_to_EURC", contracts.AddressUSDCMainnet, contracts.AddressEURCMainnet, "1000000000000000000"},
+		{"EURC_to_USDC", contracts.AddressEURCMainnet, contracts.AddressUSDCMainnet, "0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			call, err := swap.EncodeExecuteSwap(nil, swap.ExecuteSwapInput{TokenIn: tc.tokenIn, TokenOut: tc.tokenOut, AmountIn: big.NewInt(1_000_000), MinAmountOut: big.NewInt(900_000), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(1)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{WalletBindingID: "binding", WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet, Call: call, SubmitNotAfter: planTestNow.Add(time.Minute)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := plan.NativeValueBaseUnits()
+			if !ok || got != tc.want {
+				t.Fatalf("native value=%q,%v want %q", got, ok, tc.want)
+			}
+			_, err = providers.NewContractExecutionPlan(providers.ContractExecutionParams{WalletBindingID: "binding", WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet, Call: call, SubmitNotAfter: planTestNow.Add(time.Minute), NativeValueBaseUnits: "1"})
+			if err == nil {
+				t.Fatal("wrong caller-specified native value must fail")
+			}
+		})
+	}
+}
+
 func TestNewContractExecutionPlanRejectsMissingFreshness(t *testing.T) {
 	_, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
 		WalletBindingID: "binding-test", WalletID: "wallet-test",

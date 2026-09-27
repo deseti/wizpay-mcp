@@ -375,7 +375,13 @@ func (a *Adapter) validateContractExecutionPlan(plan providers.Plan) error {
 		return fmt.Errorf("contract execution plan is missing sealed encoded call")
 	}
 	switch call.ContractID() {
-	case contracts.ContractWizPayPayroll, contracts.ContractWizPaySwapExecutor:
+	case contracts.ContractWizPayPayroll:
+	case contracts.ContractWizPaySwapExecutor:
+		// Track D has no validated Mainnet user/delegated authority for the
+		// USDC native-value route or the user's prerequisite EURC approval.
+		// Planning and verification are complete, but direct submission stays
+		// closed even if this adapter is constructed outside normal wiring.
+		return fmt.Errorf("Arc Mainnet swap submission authority is unavailable")
 	default:
 		return fmt.Errorf("contract %q is not supported for provider execution", call.ContractID())
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 )
 
@@ -40,8 +41,8 @@ func phase12PayrollParams() Params {
 func phase12SwapParams() Params {
 	quoteExpiry := testNow.Add(15 * time.Minute)
 	deadline := testNow.Add(10 * time.Minute)
-	input := testToken("5042002")
-	output := Token{ChainID: "5042002", Standard: "ERC20", Address: "0x5555555555555555555555555555555555555555", Symbol: "EURC", Decimals: 6}
+	input := Token{ChainID: contracts.ChainIDArcMainnet, Standard: "ERC20", Address: contracts.AddressUSDCMainnet, Symbol: "USDC", Decimals: 6}
+	output := Token{ChainID: contracts.ChainIDArcMainnet, Standard: "ERC20", Address: contracts.AddressEURCMainnet, Symbol: "EURC", Decimals: 6}
 	expected := testAmount("9.5", "9500000")
 	minimum := testAmount("9.405", "9405000") // exactly 1% below expected (100 bps)
 	return Params{
@@ -49,7 +50,7 @@ func phase12SwapParams() Params {
 		Ownership: Ownership{
 			UserID: "user_001", IdentityProvider: "circle", ProviderUserReference: "provider_user_001",
 			WalletBindingID: "bind_001", WalletBindingVersion: 4, WalletID: "wallet_001",
-			WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: "5042002", Network: "arc-testnet",
+			WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
 		},
 		Financial: FinancialParameters{Swap: &SwapParameters{
 			SchemaVersion:  FinancialSchemaPhase12,
@@ -58,12 +59,12 @@ func phase12SwapParams() Params {
 			InputAmount:    testAmount("10", "10000000"),
 			ExpectedOutput: expected,
 			MinimumOutput:  minimum,
-			MaxSlippageBPS: 100,
-			Router:         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			Recipient:      "0x2222222222222222222222222222222222222222",
+			MaxSlippageBPS: 100, MinHopPriceX36: "1",
+			Router:    contracts.AddressUniswapUniversalRouter,
+			Recipient: "0x2222222222222222222222222222222222222222",
 			Quote: &SwapQuote{
 				QuoteID: "quote_p12_001", Source: "test-quote-source", ExpectedAmountOut: expected, MinAmountOut: minimum,
-				Router: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: quoteExpiry, EvidenceReference: "ev_quote_001",
+				Router: contracts.AddressUniswapUniversalRouter, ExpiresAt: quoteExpiry, EvidenceReference: "ev_quote_001",
 			},
 			Deadline: deadline,
 		}},
@@ -345,12 +346,6 @@ func TestPhase12SwapDigestMutations(t *testing.T) {
 		name   string
 		mutate func(*Params)
 	}{
-		{"token_in", func(p *Params) {
-			p.Financial.Swap.InputToken.Address = "0x9999999999999999999999999999999999999999"
-		}},
-		{"token_out", func(p *Params) {
-			p.Financial.Swap.OutputToken.Address = "0x8888888888888888888888888888888888888888"
-		}},
 		{"amount_in", func(p *Params) { p.Financial.Swap.InputAmount = testAmount("11", "11000000") }},
 		{"expected", func(p *Params) {
 			p.Financial.Swap.ExpectedOutput = testAmount("9.6", "9600000")
@@ -367,21 +362,10 @@ func TestPhase12SwapDigestMutations(t *testing.T) {
 			p.Financial.Swap.MaxSlippageBPS = 200
 			// min still >= ceiling at 200 bps
 		}},
-		{"router", func(p *Params) {
-			p.Financial.Swap.Router = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-			p.Financial.Swap.Quote.Router = p.Financial.Swap.Router
-		}},
-		{"recipient", func(p *Params) {
-			p.Financial.Swap.Recipient = "0xcccccccccccccccccccccccccccccccccccccccc"
-		}},
+		{"min_hop_price_x36", func(p *Params) { p.Financial.Swap.MinHopPriceX36 = "2" }},
 		{"quote_id", func(p *Params) { p.Financial.Swap.Quote.QuoteID = "quote_other" }},
 		{"quote_expiry", func(p *Params) {
 			p.Financial.Swap.Quote.ExpiresAt = testNow.Add(16 * time.Minute)
-		}},
-		{"quote_router", func(p *Params) {
-			// keep match with frozen router
-			p.Financial.Swap.Router = "0xb1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
-			p.Financial.Swap.Quote.Router = p.Financial.Swap.Router
 		}},
 		{"deadline", func(p *Params) { p.Financial.Swap.Deadline = testNow.Add(11 * time.Minute) }},
 	}

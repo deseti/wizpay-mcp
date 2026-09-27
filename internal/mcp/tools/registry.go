@@ -94,3 +94,14 @@ func NewPayrollRegistry(service services.PayrollService) (*Registry, error) {
 	}
 	return NewRegistry(definitions...)
 }
+
+func NewSwapRegistry(service services.SwapService) (*Registry, error) {
+	if service == nil {
+		return nil, fmt.Errorf("swap service is required")
+	}
+	definitions, err := swapDefinitions(service)
+	if err != nil {
+		return nil, err
+	}
+	return NewRegistry(definitions...)
+}

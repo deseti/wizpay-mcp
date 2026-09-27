@@ -305,7 +305,7 @@ func TestExecutePayrollContractExecution(t *testing.T) {
 	}
 }
 
-func TestExecuteSwapContractExecution(t *testing.T) {
+func TestExecuteSwapContractExecutionFailsClosedWithoutMainnetAuthority(t *testing.T) {
 	call := mustSwapEncodedCall(t)
 	// Swap freshness combines quote expiry and frozen deadline via EarliestDeadline.
 	quoteExpiry := contractExecNow.Add(12 * time.Minute)
@@ -316,24 +316,12 @@ func TestExecuteSwapContractExecution(t *testing.T) {
 	adapter := contractAdapter(t, plan, stubAuthorization{auth: mustUserAuth(t), found: true}, stubReferences{}, transport, nil)
 	request := validExecutionRequest(t)
 
-	result, err := adapter.Execute(context.Background(), request)
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
+	_, err := adapter.Execute(context.Background(), request)
+	if err == nil {
+		t.Fatal("swap submission must fail closed")
 	}
-	if result.Status() != execution.StatusRecoveryRequired || result.ErrorCode() != "USER_AUTHORIZATION_REQUIRED" {
-		t.Fatalf("result status=%s err=%s", result.Status(), result.ErrorCode())
-	}
-	reqs := transport.snapshot()
-	if len(reqs) != 1 || !strings.HasSuffix(reqs[0].Path, "/contractExecution") {
-		t.Fatalf("expected contractExecution POST, got %+v", reqs)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(reqs[0].Body, &body); err != nil {
-		t.Fatal(err)
-	}
-	address, _ := body["contractAddress"].(string)
-	if !contracts.AddressesEqual(address, call.To()) || !contracts.AddressesEqual(address, contracts.AddressWizPaySwapExecutor) {
-		t.Fatalf("contractAddress = %v want sealed swap executor", body["contractAddress"])
+	if transport.posts.Load() != 0 {
+		t.Fatal("swap fail-closed path must not POST")
 	}
 }
 
@@ -599,5 +587,5 @@ func TestSwapFreshnessUsesQuoteAndDeadline(t *testing.T) {
 	adapter := contractAdapter(t, plan, stubAuthorization{auth: mustUserAuth(t), found: true}, stubReferences{}, transport,
 		func() time.Time { return quoteExpiry })
 	_, err := adapter.Execute(context.Background(), validExecutionRequest(t))
-	assertPermanent(t, execution.Result{}, err, "FINANCIAL_MATERIAL_EXPIRED")
+	assertPermanent(t, execution.Result{}, err, "SUBMISSION_PLAN_INVALID")
 }

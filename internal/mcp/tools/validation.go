@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"math/big"
 	"strings"
 	"unicode"
 
@@ -294,6 +295,47 @@ func (in PayrollExecuteInput) Validate() error {
 	return nil
 }
 func (in PayrollStatusInput) Validate() error {
+	if err := validateRequestID(in.RequestID); err != nil {
+		return err
+	}
+	return validateReference("execution_id", in.ExecutionID)
+}
+
+func (in SwapDraftInput) Validate() error {
+	for name, value := range map[string]string{"request_id": in.RequestID, "client_request_id": in.ClientRequestID, "nonce": in.Nonce, "wallet_binding_id": in.WalletBindingID, "quote_id": in.QuoteID, "quote_source": in.QuoteSource, "evidence_reference": in.EvidenceReference, "policy_reference": in.PolicyReference} {
+		if err := validateReference(name, value); err != nil {
+			return err
+		}
+	}
+	if (in.TokenIn != "USDC" && in.TokenIn != "EURC") || (in.TokenOut != "USDC" && in.TokenOut != "EURC") || in.TokenIn == in.TokenOut {
+		return fmt.Errorf("token pair must be USDC to EURC or EURC to USDC")
+	}
+	if !in.AmountIn.IsPositive() || !in.ExpectedOutput.IsPositive() || !in.MinAmountOut.IsPositive() {
+		return fmt.Errorf("swap amounts must be positive and exact")
+	}
+	price, ok := new(big.Int).SetString(in.MinHopPriceX36, 10)
+	if !ok || price.Sign() <= 0 || (len(in.MinHopPriceX36) > 1 && in.MinHopPriceX36[0] == '0') {
+		return fmt.Errorf("min_hop_price_x36 must be a canonical positive integer")
+	}
+	if in.QuoteExpiresAt.IsZero() || in.SwapDeadline.IsZero() || in.Deadline.IsZero() {
+		return fmt.Errorf("quote expiry and deadlines are required")
+	}
+	return nil
+}
+
+func (in SwapExecuteInput) Validate() error {
+	for name, value := range map[string]string{"request_id": in.RequestID, "intent_id": in.IntentID, "approval_id": in.ApprovalID, "policy_id": in.PolicyID} {
+		if err := validateReference(name, value); err != nil {
+			return err
+		}
+	}
+	if in.PolicyVersion == 0 {
+		return fmt.Errorf("policy_version must be at least 1")
+	}
+	return nil
+}
+
+func (in SwapStatusInput) Validate() error {
 	if err := validateRequestID(in.RequestID); err != nil {
 		return err
 	}

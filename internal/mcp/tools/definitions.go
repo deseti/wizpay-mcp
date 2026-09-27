@@ -28,6 +28,10 @@ const (
 	PayrollCreateIntentName = "wizpay.payroll.create_intent"
 	PayrollExecuteName      = "wizpay.payroll.execute"
 	PayrollStatusName       = "wizpay.payroll.status"
+	SwapPreviewName         = "wizpay.swap.preview"
+	SwapCreateIntentName    = "wizpay.swap.create_intent"
+	SwapExecuteName         = "wizpay.swap.execute"
+	SwapStatusName          = "wizpay.swap.status"
 )
 
 type Definition struct {

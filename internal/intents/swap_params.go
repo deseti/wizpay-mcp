@@ -21,7 +21,7 @@ func (p SwapParameters) IsPhase12() bool {
 	if p.SchemaVersion >= FinancialSchemaPhase12 {
 		return true
 	}
-	if p.Router != "" || p.Recipient != "" || p.Quote != nil || !p.Deadline.IsZero() {
+	if p.MinHopPriceX36 != "" || p.Router != "" || p.Recipient != "" || p.Quote != nil || !p.Deadline.IsZero() {
 		return true
 	}
 	return false
@@ -109,6 +109,16 @@ func (p SwapParameters) validatePhase12(createdAt, constraintDeadline, expiresAt
 	if addressesEqual(p.InputToken.Address, p.OutputToken.Address) {
 		return fmt.Errorf("swap input and output tokens must differ")
 	}
+	if err := validateCanonicalSwapToken(p.InputToken, "input_token"); err != nil {
+		return err
+	}
+	if err := validateCanonicalSwapToken(p.OutputToken, "output_token"); err != nil {
+		return err
+	}
+	if !((addressesEqual(p.InputToken.Address, contracts.AddressUSDCMainnet) && addressesEqual(p.OutputToken.Address, contracts.AddressEURCMainnet)) ||
+		(addressesEqual(p.InputToken.Address, contracts.AddressEURCMainnet) && addressesEqual(p.OutputToken.Address, contracts.AddressUSDCMainnet))) {
+		return fmt.Errorf("swap token pair must be canonical Arc Mainnet USDC/EURC")
+	}
 	if !p.InputAmount.IsPositive() {
 		return fmt.Errorf("input amount must be positive")
 	}
@@ -129,6 +139,10 @@ func (p SwapParameters) validatePhase12(createdAt, constraintDeadline, expiresAt
 	}
 	if p.MaxSlippageBPS > 10_000 {
 		return fmt.Errorf("maximum slippage cannot exceed 10000 basis points")
+	}
+	minHopPrice, ok := new(big.Int).SetString(p.MinHopPriceX36, 10)
+	if !ok || minHopPrice.Sign() <= 0 || minHopPrice.BitLen() > 128 || (len(p.MinHopPriceX36) > 1 && p.MinHopPriceX36[0] == '0') {
+		return fmt.Errorf("min_hop_price_x36 must be a canonical positive uint128 integer")
 	}
 	expected, err := p.ExpectedOutput.BaseInt()
 	if err != nil {
@@ -152,6 +166,9 @@ func (p SwapParameters) validatePhase12(createdAt, constraintDeadline, expiresAt
 
 	if err := validateNonZeroEVMAddress("router", p.Router); err != nil {
 		return err
+	}
+	if !addressesEqual(p.Router, contracts.AddressUniswapUniversalRouter) {
+		return fmt.Errorf("swap router must be the canonical Universal Router")
 	}
 	if err := validateNonZeroEVMAddress("recipient", p.Recipient); err != nil {
 		return err
@@ -193,6 +210,9 @@ func (p SwapParameters) validatePhase12(createdAt, constraintDeadline, expiresAt
 		if !pDeadline.After(createdAt) {
 			return fmt.Errorf("swap deadline must follow creation")
 		}
+		if pDeadline.After(createdAt.Add(20 * time.Minute)) {
+			return fmt.Errorf("swap deadline cannot exceed the contract maximum window of 20 minutes")
+		}
 	}
 	if !p.Quote.ExpiresAt.IsZero() && pDeadline.After(p.Quote.ExpiresAt.UTC()) {
 		// Executing after quote expiry would use stale economic material.
@@ -203,6 +223,25 @@ func (p SwapParameters) validatePhase12(createdAt, constraintDeadline, expiresAt
 	}
 	if !expiresAt.IsZero() && pDeadline.After(expiresAt.UTC()) {
 		return fmt.Errorf("swap deadline cannot exceed intent expiration")
+	}
+	return nil
+}
+
+func validateCanonicalSwapToken(token Token, name string) error {
+	if token.ChainID != contracts.ChainIDArcMainnet || token.Standard != "ERC20" || token.Decimals != contracts.CanonicalTokenDecimals {
+		return fmt.Errorf("%s must be a canonical Arc Mainnet 6-decimal ERC20 token", name)
+	}
+	switch {
+	case addressesEqual(token.Address, contracts.AddressUSDCMainnet):
+		if token.Symbol != "USDC" {
+			return fmt.Errorf("%s symbol does not match canonical USDC", name)
+		}
+	case addressesEqual(token.Address, contracts.AddressEURCMainnet):
+		if token.Symbol != "EURC" {
+			return fmt.Errorf("%s symbol does not match canonical EURC", name)
+		}
+	default:
+		return fmt.Errorf("%s address is not a supported swap token", name)
 	}
 	return nil
 }

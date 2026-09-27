@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
+	contractswap "github.com/deseti/wizpay-mcp/internal/contracts/swap"
 	"github.com/deseti/wizpay-mcp/internal/execution"
 )
 
@@ -72,8 +73,10 @@ type Plan struct {
 	// set. Checked only before the first provider submission attempt using an
 	// injected clock; once submission may have started, reconciliation must
 	// continue even if this bound is in the past.
-	submitNotAfter    time.Time
-	hasSubmitNotAfter bool
+	submitNotAfter       time.Time
+	hasSubmitNotAfter    bool
+	nativeValueBaseUnits string
+	hasNativeValue       bool
 }
 
 type TokenTransferParams struct {
@@ -142,13 +145,14 @@ func validateExactBaseUnits(decimal, baseUnits string, decimals uint8) error {
 // deadline and quote expiry) using an explicit orchestration clock — never
 // time.Now() inside planners or encoders.
 type ContractExecutionParams struct {
-	WalletBindingID string
-	WalletID        string
-	WalletAddress   string
-	ChainID         string
-	Network         string
-	Call            contracts.EncodedCall
-	SubmitNotAfter  time.Time
+	WalletBindingID      string
+	WalletID             string
+	WalletAddress        string
+	ChainID              string
+	Network              string
+	Call                 contracts.EncodedCall
+	SubmitNotAfter       time.Time
+	NativeValueBaseUnits string
 }
 
 // NewContractExecutionPlan builds a closed CONTRACT_EXECUTION plan.
@@ -165,22 +169,58 @@ func NewContractExecutionPlan(params ContractExecutionParams) (Plan, error) {
 	if params.SubmitNotAfter.IsZero() {
 		return Plan{}, fmt.Errorf("contract execution plan requires a submit-not-after freshness bound")
 	}
+	expectedNativeValue, err := nativeValueForCall(params.Call)
+	if err != nil {
+		return Plan{}, err
+	}
+	if params.NativeValueBaseUnits != "" && params.NativeValueBaseUnits != expectedNativeValue {
+		return Plan{}, fmt.Errorf("contract execution native value does not match sealed call")
+	}
 	plan := Plan{
-		Kind:              PlanKindContractExecution,
-		WalletBindingID:   params.WalletBindingID,
-		WalletID:          params.WalletID,
-		WalletAddress:     params.WalletAddress,
-		ChainID:           params.ChainID,
-		Network:           params.Network,
-		encodedCall:       params.Call.Clone(),
-		hasEncodedCall:    true,
-		submitNotAfter:    params.SubmitNotAfter.UTC(),
-		hasSubmitNotAfter: true,
+		Kind:                 PlanKindContractExecution,
+		WalletBindingID:      params.WalletBindingID,
+		WalletID:             params.WalletID,
+		WalletAddress:        params.WalletAddress,
+		ChainID:              params.ChainID,
+		Network:              params.Network,
+		encodedCall:          params.Call.Clone(),
+		hasEncodedCall:       true,
+		submitNotAfter:       params.SubmitNotAfter.UTC(),
+		hasSubmitNotAfter:    true,
+		nativeValueBaseUnits: expectedNativeValue,
+		hasNativeValue:       true,
 	}
 	if err := plan.Validate(); err != nil {
 		return Plan{}, err
 	}
 	return plan, nil
+}
+
+func nativeValueForCall(call contracts.EncodedCall) (string, error) {
+	switch call.ContractID() {
+	case contracts.ContractWizPayPayroll:
+		return "0", nil
+	case contracts.ContractWizPaySwapExecutor:
+		decoded, err := contractswap.DecodeExecuteSwapCall(call.CallData())
+		if err != nil {
+			return "", fmt.Errorf("decode swap native value: %w", err)
+		}
+		if contracts.AddressesEqual(decoded.TokenIn, contracts.AddressUSDCMainnet) {
+			return new(big.Int).Mul(decoded.AmountIn, big.NewInt(1_000_000_000_000)).String(), nil
+		}
+		return "0", nil
+	default:
+		return "", fmt.Errorf("contract execution native value is unsupported")
+	}
+}
+
+// NativeValueBaseUnits returns the exact native value sealed into a contract
+// execution plan. Canonical zero is represented by "0", never by absence.
+func (p Plan) NativeValueBaseUnits() (string, bool) {
+	if !p.hasNativeValue {
+		return "", false
+	}
+	return p.nativeValueBaseUnits, true
 }
 
 // EffectiveKind returns the closed plan kind. Empty Kind is TOKEN_TRANSFER.
@@ -278,6 +318,9 @@ func (p Plan) validateTokenTransfer() error {
 		// contract-execution financial material for this phase.
 		return fmt.Errorf("submission plan token transfer cannot carry a contract freshness bound")
 	}
+	if p.hasNativeValue {
+		return fmt.Errorf("submission plan token transfer cannot carry native contract value")
+	}
 	if !validSafeText(p.TokenID) {
 		return fmt.Errorf("submission plan token ID is invalid")
 	}
@@ -303,6 +346,9 @@ func (p Plan) validateContractExecution() error {
 	if !p.hasSubmitNotAfter || p.submitNotAfter.IsZero() {
 		return fmt.Errorf("submission plan contract execution requires a submit-not-after freshness bound")
 	}
+	if !p.hasNativeValue || !validCanonicalNonNegativeInteger(p.nativeValueBaseUnits) {
+		return fmt.Errorf("submission plan contract execution requires exact native value")
+	}
 	call := p.encodedCall
 	if !allowedContractExecutionID(call.ContractID()) {
 		return fmt.Errorf("submission plan contract %q is not supported", call.ContractID())
@@ -324,6 +370,14 @@ func (p Plan) validateContractExecution() error {
 		return fmt.Errorf("submission plan network does not match encoded call")
 	}
 	return nil
+}
+
+func validCanonicalNonNegativeInteger(value string) bool {
+	if value == "" || (len(value) > 1 && value[0] == '0') {
+		return false
+	}
+	parsed, ok := new(big.Int).SetString(value, 10)
+	return ok && parsed.Sign() >= 0 && parsed.BitLen() <= 256
 }
 
 // allowedContractExecutionID is the Phase 12 Step 3 closed allowlist.

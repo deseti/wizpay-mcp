@@ -52,7 +52,7 @@ func (intentRepositoryStub) UpdateIntent(context.Context, storage.Scope, intents
 	panic("not used")
 }
 
-func TestPlannerRefusesSwapExecutionInTrackC(t *testing.T) {
+func TestPlannerBuildsSwapExecutionInTrackD(t *testing.T) {
 	for _, kind := range []intents.Type{intents.TypeSwap} {
 		t.Run(string(kind), func(t *testing.T) {
 			request, intent := executionRequest(t, frozenIntent(t, kind))
@@ -65,9 +65,14 @@ func TestPlannerRefusesSwapExecutionInTrackC(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = planner.Plan(storage.WithScope(context.Background(), scope), request)
-			if err == nil || !strings.Contains(err.Error(), "disabled in Track A") {
+			plan, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+			if err != nil {
 				t.Fatalf("Plan error = %v", err)
+			}
+			call, ok := plan.EncodedCall()
+			value, hasValue := plan.NativeValueBaseUnits()
+			if !ok || !hasValue || value != "10000000000000000000" || call.To() != contracts.AddressWizPaySwapExecutor {
+				t.Fatalf("swap plan binding is wrong")
 			}
 			if repository.findCalls != 1 || repository.requestedID != request.IntentID() || repository.requestedScope.TenantID() != "tenant" || repository.requestedScope.ActorID() != "actor" {
 				t.Fatalf("repository lookup = calls %d, id %q, scope tenant=%q actor=%q", repository.findCalls, repository.requestedID, repository.requestedScope.TenantID(), repository.requestedScope.ActorID())
@@ -106,7 +111,7 @@ func TestPlannerBuildsStableSameTokenPayrollPlanAndIdempotencyIdentity(t *testin
 	}
 }
 
-func TestPlannerSameRequestDeterministicallyRefusesExecution(t *testing.T) {
+func TestPlannerSameSwapRequestIsDeterministic(t *testing.T) {
 	request, intent := executionRequest(t, frozenIntent(t, intents.TypeSwap))
 	repository := &intentRepositoryStub{intent: intent}
 	planner, err := NewPlanner(repository, payroll.NewPlanner(nil), swap.NewPlanner(nil))
@@ -114,10 +119,18 @@ func TestPlannerSameRequestDeterministicallyRefusesExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope, _ := storage.NewScope("tenant", "actor", "request", "trace")
-	_, first := planner.Plan(storage.WithScope(context.Background(), scope), request)
-	_, second := planner.Plan(storage.WithScope(context.Background(), scope), request)
-	if first == nil || second == nil || first.Error() != second.Error() {
-		t.Fatalf("errors differ: %v / %v", first, second)
+	first, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCall, _ := first.EncodedCall()
+	secondCall, _ := second.EncodedCall()
+	if string(firstCall.CallData()) != string(secondCall.CallData()) {
+		t.Fatal("swap calldata changed for stable execution identity")
 	}
 }
 
@@ -307,7 +320,7 @@ func frozenIntentVersion(t *testing.T, kind intents.Type, nonce string, version 
 		output := token
 		output.Address = contracts.AddressEURCMainnet
 		output.Symbol = "EURC"
-		params.Financial = intents.FinancialParameters{Swap: &intents.SwapParameters{SchemaVersion: intents.FinancialSchemaPhase12, InputToken: token, OutputToken: output, InputAmount: amount("10"), ExpectedOutput: amount("9"), MinimumOutput: amount("8.91"), MaxSlippageBPS: 100, Router: contracts.AddressUniswapUniversalRouter, Recipient: owner.WalletAddress, Quote: &intents.SwapQuote{QuoteID: "quote", Source: "test", ExpectedAmountOut: amount("9"), MinAmountOut: amount("8.91"), Router: contracts.AddressUniswapUniversalRouter, ExpiresAt: plannerTestNow.Add(15 * time.Minute), EvidenceReference: "evidence"}, Deadline: plannerTestNow.Add(10 * time.Minute)}}
+		params.Financial = intents.FinancialParameters{Swap: &intents.SwapParameters{SchemaVersion: intents.FinancialSchemaPhase12, InputToken: token, OutputToken: output, InputAmount: amount("10"), ExpectedOutput: amount("9"), MinimumOutput: amount("8.91"), MaxSlippageBPS: 100, MinHopPriceX36: "1", Router: contracts.AddressUniswapUniversalRouter, Recipient: owner.WalletAddress, Quote: &intents.SwapQuote{QuoteID: "quote", Source: "test", ExpectedAmountOut: amount("9"), MinAmountOut: amount("8.91"), Router: contracts.AddressUniswapUniversalRouter, ExpiresAt: plannerTestNow.Add(15 * time.Minute), EvidenceReference: "evidence"}, Deadline: plannerTestNow.Add(10 * time.Minute)}}
 	}
 	intent, err := intents.NewDraft(params)
 	if err != nil {

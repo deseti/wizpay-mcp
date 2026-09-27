@@ -6,7 +6,7 @@ import (
 
 // ExecuteSwapInput is the exact calldata shape of the Mainnet executeSwap
 // descriptor. Router and recipient are contract semantics and cannot be
-// supplied by MCP. Track A does not model transaction value or approvals.
+// supplied by MCP. Native value is derived separately from this sealed call.
 type ExecuteSwapInput struct {
 	TokenIn        string
 	TokenOut       string

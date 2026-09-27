@@ -1,5 +1,5 @@
 // Package swap provides the narrow typed ABI boundary for the reviewed
-// WizPaySwapExecutorMainnet deployment. Track A does not wire swap execution.
+// WizPaySwapExecutorMainnet deployment.
 package swap
 
 import (

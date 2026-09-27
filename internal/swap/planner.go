@@ -2,14 +2,14 @@ package swap
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 	contractswap "github.com/deseti/wizpay-mcp/internal/contracts/swap"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 )
 
-// Planner remains as the typed boundary for a later execution track. Track A
-// deliberately refuses to produce a Mainnet execution plan.
+// Planner derives a sealed canonical Mainnet swap call from frozen intent.
 type Planner struct {
 	registry *contracts.Registry
 }
@@ -43,7 +43,27 @@ func (p Planner) Plan(intent intents.Intent) (Plan, error) {
 	if err := p.validateBinding(intent.Route(), ownership); err != nil {
 		return Plan{}, err
 	}
-	return Plan{}, fmt.Errorf("Arc Mainnet swap execution is disabled in Track A")
+	amountIn, err := financial.InputAmount.BaseInt()
+	if err != nil {
+		return Plan{}, fmt.Errorf("swap amountIn: %w", err)
+	}
+	minAmountOut, err := financial.MinimumOutput.BaseInt()
+	if err != nil {
+		return Plan{}, fmt.Errorf("swap minAmountOut: %w", err)
+	}
+	minHopPrice, ok := new(big.Int).SetString(financial.MinHopPriceX36, 10)
+	if !ok || minHopPrice.Sign() <= 0 {
+		return Plan{}, fmt.Errorf("swap minHopPriceX36 is invalid")
+	}
+	deadline := big.NewInt(financial.Deadline.UTC().Unix())
+	call, err := contractswap.EncodeExecuteSwap(p.registry, contractswap.ExecuteSwapInput{
+		TokenIn: financial.InputToken.Address, TokenOut: financial.OutputToken.Address,
+		AmountIn: amountIn, MinAmountOut: minAmountOut, MinHopPriceX36: minHopPrice, Deadline: deadline,
+	})
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode swap: %w", err)
+	}
+	return newPlan(intent, call), nil
 }
 
 func (p Planner) validateBinding(route intents.Route, ownership intents.Ownership) error {
@@ -61,6 +81,9 @@ func (p Planner) validateBinding(route intents.Route, ownership intents.Ownershi
 	}
 	if ownership.ChainID != contracts.ChainIDArcMainnet {
 		return fmt.Errorf("swap ownership chain must be %s", contracts.ChainIDArcMainnet)
+	}
+	if ownership.Network != contracts.NetworkArcMainnet {
+		return fmt.Errorf("swap ownership network must be %s", contracts.NetworkArcMainnet)
 	}
 	deployment, err := contractswap.ExpectedDeployment(p.registry)
 	if err != nil {

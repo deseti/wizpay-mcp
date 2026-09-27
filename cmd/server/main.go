@@ -103,6 +103,11 @@ func run() error {
 		if registryErr != nil {
 			return registryErr
 		}
+		swapService := &services.PersistedSwapService{Intents: foundationBundle.Intents.(*services.PersistedIntentService), Executions: foundationBundle.Executions.(*services.PersistedExecutionService), ExecutionDB: database, Wallets: database, Authorizer: authorizer}
+		swapRegistry, registryErr := tools.NewSwapRegistry(swapService)
+		if registryErr != nil {
+			return registryErr
+		}
 		autonomyService := &services.PersistedAutonomyService{Repository: database, Authorizer: authorizer, Audit: database, Wallets: database, Now: time.Now, Enabled: cfg.AutonomousEnabled}
 		autonomyRegistry, registryErr := tools.NewAutonomyRegistry(autonomyService)
 		if registryErr != nil {
@@ -110,6 +115,7 @@ func run() error {
 		}
 		registrations := append(foundationRegistry.Tools(), sendRegistry.Tools()...)
 		registrations = append(registrations, payrollRegistry.Tools()...)
+		registrations = append(registrations, swapRegistry.Tools()...)
 		registrations = append(registrations, autonomyRegistry.Tools()...)
 		server, err = app.NewAuthenticatedServerWithApproval(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, registrations...)
 	} else {

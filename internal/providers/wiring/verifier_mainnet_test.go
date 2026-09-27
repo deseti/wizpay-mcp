@@ -104,11 +104,11 @@ func TestTrackCComposedVerifierCannotPromoteIncompletePayrollEvidence(t *testing
 	}
 }
 
-func TestTrackCSwapRemainsDisabled(t *testing.T) {
+func TestTrackDSwapCannotPromoteIncompleteEvidence(t *testing.T) {
 	receipt := providers.Receipt{Status: providers.ReceiptSuccess, ChainID: contracts.ChainIDArcMainnet, TransactionHash: mainnetVerifierHash, BlockNumber: 10, BlockHash: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Confirmations: 1}
 	verifier, _, value, ctx, _ := mainnetComposedVerifier(t, intents.TypeSwap, receipt)
 	result, err := verifier.Verify(ctx, value, mainnetReference(t))
-	if err == nil || !strings.Contains(err.Error(), "disabled in Track A") || result.Outcome == runtime.VerificationVerified {
+	if err != nil || result.Outcome != runtime.VerificationPending {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
 }

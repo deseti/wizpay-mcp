@@ -230,6 +230,12 @@ func validateParams(p Params) error {
 			return fmt.Errorf("swap input token chain does not match owning wallet chain")
 		}
 		if p.Financial.Swap.IsPhase12() {
+			if p.Ownership.Network != contracts.NetworkArcMainnet {
+				return fmt.Errorf("phase 12 swap requires MAINNET ownership network")
+			}
+			if !addressesEqual(p.Financial.Swap.Recipient, p.Ownership.WalletAddress) {
+				return fmt.Errorf("swap recipient must equal the bound wallet")
+			}
 			if err := p.Financial.Swap.validateWithTimeline(p.CreatedAt, p.Constraints.Deadline, p.ExpiresAt); err != nil {
 				return err
 			}
