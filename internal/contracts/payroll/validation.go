@@ -10,186 +10,108 @@ import (
 )
 
 const (
-	maxReferenceIDLength = 128
-	maxBatchRecipients   = 256
+	maxReferenceIDLength = 64
+	maxBatchRecipients   = 50
 )
 
 func validateDeployment(deployment contracts.Deployment) error {
-	if deployment.ID != contracts.ContractWizPayPayroll {
-		return fmt.Errorf("deployment is not WIZPAY_PAYROLL")
-	}
-	if deployment.RegistryVersion != contracts.RegistryVersion {
-		return fmt.Errorf("unexpected payroll registry version %d", deployment.RegistryVersion)
-	}
-	if deployment.ChainID != contracts.ChainIDArcTestnet {
-		return fmt.Errorf("payroll deployment chain ID mismatch")
-	}
-	if deployment.Network != contracts.NetworkArcTestnet {
-		return fmt.Errorf("payroll deployment network mismatch")
-	}
-	if !contracts.AddressesEqual(deployment.Address, contracts.AddressWizPayPayroll) {
-		return fmt.Errorf("payroll deployment address mismatch")
-	}
-	if deployment.Status != contracts.StatusEnabled {
-		return fmt.Errorf("payroll deployment is not enabled")
+	if deployment.ID != contracts.ContractWizPayPayroll || deployment.RegistryVersion != contracts.RegistryVersion ||
+		deployment.ChainID != contracts.ChainIDArcMainnet || deployment.Network != contracts.NetworkArcMainnet ||
+		!contracts.AddressesEqual(deployment.Address, contracts.AddressWizPayPayroll) || deployment.Status != contracts.StatusEnabled {
+		return fmt.Errorf("payroll deployment does not match the canonical Arc Mainnet descriptor")
 	}
 	return nil
 }
 
-func validateTokenAddress(name, value string) error {
-	if !contracts.ValidAddress(value) {
-		return fmt.Errorf("%s is not a valid address", name)
+func validateSameToken(in SameTokenPayrollInput) error {
+	if !canonicalToken(in.Token) {
+		return fmt.Errorf("token must be canonical Arc Mainnet USDC or EURC")
 	}
-	if isZeroAddress(value) {
-		return fmt.Errorf("%s must not be the zero address", name)
-	}
-	return nil
-}
-
-func validateRecipientAddress(name, value string) error {
-	if !contracts.ValidAddress(value) {
-		return fmt.Errorf("%s is not a valid address", name)
-	}
-	if isZeroAddress(value) {
-		return fmt.Errorf("%s must not be the zero address", name)
+	if err := validateBatch(in.Recipients, in.Amounts, in.ReferenceID); err != nil {
+		return err
 	}
 	return nil
 }
 
-func validatePositiveAmount(name string, value *big.Int) error {
-	if value == nil {
-		return fmt.Errorf("%s is required", name)
+func validateCrossToken(in CrossTokenPayrollInput) error {
+	if !canonicalPair(in.TokenIn, in.TokenOut) {
+		return fmt.Errorf("token pair must be canonical Arc Mainnet USDC/EURC")
 	}
-	if value.Sign() <= 0 {
+	if err := validateBatch(in.Recipients, in.OutputAmounts, in.ReferenceID); err != nil {
+		return err
+	}
+	for _, field := range []struct {
+		name  string
+		value *big.Int
+	}{
+		{name: "grossInput", value: in.GrossInput},
+		{name: "minTotalOut", value: in.MinTotalOut},
+		{name: "minHopPriceX36", value: in.MinHopPriceX36},
+		{name: "deadline", value: in.Deadline},
+	} {
+		if err := positiveUint128(field.name, field.value); err != nil {
+			return err
+		}
+	}
+	total := new(big.Int)
+	for _, amount := range in.OutputAmounts {
+		total.Add(total, amount)
+	}
+	if in.MinTotalOut.Cmp(total) < 0 {
+		return fmt.Errorf("minTotalOut must cover exact output obligations")
+	}
+	return nil
+}
+
+func validateBatch(recipients []string, amounts []*big.Int, referenceID string) error {
+	if len(recipients) == 0 || len(recipients) > maxBatchRecipients {
+		return fmt.Errorf("recipient count must be between 1 and %d", maxBatchRecipients)
+	}
+	if len(amounts) != len(recipients) {
+		return fmt.Errorf("amounts length must match recipients length")
+	}
+	if referenceID == "" || strings.TrimSpace(referenceID) != referenceID || utf8.RuneCountInString(referenceID) > maxReferenceIDLength {
+		return fmt.Errorf("referenceId must be non-empty trimmed text of at most %d characters", maxReferenceIDLength)
+	}
+	for i, recipient := range recipients {
+		if !contracts.ValidAddress(recipient) || contracts.AddressesEqual(recipient, contracts.AddressZero) {
+			return fmt.Errorf("recipients[%d] is invalid", i)
+		}
+		if err := positiveUint128(fmt.Sprintf("amounts[%d]", i), amounts[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func canonicalToken(value string) bool {
+	return contracts.AddressesEqual(value, contracts.AddressUSDCMainnet) || contracts.AddressesEqual(value, contracts.AddressEURCMainnet)
+}
+
+func canonicalPair(tokenIn, tokenOut string) bool {
+	return (contracts.AddressesEqual(tokenIn, contracts.AddressUSDCMainnet) && contracts.AddressesEqual(tokenOut, contracts.AddressEURCMainnet)) ||
+		(contracts.AddressesEqual(tokenIn, contracts.AddressEURCMainnet) && contracts.AddressesEqual(tokenOut, contracts.AddressUSDCMainnet))
+}
+
+func positiveUint128(name string, value *big.Int) error {
+	if value == nil || value.Sign() <= 0 {
 		return fmt.Errorf("%s must be greater than zero", name)
 	}
-	return nil
-}
-
-func validateNonNegativeAmount(name string, value *big.Int) error {
-	if value == nil {
-		return fmt.Errorf("%s is required", name)
-	}
-	if value.Sign() < 0 {
-		return fmt.Errorf("%s must not be negative", name)
+	if value.BitLen() > 128 {
+		return fmt.Errorf("%s exceeds uint128", name)
 	}
 	return nil
 }
 
-func validateReferenceID(value string) error {
-	if value == "" || strings.TrimSpace(value) != value {
-		return fmt.Errorf("referenceId must be non-empty trimmed text")
-	}
-	if utf8.RuneCountInString(value) > maxReferenceIDLength {
-		return fmt.Errorf("referenceId exceeds %d characters", maxReferenceIDLength)
-	}
-	for _, r := range value {
-		if r < 0x20 || r == 0x7f {
-			return fmt.Errorf("referenceId contains control characters")
-		}
-	}
-	return nil
-}
-
-func validateBatchArrays(recipients, tokenOuts []string, amountsIn, minAmountsOut []*big.Int, multiTokenOut bool) error {
-	if len(recipients) == 0 {
-		return fmt.Errorf("recipients must be non-empty")
-	}
-	if len(recipients) > maxBatchRecipients {
-		return fmt.Errorf("recipients exceed maximum batch size %d", maxBatchRecipients)
-	}
-	if len(amountsIn) != len(recipients) {
-		return fmt.Errorf("amountsIn length must match recipients length")
-	}
-	if len(minAmountsOut) != len(recipients) {
-		return fmt.Errorf("minAmountsOut length must match recipients length")
-	}
-	if multiTokenOut {
-		if len(tokenOuts) != len(recipients) {
-			return fmt.Errorf("tokenOuts length must match recipients length")
-		}
-	}
-	for i := range recipients {
-		if err := validateRecipientAddress(fmt.Sprintf("recipients[%d]", i), recipients[i]); err != nil {
-			return err
-		}
-		if err := validatePositiveAmount(fmt.Sprintf("amountsIn[%d]", i), amountsIn[i]); err != nil {
-			return err
-		}
-		if err := validateNonNegativeAmount(fmt.Sprintf("minAmountsOut[%d]", i), minAmountsOut[i]); err != nil {
-			return err
-		}
-		if multiTokenOut {
-			if err := validateTokenAddress(fmt.Sprintf("tokenOuts[%d]", i), tokenOuts[i]); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func validateBatchMulti(in BatchMultiTokenOut) error {
-	if err := validateTokenAddress("tokenIn", in.TokenIn); err != nil {
-		return err
-	}
-	if err := validateReferenceID(in.ReferenceID); err != nil {
-		return err
-	}
-	return validateBatchArrays(in.Recipients, in.TokenOuts, in.AmountsIn, in.MinAmountsOut, true)
-}
-
-func validateBatchSingle(in BatchSingleTokenOut) error {
-	if err := validateTokenAddress("tokenIn", in.TokenIn); err != nil {
-		return err
-	}
-	if err := validateTokenAddress("tokenOut", in.TokenOut); err != nil {
-		return err
-	}
-	if err := validateReferenceID(in.ReferenceID); err != nil {
-		return err
-	}
-	return validateBatchArrays(in.Recipients, nil, in.AmountsIn, in.MinAmountsOut, false)
-}
-
-func validateSingle(in SinglePayment) error {
-	if err := validateTokenAddress("tokenIn", in.TokenIn); err != nil {
-		return err
-	}
-	if err := validateTokenAddress("tokenOut", in.TokenOut); err != nil {
-		return err
-	}
-	if err := validatePositiveAmount("amountIn", in.AmountIn); err != nil {
-		return err
-	}
-	if err := validateNonNegativeAmount("minAmountOut", in.MinAmountOut); err != nil {
-		return err
-	}
-	return validateRecipientAddress("recipient", in.Recipient)
-}
-
-func isZeroAddress(value string) bool {
-	return contracts.NormalizeAddress(value) == "0x0000000000000000000000000000000000000000"
-}
-
-// RejectAdminSelector is a defensive check: admin selectors must never appear
-// as the product of this package's encoders.
 func RejectAdminSelector(selector [4]byte) error {
-	for _, name := range AdminFunctionNames {
-		// Admin signatures vary; reject by matching known full ABI selectors
-		// computed from name alone is incomplete. Instead, reject if the
-		// selector is not one of the three allowlisted execution selectors.
-		_ = name
-	}
-	allowed := map[[4]byte]struct{}{}
-	for _, signature := range []string{SigBatchMultiTokenOut, SigBatchSingleTokenOut, SigRouteAndPay} {
-		sel, err := Selector(signature)
+	for _, signature := range []string{SigExecuteSameTokenPayroll, SigExecuteCrossTokenPayroll} {
+		allowed, err := Selector(signature)
 		if err != nil {
 			return err
 		}
-		allowed[sel] = struct{}{}
+		if selector == allowed {
+			return nil
+		}
 	}
-	if _, ok := allowed[selector]; !ok {
-		return fmt.Errorf("selector is not an allowlisted payroll execution selector")
-	}
-	return nil
+	return fmt.Errorf("selector is not an allowlisted payroll Mainnet selector")
 }

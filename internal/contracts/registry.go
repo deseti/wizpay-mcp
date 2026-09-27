@@ -121,10 +121,10 @@ func (r *Registry) Require(id ContractID, version uint, chainID, network string)
 		return Deployment{}, contractUnavailable()
 	}
 	if chainID != "" && chainID != deployment.ChainID {
-		return Deployment{}, validationError("Contract deployment chain ID does not match the registered Arc Testnet deployment.", nil)
+		return Deployment{}, validationError("Contract deployment chain ID does not match the registered Arc Mainnet deployment.", nil)
 	}
 	if network != "" && network != deployment.Network {
-		return Deployment{}, validationError("Contract deployment network does not match the registered Arc Testnet deployment.", nil)
+		return Deployment{}, validationError("Contract deployment network does not match the registered Arc Mainnet deployment.", nil)
 	}
 	return deployment, nil
 }

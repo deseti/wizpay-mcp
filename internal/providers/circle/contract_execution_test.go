@@ -73,7 +73,7 @@ func (t *scriptedTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/transactions/transfer"):
 			payload = []byte(`{"data":{"challengeId":"a1b2c3d4-111e-4d52-bdbf-2e74a2d803d5"}}`)
 		case req.Method == http.MethodGet && strings.Contains(req.URL.Path, "/transactions/"):
-			payload = []byte(`{"data":{"transaction":{"id":"tx-1","state":"COMPLETE","txHash":"0x1111111111111111111111111111111111111111111111111111111111111111","blockchain":"ARC-TESTNET","walletId":"wallet-test","refId":"exec"}}}`)
+			payload = []byte(`{"data":{"transaction":{"id":"tx-1","state":"COMPLETE","txHash":"0x1111111111111111111111111111111111111111111111111111111111111111","blockchain":"ARC","walletId":"wallet-test","refId":"exec"}}}`)
 		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/transactions"):
 			payload = []byte(`{"data":{"transactions":[]}}`)
 		case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/user/challenges"):
@@ -102,11 +102,7 @@ func contractAdapter(t *testing.T, plan providers.Plan, auth providers.Authoriza
 		now = func() time.Time { return contractExecNow }
 	}
 	httpClient := &http.Client{Transport: transport, Timeout: 2 * time.Second}
-	adapter, err := NewAdapter(adapterConfig(), httpClient, stubPlanner{plan: plan}, auth, refs, now)
-	if err != nil {
-		t.Fatalf("NewAdapter: %v", err)
-	}
-	return adapter
+	return newAdapterForTest(t, httpClient, stubPlanner{plan: plan}, auth, refs, now)
 }
 
 func mustUserAuth(t *testing.T) providers.UserAuthorization {
@@ -120,10 +116,9 @@ func mustUserAuth(t *testing.T) providers.UserAuthorization {
 
 func mustPayrollEncodedCall(t *testing.T) contracts.EncodedCall {
 	t.Helper()
-	call, err := payroll.EncodeRouteAndPay(nil, payroll.SinglePayment{
-		TokenIn: "0x1111111111111111111111111111111111111111", TokenOut: "0x5555555555555555555555555555555555555555",
-		AmountIn: big.NewInt(1_250_000), MinAmountOut: big.NewInt(1_200_000),
-		Recipient: "0x3333333333333333333333333333333333333333",
+	call, err := payroll.EncodeSameTokenPayroll(nil, payroll.SameTokenPayrollInput{
+		Token: contracts.AddressUSDCMainnet, Recipients: []string{"0x3333333333333333333333333333333333333333"},
+		Amounts: []*big.Int{big.NewInt(1_250_000)}, ReferenceID: "contract-test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -134,11 +129,9 @@ func mustPayrollEncodedCall(t *testing.T) contracts.EncodedCall {
 func mustSwapEncodedCall(t *testing.T) contracts.EncodedCall {
 	t.Helper()
 	call, err := swap.EncodeExecuteSwap(nil, swap.ExecuteSwapInput{
-		Router:  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		TokenIn: "0x1111111111111111111111111111111111111111", TokenOut: "0x5555555555555555555555555555555555555555",
+		TokenIn: contracts.AddressEURCMainnet, TokenOut: contracts.AddressUSDCMainnet,
 		AmountIn: big.NewInt(10_000_000), MinAmountOut: big.NewInt(9_000_000),
-		Recipient: "0x2222222222222222222222222222222222222222",
-		Deadline:  contractExecNow.Add(15 * time.Minute).Unix(),
+		MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(contractExecNow.Add(15 * time.Minute).Unix()),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +144,7 @@ func contractPlan(t *testing.T, call contracts.EncodedCall, notAfter time.Time) 
 	plan, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
 		WalletBindingID: "binding-test", WalletID: "wallet-test",
 		WalletAddress: adapterSource,
-		ChainID:       "5042002", Network: "TESTNET",
+		ChainID:       contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
 		Call: call, SubmitNotAfter: notAfter,
 	})
 	if err != nil {
@@ -188,14 +181,14 @@ func validExecutionRequest(t *testing.T) execution.Request {
 	binding, err := wallet.NewBinding(wallet.BindingParams{
 		BindingID: "binding-test", Version: 1, UserID: "user-test", Provider: "circle",
 		ProviderUserReference: "provider-user-test", WalletID: "wallet-test", Address: adapterSource,
-		ChainID: "5042002", Network: "TESTNET", Status: wallet.BindingStatusActive,
+		ChainID: "5042", Network: "MAINNET", Status: wallet.BindingStatusActive,
 		VerificationReference: "binding-verification",
 		CreatedAt:             now.Add(-2 * time.Hour), VerifiedAt: now.Add(-time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := intents.Token{ChainID: "5042002", Standard: "ERC20", Address: "0x1111111111111111111111111111111111111111", Symbol: "USDC", Decimals: 6}
+	token := intents.Token{ChainID: "5042", Standard: "ERC20", Address: "0x1111111111111111111111111111111111111111", Symbol: "USDC", Decimals: 6}
 	intent, err := intents.NewDraft(intents.Params{
 		IntentID: "intent-contract-exec", Version: 1, ClientRequestID: "client-contract-exec", Nonce: "nonce-contract-exec",
 		Type: intents.TypePayroll,
@@ -349,7 +342,7 @@ func TestExecuteUnsupportedContractRejected(t *testing.T) {
 	plan := providers.Plan{
 		Kind:            providers.PlanKindContractExecution,
 		WalletBindingID: "binding-test", WalletID: "wallet-test", WalletAddress: adapterSource,
-		ChainID: "5042002", Network: "TESTNET",
+		ChainID: "5042", Network: "MAINNET",
 	}
 	transport := &scriptedTransport{}
 	adapter := contractAdapter(t, plan, stubAuthorization{auth: mustUserAuth(t), found: true}, stubReferences{}, transport, nil)
@@ -388,10 +381,7 @@ func TestExecuteWrongRegistryVersionRejected(t *testing.T) {
 	// Inject a registry that lacks the expected version binding by using empty registry.
 	transport := &scriptedTransport{}
 	httpClient := &http.Client{Transport: transport, Timeout: 2 * time.Second}
-	adapter, err := NewAdapter(adapterConfig(), httpClient, stubPlanner{plan: plan}, stubAuthorization{auth: mustUserAuth(t), found: true}, stubReferences{}, func() time.Time { return contractExecNow })
-	if err != nil {
-		t.Fatal(err)
-	}
+	adapter := newAdapterForTest(t, httpClient, stubPlanner{plan: plan}, stubAuthorization{auth: mustUserAuth(t), found: true}, stubReferences{}, func() time.Time { return contractExecNow })
 	adapter.registry = contracts.NewRegistry() // no deployments registered
 	_, execErr := adapter.Execute(context.Background(), validExecutionRequest(t))
 	assertPermanent(t, execution.Result{}, execErr, "SUBMISSION_PLAN_INVALID")
@@ -440,7 +430,7 @@ func TestGetStatusNeverResubmitsAfterChallenge(t *testing.T) {
 	plan := contractPlan(t, call, contractExecNow.Add(time.Minute))
 	transport := &scriptedTransport{}
 	reference := providers.Reference{
-		Provider: providers.ProviderCircleUserControlled, ChainID: "5042002",
+		Provider: providers.ProviderCircleUserControlled, ChainID: "5042",
 		WalletID: "wallet-test", ChallengeID: "c4d1da72-111e-4d52-bdbf-2e74a2d803d5",
 	}
 	adapter := contractAdapter(t, plan, stubAuthorization{auth: mustUserAuth(t), found: true},
@@ -496,7 +486,7 @@ func TestProviderCompleteIsNotVerified(t *testing.T) {
 	plan := contractPlan(t, call, contractExecNow.Add(time.Minute))
 	transport := &scriptedTransport{handler: func(req *http.Request, body []byte) (int, []byte) {
 		if strings.Contains(req.URL.Path, "/transactions/") && req.Method == http.MethodGet && !strings.HasSuffix(req.URL.Path, "/transactions") {
-			return http.StatusOK, []byte(`{"data":{"transaction":{"id":"tx-complete","state":"COMPLETE","txHash":"0x1111111111111111111111111111111111111111111111111111111111111111","blockchain":"ARC-TESTNET","walletId":"wallet-test","refId":"exec_after_submit"}}}`)
+			return http.StatusOK, []byte(`{"data":{"transaction":{"id":"tx-complete","state":"COMPLETE","txHash":"0x1111111111111111111111111111111111111111111111111111111111111111","blockchain":"ARC","walletId":"wallet-test","refId":"exec_after_submit"}}}`)
 		}
 		if strings.HasSuffix(req.URL.Path, "/transactions") {
 			return http.StatusOK, []byte(`{"data":{"transactions":[]}}`)
@@ -507,7 +497,7 @@ func TestProviderCompleteIsNotVerified(t *testing.T) {
 		return http.StatusOK, []byte(`{"data":{}}`)
 	}}
 	reference := providers.Reference{
-		Provider: providers.ProviderCircleUserControlled, ChainID: "5042002",
+		Provider: providers.ProviderCircleUserControlled, ChainID: "5042",
 		WalletID: "wallet-test", ProviderTransactionID: "tx-complete",
 	}
 	adapter := contractAdapter(t, plan, stubAuthorization{auth: mustUserAuth(t), found: true},
@@ -572,7 +562,7 @@ func TestReconcileDespiteLaterExpiry(t *testing.T) {
 	plan := contractPlan(t, call, contractExecNow.Add(time.Minute))
 	transport := &scriptedTransport{}
 	reference := providers.Reference{
-		Provider: providers.ProviderCircleUserControlled, ChainID: "5042002",
+		Provider: providers.ProviderCircleUserControlled, ChainID: "5042",
 		WalletID: "wallet-test", ChallengeID: "c4d1da72-111e-4d52-bdbf-2e74a2d803d5",
 	}
 	late := contractExecNow.Add(2 * time.Hour)

@@ -38,11 +38,8 @@ func TestSwapDescriptorRejectsSetFeeBps(t *testing.T) {
 
 func TestMissingRequiredExecutionFunctionRejected(t *testing.T) {
 	deployment := contracts.DefaultDeployments()[0]
-	// Drop routeAndPay.
-	deployment.ExecutionFunctions = []string{
-		"batchRouteAndPay(address,address[],address[],uint256[],uint256[],string)",
-		"batchRouteAndPay(address,address,address[],uint256[],uint256[],string)",
-	}
+	// Drop executeCrossTokenPayroll.
+	deployment.ExecutionFunctions = []string{"executeSameTokenPayroll(address,address[],uint256[],string)"}
 	if err := contracts.NewRegistry().Register(deployment); !hasCode(err, apperrors.CodeValidationError) {
 		t.Fatalf("missing execution function should be rejected, got %v", err)
 	}
@@ -50,7 +47,7 @@ func TestMissingRequiredExecutionFunctionRejected(t *testing.T) {
 
 func TestExtraReadFunctionRejected(t *testing.T) {
 	deployment := contracts.DefaultDeployments()[0]
-	deployment.ReadFunctions = append(append([]string(nil), deployment.ReadFunctions...), "owner()")
+	deployment.ReadFunctions = append(append([]string(nil), deployment.ReadFunctions...), "pendingOwner()")
 	if err := contracts.NewRegistry().Register(deployment); !hasCode(err, apperrors.CodeValidationError) {
 		t.Fatalf("extra read function should be rejected, got %v", err)
 	}

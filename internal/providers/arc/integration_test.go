@@ -6,29 +6,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/providers/arc"
 )
 
-// TestArcTestnetIntegration is an optional read-only Arc Testnet probe.
+// TestArcMainnetIntegration is an optional read-only Arc Mainnet probe.
 //
 // It is skipped unless WIZPAY_ARC_INTEGRATION=1. Default `go test ./...` remains
 // offline and deterministic.
 //
 // What it does:
-//   - eth_chainId must equal 5042002
+//   - eth_chainId must equal 5042
 //   - eth_blockNumber must return a positive height
+//   - eth_getCode must return non-empty code for both canonical deployments
 //
 // What it does NOT do:
 //   - submit transactions
 //   - send raw arbitrary RPC methods
 //   - touch Circle or financial APIs
-func TestArcTestnetIntegration(t *testing.T) {
+func TestArcMainnetIntegration(t *testing.T) {
 	if os.Getenv("WIZPAY_ARC_INTEGRATION") != "1" {
-		t.Skip("set WIZPAY_ARC_INTEGRATION=1 to run Arc Testnet read-only integration checks")
+		t.Skip("set WIZPAY_ARC_INTEGRATION=1 to run Arc Mainnet read-only integration checks")
 	}
 	config := arc.Config{
-		Enabled: true, ChainID: arc.ChainIDTestnet, Network: arc.NetworkTestnet,
-		RPCURL: arc.RPCTestnet, ExplorerURL: arc.ExplorerTestnet,
+		Enabled: true, ChainID: arc.ChainIDMainnet, Network: arc.NetworkMainnet,
+		RPCURL: arc.RPCMainnet, ExplorerURL: arc.ExplorerMainnet,
 		MinConfirmations: 1, Timeout: 15 * time.Second,
 	}
 	client, err := arc.NewClient(config, nil)
@@ -39,13 +41,31 @@ func TestArcTestnetIntegration(t *testing.T) {
 	defer cancel()
 	chainID, blockNumber, err := client.HealthCheck(ctx)
 	if err != nil {
-		t.Fatalf("Arc Testnet health: %v", err)
+		t.Fatalf("Arc Mainnet health: %v", err)
 	}
-	if chainID != arc.ChainIDTestnet {
+	if chainID != arc.ChainIDMainnet {
 		t.Fatalf("chain ID = %s", chainID)
 	}
 	if blockNumber == 0 {
 		t.Fatal("block number is zero")
 	}
-	t.Logf("Arc Testnet OK chain=%s head=%d", chainID, blockNumber)
+	for _, id := range []contracts.ContractID{contracts.ContractWizPayPayroll, contracts.ContractWizPaySwapExecutor} {
+		attestation, err := client.AttestDeploymentCode(ctx, id, contracts.RegistryVersion)
+		if err != nil {
+			t.Fatalf("%s code attestation: %v", id, err)
+		}
+		if attestation.CodeSize == 0 || attestation.CodeHash == "" {
+			t.Fatalf("%s has empty code attestation", id)
+		}
+		t.Logf("%s address=%s code_size=%d code_hash=%s", id, attestation.Address, attestation.CodeSize, attestation.CodeHash)
+		state, err := client.AttestDeploymentState(ctx, id, contracts.RegistryVersion)
+		if err != nil {
+			t.Fatalf("%s state attestation: %v", id, err)
+		}
+		if err := state.ValidateCanonicalResources(); err != nil {
+			t.Fatalf("%s canonical resource attestation: %v", id, err)
+		}
+		t.Logf("%s owner=%s fee_recipient=%s fee_bps=%d paused=%v usdc=%s eurc=%s router=%s permit2=%s pool_manager=%s pool_fee=%d tick_spacing=%d", id, state.Owner, state.FeeRecipient, state.FeeBPS, state.Paused, state.USDC, state.EURC, state.UniversalRouter, state.Permit2, state.PoolManager, state.PoolFee, state.PoolTickSpacing)
+	}
+	t.Logf("Arc Mainnet OK chain=%s head=%d", chainID, blockNumber)
 }

@@ -3,9 +3,11 @@ package circle
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/execution"
 	"github.com/deseti/wizpay-mcp/internal/execution/runtime"
 	"github.com/deseti/wizpay-mcp/internal/providers"
@@ -48,7 +50,7 @@ func (s stubReferences) LatestReference(context.Context, string) (providers.Refe
 func adapterConfig() Config {
 	return Config{
 		Enabled: true, BaseURL: defaultBaseURL, APIKey: APIKey{value: "secret"},
-		Blockchain: BlockchainArcTestnet, ChainID: "5042002", Network: "TESTNET",
+		Blockchain: Blockchain("ARC"), ChainID: "5042", Network: "MAINNET",
 		Timeout: 20 * time.Second,
 	}
 }
@@ -56,26 +58,44 @@ func adapterConfig() Config {
 func validPlan() providers.Plan {
 	return providers.Plan{
 		WalletBindingID: "binding-test", WalletID: "wallet-test", WalletAddress: adapterSource,
-		ChainID: "5042002", Network: "TESTNET", DestinationAddress: adapterDestination,
+		ChainID: "5042", Network: "MAINNET", DestinationAddress: adapterDestination,
 		TokenID: "token-test", Amount: "1",
 	}
 }
 
 func newAdapter(t *testing.T, planner providers.Planner, authorization providers.AuthorizationSource, references ReferenceStore) *Adapter {
 	t.Helper()
-	adapter, err := NewAdapter(adapterConfig(), nil, planner, authorization, references, func() time.Time {
+	return newAdapterForTest(t, nil, planner, authorization, references, func() time.Time {
 		return time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	})
-	if err != nil {
-		t.Fatalf("NewAdapter: %v", err)
+}
+
+// newAdapterForTest exercises the existing adapter's validation, idempotency,
+// and reconciliation invariants without opening the production Track A
+// constructor. It exists only in test code.
+func newAdapterForTest(t *testing.T, httpClient *http.Client, planner providers.Planner, authorization providers.AuthorizationSource, references ReferenceStore, now func() time.Time) *Adapter {
+	t.Helper()
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: adapterConfig().Timeout}
 	}
-	return adapter
+	return &Adapter{
+		client:  &client{config: adapterConfig(), http: httpClient},
+		planner: planner, authorization: authorization, references: references,
+		registry: contracts.DefaultRegistry(), config: adapterConfig(), now: now,
+	}
 }
 
 func TestNewAdapterRequiresDependencies(t *testing.T) {
 	_, err := NewAdapter(adapterConfig(), nil, nil, stubAuthorization{}, stubReferences{}, time.Now)
 	if err == nil {
 		t.Fatalf("a nil planner must be rejected")
+	}
+}
+
+func TestNewAdapterRejectsFullyPopulatedMainnetConfig(t *testing.T) {
+	adapter, err := NewAdapter(adapterConfig(), nil, stubPlanner{}, stubAuthorization{}, stubReferences{}, time.Now)
+	if err == nil || adapter != nil {
+		t.Fatalf("production constructor must reject unreviewed Mainnet execution: adapter=%#v err=%v", adapter, err)
 	}
 }
 

@@ -8,8 +8,8 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/intents"
 )
 
-// Planner deterministically maps frozen Phase 12 Swap intent material to the
-// sole allowlisted executeSwap call. It performs no I/O and consumes no approval.
+// Planner remains as the typed boundary for a later execution track. Track A
+// deliberately refuses to produce a Mainnet execution plan.
 type Planner struct {
 	registry *contracts.Registry
 }
@@ -43,26 +43,7 @@ func (p Planner) Plan(intent intents.Intent) (Plan, error) {
 	if err := p.validateBinding(intent.Route(), ownership); err != nil {
 		return Plan{}, err
 	}
-	deadline := financial.Deadline.UTC().Unix()
-	if deadline <= 0 {
-		return Plan{}, fmt.Errorf("swap deadline must map to positive Unix seconds")
-	}
-	amountIn, err := financial.InputAmount.BaseInt()
-	if err != nil {
-		return Plan{}, fmt.Errorf("swap amount_in is invalid: %w", err)
-	}
-	minAmountOut, err := financial.MinimumOutput.BaseInt()
-	if err != nil {
-		return Plan{}, fmt.Errorf("swap min_amount_out is invalid: %w", err)
-	}
-	call, err := contractswap.EncodeExecuteSwap(p.registry, contractswap.ExecuteSwapInput{
-		Router: financial.Router, TokenIn: financial.InputToken.Address, TokenOut: financial.OutputToken.Address,
-		AmountIn: amountIn, MinAmountOut: minAmountOut, Recipient: financial.Recipient, Deadline: deadline,
-	})
-	if err != nil {
-		return Plan{}, fmt.Errorf("encode swap call: %w", err)
-	}
-	return newPlan(intent, call), nil
+	return Plan{}, fmt.Errorf("Arc Mainnet swap execution is disabled in Track A")
 }
 
 func (p Planner) validateBinding(route intents.Route, ownership intents.Ownership) error {
@@ -78,8 +59,8 @@ func (p Planner) validateBinding(route intents.Route, ownership intents.Ownershi
 	if route.Version != uint64(contracts.RegistryVersion) {
 		return fmt.Errorf("swap route version must be %d", contracts.RegistryVersion)
 	}
-	if ownership.ChainID != contracts.ChainIDArcTestnet {
-		return fmt.Errorf("swap ownership chain must be %s", contracts.ChainIDArcTestnet)
+	if ownership.ChainID != contracts.ChainIDArcMainnet {
+		return fmt.Errorf("swap ownership chain must be %s", contracts.ChainIDArcMainnet)
 	}
 	deployment, err := contractswap.ExpectedDeployment(p.registry)
 	if err != nil {
@@ -87,7 +68,7 @@ func (p Planner) validateBinding(route intents.Route, ownership intents.Ownershi
 	}
 	if ownership.ChainID != deployment.ChainID ||
 		!contracts.AddressesEqual(deployment.Address, contracts.AddressWizPaySwapExecutor) {
-		return fmt.Errorf("swap deployment does not match canonical Arc Testnet binding")
+		return fmt.Errorf("swap deployment does not match canonical Arc Mainnet binding")
 	}
 	return nil
 }

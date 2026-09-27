@@ -4,82 +4,70 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts/swap"
 )
 
-func TestVerifiedSwapABIContainsRequiredSurface(t *testing.T) {
-	root := findModuleRoot(t)
-	raw, err := os.ReadFile(filepath.Join(root, "contracts", "abi", "WizPaySwapExecutor.json"))
+func TestVerifiedSwapMainnetABIContainsExactSurface(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(findModuleRoot(t), "contracts", "abi", "WizPaySwapExecutorMainnet.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var entries []map[string]any
+	var entries []struct{ Type, Name string }
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		t.Fatalf("WizPaySwapExecutor.json parse failed: %v", err)
+		t.Fatal(err)
 	}
-
-	functions := map[string]bool{}
-	events := map[string]bool{}
+	parsed, err := abi.JSON(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	method, ok := parsed.Methods["executeSwap"]
+	if !ok || method.Sig != swap.SigExecuteSwap {
+		t.Fatalf("full ABI executeSwap signature = %q, want %q", method.Sig, swap.SigExecuteSwap)
+	}
+	event, ok := parsed.Events["WizPayMainnetSwapExecuted"]
+	if !ok || event.Sig != swap.SigWizPayMainnetSwapExecuted {
+		t.Fatalf("full ABI swap event signature = %q, want %q", event.Sig, swap.SigWizPayMainnetSwapExecuted)
+	}
+	functions, events := map[string]bool{}, map[string]bool{}
 	for _, entry := range entries {
-		switch entry["type"] {
-		case "function":
-			name, _ := entry["name"].(string)
-			functions[name] = true
-		case "event":
-			name, _ := entry["name"].(string)
-			events[name] = true
+		if entry.Type == "function" {
+			functions[entry.Name] = true
+		}
+		if entry.Type == "event" {
+			events[entry.Name] = true
 		}
 	}
-	for _, required := range []string{
-		"executeSwap",
-		"allowedRouters",
-		"allowedTokens",
-		"feeBps",
-		"feeRecipient",
-		"paused",
-	} {
-		if !functions[required] {
-			t.Fatalf("required function %q missing from verified ABI", required)
+	for _, name := range []string{"executeSwap", "USDC", "EURC", "universalRouter", "permit2", "poolFee", "poolTickSpacing"} {
+		if !functions[name] {
+			t.Fatalf("missing function %s", name)
 		}
 	}
-	if !events["WizPaySwapExecuted"] {
-		t.Fatal("required event WizPaySwapExecuted missing from verified ABI")
+	if !events["WizPayMainnetSwapExecuted"] || events["WizPaySwapExecuted"] {
+		t.Fatal("swap event surface mismatch")
+	}
+	for _, old := range []string{"allowedRouters", "allowedTokens"} {
+		if functions[old] {
+			t.Fatalf("stale Testnet function %s", old)
+		}
 	}
 	for _, admin := range swap.AdminFunctionNames {
 		if !functions[admin] {
-			t.Fatalf("expected admin function %q to exist in full ABI source", admin)
-		}
-	}
-}
-
-func TestRuntimeSwapABIHasNoAdminMethods(t *testing.T) {
-	candidates := []string{
-		"pause()",
-		"unpause()",
-		"rescueTokens(address,address,uint256)",
-		"setFeeBps(uint256)",
-		"setFeeRecipient(address)",
-		"setRouterAllowed(address,bool)",
-		"setTokenAllowed(address,bool)",
-		"transferOwnership(address)",
-		"renounceOwnership()",
-	}
-	for _, signature := range candidates {
-		if _, err := swap.MethodBySignature(signature); err == nil {
-			t.Fatalf("admin signature %q is exposed by runtime ABI", signature)
+			t.Fatalf("full ABI missing admin function %s", admin)
 		}
 	}
 }
 
 func findModuleRoot(t *testing.T) string {
 	t.Helper()
-	wd, err := os.Getwd()
+	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := wd
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir

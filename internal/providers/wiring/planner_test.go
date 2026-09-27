@@ -1,7 +1,6 @@
 package wiring
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/intents"
 	"github.com/deseti/wizpay-mcp/internal/payroll"
 	"github.com/deseti/wizpay-mcp/internal/policies"
-	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/storage"
 	"github.com/deseti/wizpay-mcp/internal/swap"
 	"github.com/deseti/wizpay-mcp/internal/wallet"
@@ -53,7 +51,7 @@ func (intentRepositoryStub) UpdateIntent(context.Context, storage.Scope, intents
 	panic("not used")
 }
 
-func TestPlannerBuildsPayrollAndSwapContractPlans(t *testing.T) {
+func TestPlannerRefusesPayrollAndSwapExecutionInTrackA(t *testing.T) {
 	for _, kind := range []intents.Type{intents.TypePayroll, intents.TypeSwap} {
 		t.Run(string(kind), func(t *testing.T) {
 			request, intent := executionRequest(t, frozenIntent(t, kind))
@@ -66,32 +64,9 @@ func TestPlannerBuildsPayrollAndSwapContractPlans(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			plan, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
-			if err != nil {
-				t.Fatalf("Plan: %v", err)
-			}
-			if plan.EffectiveKind() != providers.PlanKindContractExecution {
-				t.Fatalf("kind = %s", plan.EffectiveKind())
-			}
-			call, ok := plan.EncodedCall()
-			if !ok {
-				t.Fatal("expected sealed contract call")
-			}
-			wantContract, wantTarget := contracts.ContractWizPayPayroll, contracts.AddressWizPayPayroll
-			wantDeadline := intent.ExpiresAt()
-			if kind == intents.TypeSwap {
-				wantContract, wantTarget = contracts.ContractWizPaySwapExecutor, contracts.AddressWizPaySwapExecutor
-				financial := intent.Financial().Swap
-				wantDeadline = providers.EarliestDeadline(wantDeadline, intent.Constraints().Deadline, financial.Deadline, financial.Quote.ExpiresAt)
-			} else {
-				wantDeadline = providers.EarliestDeadline(wantDeadline, intent.Constraints().Deadline)
-			}
-			if call.ContractID() != wantContract || call.To() != wantTarget {
-				t.Fatalf("call binding = %q/%s, want %q/%s", call.ContractID(), call.To(), wantContract, wantTarget)
-			}
-			gotDeadline, ok := plan.SubmitNotAfter()
-			if !ok || !gotDeadline.Equal(wantDeadline) {
-				t.Fatalf("SubmitNotAfter = %v/%t, want %v", gotDeadline, ok, wantDeadline)
+			_, err = planner.Plan(storage.WithScope(context.Background(), scope), request)
+			if err == nil || !strings.Contains(err.Error(), "disabled in Track A") {
+				t.Fatalf("Plan error = %v", err)
 			}
 			if repository.findCalls != 1 || repository.requestedID != request.IntentID() || repository.requestedScope.TenantID() != "tenant" || repository.requestedScope.ActorID() != "actor" {
 				t.Fatalf("repository lookup = calls %d, id %q, scope tenant=%q actor=%q", repository.findCalls, repository.requestedID, repository.requestedScope.TenantID(), repository.requestedScope.ActorID())
@@ -100,7 +75,7 @@ func TestPlannerBuildsPayrollAndSwapContractPlans(t *testing.T) {
 	}
 }
 
-func TestPlannerSameRequestProducesIdenticalContractPlan(t *testing.T) {
+func TestPlannerSameRequestDeterministicallyRefusesExecution(t *testing.T) {
 	request, intent := executionRequest(t, frozenIntent(t, intents.TypeSwap))
 	repository := &intentRepositoryStub{intent: intent}
 	planner, err := NewPlanner(repository, payroll.NewPlanner(nil), swap.NewPlanner(nil))
@@ -108,20 +83,10 @@ func TestPlannerSameRequestProducesIdenticalContractPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope, _ := storage.NewScope("tenant", "actor", "request", "trace")
-	first, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstCall, _ := first.EncodedCall()
-	secondCall, _ := second.EncodedCall()
-	firstDeadline, _ := first.SubmitNotAfter()
-	secondDeadline, _ := second.SubmitNotAfter()
-	if first.EffectiveKind() != second.EffectiveKind() || firstCall.ContractID() != secondCall.ContractID() || firstCall.To() != secondCall.To() || !bytes.Equal(firstCall.CallData(), secondCall.CallData()) || !firstDeadline.Equal(secondDeadline) {
-		t.Fatal("same request produced different provider contract plans")
+	_, first := planner.Plan(storage.WithScope(context.Background(), scope), request)
+	_, second := planner.Plan(storage.WithScope(context.Background(), scope), request)
+	if first == nil || second == nil || first.Error() != second.Error() {
+		t.Fatalf("errors differ: %v / %v", first, second)
 	}
 }
 
@@ -264,16 +229,16 @@ func frozenIntentVariant(t *testing.T, kind intents.Type, nonce string) intents.
 
 func frozenIntentVersion(t *testing.T, kind intents.Type, nonce string, version uint64) intents.Intent {
 	t.Helper()
-	owner := intents.Ownership{UserID: "user", IdentityProvider: "circle", ProviderUserReference: "provider-user", WalletBindingID: "binding", WalletBindingVersion: 1, WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: "5042002", Network: "TESTNET"}
-	token := intents.Token{ChainID: "5042002", Standard: "ERC20", Address: "0x1111111111111111111111111111111111111111", Symbol: "USDC", Decimals: 6}
+	owner := intents.Ownership{UserID: "user", IdentityProvider: "circle", ProviderUserReference: "provider-user", WalletBindingID: "binding", WalletBindingVersion: 1, WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet}
+	token := intents.Token{ChainID: contracts.ChainIDArcMainnet, Standard: "ERC20", Address: contracts.AddressUSDCMainnet, Symbol: "USDC", Decimals: 6}
 	params := intents.Params{IntentID: "intent-" + strings.ToLower(string(kind)), Version: version, ClientRequestID: "client", Nonce: nonce, Type: kind, Ownership: owner, Route: intents.Route{Type: intents.RouteAllowlistedContract, Reference: map[intents.Type]string{intents.TypePayroll: intents.RouteReferencePayroll, intents.TypeSwap: intents.RouteReferenceSwap}[kind], Version: 1}, Constraints: intents.Constraints{Deadline: plannerTestNow.Add(20 * time.Minute), PolicyReference: "policy:1"}, CreatedAt: plannerTestNow, ExpiresAt: plannerTestNow.Add(30 * time.Minute)}
 	if kind == intents.TypePayroll {
 		params.Financial = intents.FinancialParameters{Payroll: &intents.PayrollParameters{SchemaVersion: intents.FinancialSchemaPhase12, Variant: intents.PayrollVariantSingle, TokenIn: token, Recipients: []intents.Recipient{{Address: "0x3333333333333333333333333333333333333333", TokenOut: token, AmountIn: amount("1"), MinAmountOut: amount("1")}}, Total: amount("1")}}
 	} else {
 		output := token
-		output.Address = "0x5555555555555555555555555555555555555555"
+		output.Address = contracts.AddressEURCMainnet
 		output.Symbol = "EURC"
-		params.Financial = intents.FinancialParameters{Swap: &intents.SwapParameters{SchemaVersion: intents.FinancialSchemaPhase12, InputToken: token, OutputToken: output, InputAmount: amount("10"), ExpectedOutput: amount("9"), MinimumOutput: amount("8.91"), MaxSlippageBPS: 100, Router: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Recipient: owner.WalletAddress, Quote: &intents.SwapQuote{QuoteID: "quote", Source: "test", ExpectedAmountOut: amount("9"), MinAmountOut: amount("8.91"), Router: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpiresAt: plannerTestNow.Add(15 * time.Minute), EvidenceReference: "evidence"}, Deadline: plannerTestNow.Add(10 * time.Minute)}}
+		params.Financial = intents.FinancialParameters{Swap: &intents.SwapParameters{SchemaVersion: intents.FinancialSchemaPhase12, InputToken: token, OutputToken: output, InputAmount: amount("10"), ExpectedOutput: amount("9"), MinimumOutput: amount("8.91"), MaxSlippageBPS: 100, Router: contracts.AddressUniswapUniversalRouter, Recipient: owner.WalletAddress, Quote: &intents.SwapQuote{QuoteID: "quote", Source: "test", ExpectedAmountOut: amount("9"), MinAmountOut: amount("8.91"), Router: contracts.AddressUniswapUniversalRouter, ExpiresAt: plannerTestNow.Add(15 * time.Minute), EvidenceReference: "evidence"}, Deadline: plannerTestNow.Add(10 * time.Minute)}}
 	}
 	intent, err := intents.NewDraft(params)
 	if err != nil {

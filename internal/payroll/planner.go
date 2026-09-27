@@ -2,15 +2,14 @@ package payroll
 
 import (
 	"fmt"
-	"math/big"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 	contractpayroll "github.com/deseti/wizpay-mcp/internal/contracts/payroll"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 )
 
-// Planner deterministically maps frozen Phase 12 Payroll intent material to an
-// allowlisted typed contract call. It performs no I/O and consumes no approval.
+// Planner remains as the typed boundary for a later execution track. Track A
+// deliberately refuses to produce a Mainnet execution plan.
 type Planner struct {
 	registry *contracts.Registry
 }
@@ -44,51 +43,7 @@ func (p Planner) Plan(intent intents.Intent) (Plan, error) {
 	if err := p.validateBinding(intent.Route(), ownership); err != nil {
 		return Plan{}, err
 	}
-	call, err := p.encode(*financial)
-	if err != nil {
-		return Plan{}, fmt.Errorf("encode payroll call: %w", err)
-	}
-	return newPlan(intent, call), nil
-}
-
-func (p Planner) encode(financial intents.PayrollParameters) (contracts.EncodedCall, error) {
-	recipients := make([]string, len(financial.Recipients))
-	tokenOuts := make([]string, len(financial.Recipients))
-	amountsIn := make([]*big.Int, len(financial.Recipients))
-	minAmountsOut := make([]*big.Int, len(financial.Recipients))
-	for i, line := range financial.Recipients {
-		recipients[i] = line.Address
-		tokenOuts[i] = line.TokenOut.Address
-		var err error
-		amountsIn[i], err = line.AmountIn.BaseInt()
-		if err != nil {
-			return contracts.EncodedCall{}, fmt.Errorf("recipient %d amount_in is invalid: %w", i, err)
-		}
-		minAmountsOut[i], err = line.MinAmountOut.BaseInt()
-		if err != nil {
-			return contracts.EncodedCall{}, fmt.Errorf("recipient %d min_amount_out is invalid: %w", i, err)
-		}
-	}
-
-	switch financial.Variant {
-	case intents.PayrollVariantSingle:
-		return contractpayroll.EncodeRouteAndPay(p.registry, contractpayroll.SinglePayment{
-			TokenIn: financial.TokenIn.Address, TokenOut: tokenOuts[0], AmountIn: amountsIn[0],
-			MinAmountOut: minAmountsOut[0], Recipient: recipients[0],
-		})
-	case intents.PayrollVariantBatchSingleTokenOut:
-		return contractpayroll.EncodeBatchSingleTokenOut(p.registry, contractpayroll.BatchSingleTokenOut{
-			TokenIn: financial.TokenIn.Address, TokenOut: tokenOuts[0], Recipients: recipients,
-			AmountsIn: amountsIn, MinAmountsOut: minAmountsOut, ReferenceID: financial.ReferenceID,
-		})
-	case intents.PayrollVariantBatchMultiTokenOut:
-		return contractpayroll.EncodeBatchMultiTokenOut(p.registry, contractpayroll.BatchMultiTokenOut{
-			TokenIn: financial.TokenIn.Address, TokenOuts: tokenOuts, Recipients: recipients,
-			AmountsIn: amountsIn, MinAmountsOut: minAmountsOut, ReferenceID: financial.ReferenceID,
-		})
-	default:
-		return contracts.EncodedCall{}, fmt.Errorf("unsupported payroll variant %q", financial.Variant)
-	}
+	return Plan{}, fmt.Errorf("Arc Mainnet payroll execution is disabled in Track A")
 }
 
 func (p Planner) validateBinding(route intents.Route, ownership intents.Ownership) error {
@@ -104,8 +59,8 @@ func (p Planner) validateBinding(route intents.Route, ownership intents.Ownershi
 	if route.Version != uint64(contracts.RegistryVersion) {
 		return fmt.Errorf("payroll route version must be %d", contracts.RegistryVersion)
 	}
-	if ownership.ChainID != contracts.ChainIDArcTestnet {
-		return fmt.Errorf("payroll ownership chain must be %s", contracts.ChainIDArcTestnet)
+	if ownership.ChainID != contracts.ChainIDArcMainnet {
+		return fmt.Errorf("payroll ownership chain must be %s", contracts.ChainIDArcMainnet)
 	}
 	deployment, err := contractpayroll.ExpectedDeployment(p.registry)
 	if err != nil {
@@ -113,7 +68,7 @@ func (p Planner) validateBinding(route intents.Route, ownership intents.Ownershi
 	}
 	if ownership.ChainID != deployment.ChainID ||
 		!contracts.AddressesEqual(deployment.Address, contracts.AddressWizPayPayroll) {
-		return fmt.Errorf("payroll deployment does not match canonical Arc Testnet binding")
+		return fmt.Errorf("payroll deployment does not match canonical Arc Mainnet binding")
 	}
 	return nil
 }

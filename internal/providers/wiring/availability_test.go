@@ -12,7 +12,7 @@ import (
 // enabledDescriptor is an ENABLED capability used only to exercise provider
 // feature resolution. Shipped defaults remain disabled.
 func enabledDescriptor(id capabilities.CapabilityID, intentType intents.Type, features ...capabilities.ProviderFeature) capabilities.Descriptor {
-	return capabilities.Descriptor{ID: id, Version: 1, Status: capabilities.StatusEnabled, IntentType: intentType, SupportedChains: []string{arc.ChainIDTestnet}, SupportedNetworks: []string{arc.NetworkTestnet}, ProviderFeatures: features, Description: "Capability used for availability wiring tests."}
+	return capabilities.Descriptor{ID: id, Version: 1, Status: capabilities.StatusEnabled, IntentType: intentType, SupportedChains: []string{arc.ChainIDMainnet}, SupportedNetworks: []string{arc.NetworkMainnet}, ProviderFeatures: features, Description: "Capability used for availability wiring tests."}
 }
 
 func registryWith(t *testing.T, descriptor capabilities.Descriptor) *capabilities.Registry {
@@ -26,10 +26,7 @@ func registryWith(t *testing.T, descriptor capabilities.Descriptor) *capabilitie
 
 func configuredPlane(t *testing.T) Plane {
 	t.Helper()
-	config, err := LoadConfig(configuredLookup())
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
+	config := mainnetAttemptConfig(t)
 	plane, err := Build(config, fullDependencies())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -59,21 +56,21 @@ func TestNewAvailabilityRequiresRegistryAndPlane(t *testing.T) {
 	}
 }
 
-func TestResolveAvailableWhenPlaneSuppliesFeatures(t *testing.T) {
+func TestResolveUnavailableForUnreviewedCircleMainnet(t *testing.T) {
 	availability, err := NewAvailability(registryWith(t, enabledDescriptor(capabilities.CapabilityPayroll, intents.TypePayroll, capabilities.FeatureUserControlledWallet, capabilities.FeatureContractExecution)), configuredPlane(t))
 	if err != nil {
 		t.Fatalf("NewAvailability: %v", err)
 	}
-	decision, err := availability.Resolve(capabilities.CapabilityPayroll, capabilities.AvailabilityRequest{ChainID: arc.ChainIDTestnet, Network: arc.NetworkTestnet})
+	decision, err := availability.Resolve(capabilities.CapabilityPayroll, capabilities.AvailabilityRequest{ChainID: arc.ChainIDMainnet, Network: arc.NetworkMainnet})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if !decision.Available || decision.Reason != capabilities.ReasonAvailable {
-		t.Fatalf("expected available, got available=%v reason=%s", decision.Available, decision.Reason)
+	if decision.Available || decision.Reason != capabilities.ReasonMissingProviderFeature {
+		t.Fatalf("expected fail-closed unavailability, got available=%v reason=%s", decision.Available, decision.Reason)
 	}
 }
 
-func TestTypedCircleDescriptorSatisfiesPayrollAndSwap(t *testing.T) {
+func TestTypedCircleDescriptorCannotSatisfyPayrollOrSwapInTrackA(t *testing.T) {
 	plane := configuredPlane(t)
 	for _, test := range []struct {
 		id         capabilities.CapabilityID
@@ -88,9 +85,9 @@ func TestTypedCircleDescriptorSatisfiesPayrollAndSwap(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			decision, err := availability.Resolve(test.id, capabilities.AvailabilityRequest{ChainID: arc.ChainIDTestnet, Network: arc.NetworkTestnet})
-			if err != nil || !decision.Available {
-				t.Fatalf("typed provider should satisfy %s: decision=%#v error=%v", test.id, decision, err)
+			decision, err := availability.Resolve(test.id, capabilities.AvailabilityRequest{ChainID: arc.ChainIDMainnet, Network: arc.NetworkMainnet})
+			if err != nil || decision.Available || decision.Reason != capabilities.ReasonMissingProviderFeature {
+				t.Fatalf("typed provider unexpectedly satisfied %s: decision=%#v error=%v", test.id, decision, err)
 			}
 		})
 	}
@@ -136,7 +133,7 @@ func TestTypedCapabilitiesRequireTheirExecutionFeatures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			decision, err := availability.Resolve(test.id, capabilities.AvailabilityRequest{ChainID: arc.ChainIDTestnet, Network: arc.NetworkTestnet})
+			decision, err := availability.Resolve(test.id, capabilities.AvailabilityRequest{ChainID: arc.ChainIDMainnet, Network: arc.NetworkMainnet})
 			if err != nil || decision.Available || decision.Reason != capabilities.ReasonMissingProviderFeature {
 				t.Fatalf("expected missing provider feature: decision=%#v error=%v", decision, err)
 			}
@@ -149,7 +146,7 @@ func TestResolveUnavailableWhenPlaneUnconfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAvailability: %v", err)
 	}
-	decision, err := availability.Resolve(capabilities.CapabilityPayroll, capabilities.AvailabilityRequest{ChainID: arc.ChainIDTestnet, Network: arc.NetworkTestnet})
+	decision, err := availability.Resolve(capabilities.CapabilityPayroll, capabilities.AvailabilityRequest{ChainID: arc.ChainIDMainnet, Network: arc.NetworkMainnet})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -163,7 +160,7 @@ func TestResolveDiscardsCallerSuppliedFeatures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAvailability: %v", err)
 	}
-	decision, err := availability.Resolve(capabilities.CapabilityPayroll, capabilities.AvailabilityRequest{ChainID: arc.ChainIDTestnet, Network: arc.NetworkTestnet, ProviderFeatures: []capabilities.ProviderFeature{capabilities.FeatureUserControlledWallet, capabilities.FeatureContractExecution}})
+	decision, err := availability.Resolve(capabilities.CapabilityPayroll, capabilities.AvailabilityRequest{ChainID: arc.ChainIDMainnet, Network: arc.NetworkMainnet, ProviderFeatures: []capabilities.ProviderFeature{capabilities.FeatureUserControlledWallet, capabilities.FeatureContractExecution}})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -182,7 +179,7 @@ func TestBridgeAndANSRemainUnavailable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		decision, err := availability.Resolve(test.id, capabilities.AvailabilityRequest{ChainID: arc.ChainIDTestnet, Network: arc.NetworkTestnet})
+		decision, err := availability.Resolve(test.id, capabilities.AvailabilityRequest{ChainID: arc.ChainIDMainnet, Network: arc.NetworkMainnet})
 		if err != nil || decision.Available {
 			t.Fatalf("%s should remain unavailable: decision=%#v error=%v", test.id, decision, err)
 		}

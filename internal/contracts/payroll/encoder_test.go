@@ -2,194 +2,55 @@ package payroll_test
 
 import (
 	"bytes"
-	"encoding/hex"
 	"math/big"
 	"testing"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/contracts/payroll"
-	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 )
 
-func TestEncodeBatchMultiTokenOutDeterministic(t *testing.T) {
-	registry := contracts.DefaultRegistry()
-	in := payroll.BatchMultiTokenOut{
-		TokenIn:       "0x3600000000000000000000000000000000000000",
-		TokenOuts:     []string{"0x3600000000000000000000000000000000000000", "0x3600000000000000000000000000000000000001"},
-		Recipients:    []string{"0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"},
-		AmountsIn:     []*big.Int{big.NewInt(1000), big.NewInt(2000)},
-		MinAmountsOut: []*big.Int{big.NewInt(900), big.NewInt(1800)},
-		ReferenceID:   "payroll-batch-001",
-	}
-	first, err := payroll.EncodeBatchMultiTokenOut(registry, in)
+func TestMainnetPayrollDescriptorEncodingParity(t *testing.T) {
+	same := payroll.SameTokenPayrollInput{Token: contracts.AddressUSDCMainnet, Recipients: []string{"0x1111111111111111111111111111111111111111"}, Amounts: []*big.Int{big.NewInt(1_000_000)}, ReferenceID: "payroll-1"}
+	first, err := payroll.EncodeSameTokenPayroll(nil, same)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := payroll.EncodeBatchMultiTokenOut(registry, in)
+	second, err := payroll.EncodeSameTokenPayroll(nil, same)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(first.CallData(), second.CallData()) {
-		t.Fatal("encoding is not deterministic")
+		t.Fatal("same-token encoding is not deterministic")
 	}
-	wantSel := contracts.Selector4(payroll.SigBatchMultiTokenOut)
-	if first.Selector() != wantSel {
-		t.Fatalf("selector = %x, want %x", first.Selector(), wantSel)
+	if first.Function() != payroll.SigExecuteSameTokenPayroll || first.Selector() != contracts.Selector4(payroll.SigExecuteSameTokenPayroll) {
+		t.Fatalf("unexpected same-token function: %s", first.Function())
 	}
-	if !bytes.Equal(first.CallData()[:4], wantSel[:]) {
-		t.Fatal("calldata selector prefix mismatch")
+	if got := first.Selector(); got != [4]byte{0x6a, 0xaf, 0xf8, 0x34} {
+		t.Fatalf("same-token selector = 0x%x", got)
 	}
-	if !contracts.AddressesEqual(first.To(), contracts.AddressWizPayPayroll) {
-		t.Fatalf("To = %q", first.To())
+	if first.ChainID() != contracts.ChainIDArcMainnet || first.Network() != contracts.NetworkArcMainnet || !contracts.AddressesEqual(first.To(), contracts.AddressWizPayPayroll) {
+		t.Fatalf("unexpected descriptor identity")
 	}
-	if first.ChainID() != contracts.ChainIDArcTestnet {
-		t.Fatalf("chain = %q", first.ChainID())
-	}
-	if first.Function() != payroll.SigBatchMultiTokenOut {
-		t.Fatalf("function = %q", first.Function())
-	}
-	// CallData getter must return a defensive copy.
-	mutated := first.CallData()
-	mutated[0] ^= 0xff
-	if bytes.Equal(first.CallData(), mutated) {
-		t.Fatal("CallData getter did not return a defensive copy")
-	}
-}
 
-func TestEncodeBatchSingleTokenOutDeterministic(t *testing.T) {
-	registry := contracts.DefaultRegistry()
-	in := payroll.BatchSingleTokenOut{
-		TokenIn:       "0x3600000000000000000000000000000000000000",
-		TokenOut:      "0x3600000000000000000000000000000000000000",
-		Recipients:    []string{"0x1111111111111111111111111111111111111111"},
-		AmountsIn:     []*big.Int{big.NewInt(5000)},
-		MinAmountsOut: []*big.Int{big.NewInt(4900)},
-		ReferenceID:   "payroll-single-token-batch",
-	}
-	call, err := payroll.EncodeBatchSingleTokenOut(registry, in)
+	cross := payroll.CrossTokenPayrollInput{TokenIn: contracts.AddressEURCMainnet, TokenOut: contracts.AddressUSDCMainnet, Recipients: same.Recipients, OutputAmounts: same.Amounts, GrossInput: big.NewInt(1_100_000), MinTotalOut: big.NewInt(1_000_000), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(1), ReferenceID: "payroll-2"}
+	call, err := payroll.EncodeCrossTokenPayroll(nil, cross)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantSel := contracts.Selector4(payroll.SigBatchSingleTokenOut)
-	if call.Selector() != wantSel {
-		t.Fatalf("selector = %x, want %x", call.Selector(), wantSel)
+	if call.Function() != payroll.SigExecuteCrossTokenPayroll || call.Selector() != contracts.Selector4(payroll.SigExecuteCrossTokenPayroll) {
+		t.Fatalf("unexpected cross-token function: %s", call.Function())
 	}
-	// Overloads must produce distinct selectors.
-	multiSel := contracts.Selector4(payroll.SigBatchMultiTokenOut)
-	if call.Selector() == multiSel {
-		t.Fatal("single and multi overloads must not share a selector")
+	if got := call.Selector(); got != [4]byte{0xab, 0xa7, 0x62, 0x52} {
+		t.Fatalf("cross-token selector = 0x%x", got)
 	}
 }
 
-func TestEncodeRouteAndPayDeterministic(t *testing.T) {
-	registry := contracts.DefaultRegistry()
-	in := payroll.SinglePayment{
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000000",
-		AmountIn:     big.NewInt(1000000),
-		MinAmountOut: big.NewInt(990000),
-		Recipient:    "0x3333333333333333333333333333333333333333",
-	}
-	call, err := payroll.EncodeRouteAndPay(registry, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantSel := contracts.Selector4(payroll.SigRouteAndPay)
-	if call.Selector() != wantSel {
-		t.Fatalf("selector = %x, want %x", call.Selector(), wantSel)
-	}
-	// Known first 4 bytes from offline keccak of canonical signature.
-	sel := call.Selector()
-	if hex.EncodeToString(sel[:]) != "8c7c789c" {
-		t.Fatalf("unexpected routeAndPay selector %x", sel)
-	}
-}
-
-func TestPayrollValidationRejections(t *testing.T) {
-	registry := contracts.DefaultRegistry()
-	base := payroll.BatchMultiTokenOut{
-		TokenIn:       "0x3600000000000000000000000000000000000000",
-		TokenOuts:     []string{"0x3600000000000000000000000000000000000000"},
-		Recipients:    []string{"0x1111111111111111111111111111111111111111"},
-		AmountsIn:     []*big.Int{big.NewInt(1000)},
-		MinAmountsOut: []*big.Int{big.NewInt(900)},
-		ReferenceID:   "ok",
-	}
-
-	t.Run("empty recipients", func(t *testing.T) {
-		in := base
-		in.Recipients = nil
-		in.TokenOuts = nil
-		in.AmountsIn = nil
-		in.MinAmountsOut = nil
-		if _, err := payroll.EncodeBatchMultiTokenOut(registry, in); !hasCode(err, apperrors.CodeValidationError) {
-			t.Fatalf("error = %v", err)
-		}
-	})
-	t.Run("mismatched lengths", func(t *testing.T) {
-		in := base
-		in.AmountsIn = []*big.Int{big.NewInt(1), big.NewInt(2)}
-		if _, err := payroll.EncodeBatchMultiTokenOut(registry, in); !hasCode(err, apperrors.CodeValidationError) {
-			t.Fatalf("error = %v", err)
-		}
-	})
-	t.Run("invalid token", func(t *testing.T) {
-		in := base
-		in.TokenIn = "not-an-address"
-		if _, err := payroll.EncodeBatchMultiTokenOut(registry, in); !hasCode(err, apperrors.CodeValidationError) {
-			t.Fatalf("error = %v", err)
-		}
-	})
-	t.Run("invalid recipient", func(t *testing.T) {
-		in := base
-		in.Recipients = []string{"0xgg"}
-		if _, err := payroll.EncodeBatchMultiTokenOut(registry, in); !hasCode(err, apperrors.CodeValidationError) {
-			t.Fatalf("error = %v", err)
-		}
-	})
-	t.Run("zero amount", func(t *testing.T) {
-		in := base
-		in.AmountsIn = []*big.Int{big.NewInt(0)}
-		if _, err := payroll.EncodeBatchMultiTokenOut(registry, in); !hasCode(err, apperrors.CodeValidationError) {
-			t.Fatalf("error = %v", err)
-		}
-	})
-	t.Run("empty reference", func(t *testing.T) {
-		in := base
-		in.ReferenceID = ""
-		if _, err := payroll.EncodeBatchMultiTokenOut(registry, in); !hasCode(err, apperrors.CodeValidationError) {
-			t.Fatalf("error = %v", err)
-		}
-	})
-	t.Run("unsafe reference", func(t *testing.T) {
-		in := base
-		in.ReferenceID = "bad\nref"
-		if _, err := payroll.EncodeBatchMultiTokenOut(registry, in); !hasCode(err, apperrors.CodeValidationError) {
-			t.Fatalf("error = %v", err)
-		}
-	})
-}
-
-func TestPayrollRegisteredAddressExact(t *testing.T) {
-	call, err := payroll.EncodeRouteAndPay(nil, payroll.SinglePayment{
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000000",
-		AmountIn:     big.NewInt(1),
-		MinAmountOut: big.NewInt(0),
-		Recipient:    "0x3333333333333333333333333333333333333333",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if call.To() != contracts.ChecksumAddress(contracts.AddressWizPayPayroll) &&
-		!contracts.AddressesEqual(call.To(), contracts.AddressWizPayPayroll) {
-		t.Fatalf("To = %q", call.To())
-	}
-}
-
-func hasCode(err error, code apperrors.Code) bool {
+func TestMainnetPayrollDescriptorRejectsUnsupportedResources(t *testing.T) {
+	_, err := payroll.EncodeSameTokenPayroll(nil, payroll.SameTokenPayrollInput{Token: "0x2222222222222222222222222222222222222222", Recipients: []string{"0x1111111111111111111111111111111111111111"}, Amounts: []*big.Int{big.NewInt(1)}, ReferenceID: "payroll"})
 	if err == nil {
-		return false
+		t.Fatal("unsupported token must fail closed")
 	}
-	return apperrors.ToPublic(err).Code == code
+	if _, err := payroll.MethodBySignature("batchRouteAndPay(address,address,address[],uint256[],uint256[],string)"); err == nil {
+		t.Fatal("Testnet batchRouteAndPay must not remain in the runtime ABI")
+	}
 }

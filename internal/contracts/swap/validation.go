@@ -8,80 +8,47 @@ import (
 )
 
 func validateDeployment(deployment contracts.Deployment) error {
-	if deployment.ID != contracts.ContractWizPaySwapExecutor {
-		return fmt.Errorf("deployment is not WIZPAY_SWAP_EXECUTOR")
-	}
-	if deployment.RegistryVersion != contracts.RegistryVersion {
-		return fmt.Errorf("unexpected swap registry version %d", deployment.RegistryVersion)
-	}
-	if deployment.ChainID != contracts.ChainIDArcTestnet {
-		return fmt.Errorf("swap deployment chain ID mismatch")
-	}
-	if deployment.Network != contracts.NetworkArcTestnet {
-		return fmt.Errorf("swap deployment network mismatch")
-	}
-	if !contracts.AddressesEqual(deployment.Address, contracts.AddressWizPaySwapExecutor) {
-		return fmt.Errorf("swap deployment address mismatch")
-	}
-	if deployment.Status != contracts.StatusEnabled {
-		return fmt.Errorf("swap deployment is not enabled")
+	if deployment.ID != contracts.ContractWizPaySwapExecutor || deployment.RegistryVersion != contracts.RegistryVersion ||
+		deployment.ChainID != contracts.ChainIDArcMainnet || deployment.Network != contracts.NetworkArcMainnet ||
+		!contracts.AddressesEqual(deployment.Address, contracts.AddressWizPaySwapExecutor) || deployment.Status != contracts.StatusEnabled {
+		return fmt.Errorf("swap deployment does not match the canonical Arc Mainnet descriptor")
 	}
 	return nil
 }
 
 func validateExecuteSwap(in ExecuteSwapInput) error {
-	if err := validateNonZeroAddress("router", in.Router); err != nil {
-		return err
+	if !canonicalPair(in.TokenIn, in.TokenOut) {
+		return fmt.Errorf("token pair must be canonical Arc Mainnet USDC/EURC")
 	}
-	if err := validateNonZeroAddress("tokenIn", in.TokenIn); err != nil {
-		return err
-	}
-	if err := validateNonZeroAddress("tokenOut", in.TokenOut); err != nil {
-		return err
-	}
-	if err := validatePositiveAmount("amountIn", in.AmountIn); err != nil {
-		return err
-	}
-	if err := validatePositiveAmount("minAmountOut", in.MinAmountOut); err != nil {
-		return err
-	}
-	if err := validateNonZeroAddress("recipient", in.Recipient); err != nil {
-		return err
-	}
-	if in.Deadline <= 0 {
-		return fmt.Errorf("deadline must be greater than zero")
+	for _, value := range []struct {
+		name   string
+		amount *big.Int
+	}{
+		{"amountIn", in.AmountIn}, {"minAmountOut", in.MinAmountOut},
+		{"minHopPriceX36", in.MinHopPriceX36}, {"deadline", in.Deadline},
+	} {
+		if value.amount == nil || value.amount.Sign() <= 0 {
+			return fmt.Errorf("%s must be greater than zero", value.name)
+		}
+		if value.amount.BitLen() > 128 {
+			return fmt.Errorf("%s exceeds uint128", value.name)
+		}
 	}
 	return nil
 }
 
-func validateNonZeroAddress(name, value string) error {
-	if !contracts.ValidAddress(value) {
-		return fmt.Errorf("%s is not a valid address", name)
-	}
-	if contracts.NormalizeAddress(value) == "0x0000000000000000000000000000000000000000" {
-		return fmt.Errorf("%s must not be the zero address", name)
-	}
-	return nil
+func canonicalPair(tokenIn, tokenOut string) bool {
+	return (contracts.AddressesEqual(tokenIn, contracts.AddressUSDCMainnet) && contracts.AddressesEqual(tokenOut, contracts.AddressEURCMainnet)) ||
+		(contracts.AddressesEqual(tokenIn, contracts.AddressEURCMainnet) && contracts.AddressesEqual(tokenOut, contracts.AddressUSDCMainnet))
 }
 
-func validatePositiveAmount(name string, value *big.Int) error {
-	if value == nil {
-		return fmt.Errorf("%s is required", name)
-	}
-	if value.Sign() <= 0 {
-		return fmt.Errorf("%s must be greater than zero", name)
-	}
-	return nil
-}
-
-// RejectAdminSelector ensures the selector is exactly the allowlisted executeSwap.
 func RejectAdminSelector(selector [4]byte) error {
 	allowed, err := Selector(SigExecuteSwap)
 	if err != nil {
 		return err
 	}
 	if selector != allowed {
-		return fmt.Errorf("selector is not the allowlisted swap execution selector")
+		return fmt.Errorf("selector is not the allowlisted swap Mainnet selector")
 	}
 	return nil
 }

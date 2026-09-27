@@ -229,7 +229,7 @@ type PayrollParameters struct {
 	// Total must equal the sum of recipient input amounts.
 	Total Amount `json:"total"`
 	// ReferenceID is required for batch variants and is immutable intent metadata.
-	// For SINGLE it is optional (routeAndPay has no on-chain referenceId).
+	// Legacy intent variants may leave this optional. Track A does not execute them.
 	ReferenceID string `json:"reference_id,omitempty"`
 }
 

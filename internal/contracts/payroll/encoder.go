@@ -10,11 +10,9 @@ import (
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 )
 
-// EncodeBatchMultiTokenOut encodes the multi-token-out batchRouteAndPay overload.
-//
-// The destination address is taken exclusively from the registry deployment.
-// Callers cannot supply an alternate contract address or method name.
-func EncodeBatchMultiTokenOut(registry *contracts.Registry, in BatchMultiTokenOut) (contracts.EncodedCall, error) {
+// EncodeSameTokenPayroll encodes only the reviewed Mainnet calldata shape.
+// It does not provide approvals, transaction value, submission, or execution.
+func EncodeSameTokenPayroll(registry *contracts.Registry, in SameTokenPayrollInput) (contracts.EncodedCall, error) {
 	deployment, err := ExpectedDeployment(registry)
 	if err != nil {
 		return contracts.EncodedCall{}, err
@@ -22,33 +20,24 @@ func EncodeBatchMultiTokenOut(registry *contracts.Registry, in BatchMultiTokenOu
 	if err := validateDeployment(deployment); err != nil {
 		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll deployment validation failed.", false, true, true, err)
 	}
-	if err := validateBatchMulti(in); err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll batch multi-token input is invalid.", false, true, true, err)
+	if err := validateSameToken(in); err != nil {
+		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Same-token payroll descriptor is invalid.", false, true, true, err)
 	}
-	if !deployment.AllowsExecution(SigBatchMultiTokenOut) {
-		return contracts.EncodedCall{}, apperrors.New(apperrors.CodeValidationError, "Payroll execution function is not allowlisted.", false, true, true)
-	}
-
-	method, err := MethodBySignature(SigBatchMultiTokenOut)
+	method, err := MethodBySignature(SigExecuteSameTokenPayroll)
 	if err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeInternalError, "Payroll ABI method resolution failed.", false, false, true, err)
+		return contracts.EncodedCall{}, err
 	}
-	packed, err := method.Inputs.Pack(
-		common.HexToAddress(in.TokenIn),
-		toAddresses(in.TokenOuts),
-		toAddresses(in.Recipients),
-		copyBigInts(in.AmountsIn),
-		copyBigInts(in.MinAmountsOut),
-		in.ReferenceID,
-	)
+	packed, err := method.Inputs.Pack(common.HexToAddress(in.Token), toAddresses(in.Recipients), copyBigInts(in.Amounts), in.ReferenceID)
 	if err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll batch multi-token encoding failed.", false, true, true, err)
+		return contracts.EncodedCall{}, fmt.Errorf("encode same-token payroll descriptor: %w", err)
 	}
-	return buildCall(deployment, SigBatchMultiTokenOut, method.ID, packed)
+	return buildCall(deployment, SigExecuteSameTokenPayroll, method.ID, packed)
 }
 
-// EncodeBatchSingleTokenOut encodes the single-token-out batchRouteAndPay overload.
-func EncodeBatchSingleTokenOut(registry *contracts.Registry, in BatchSingleTokenOut) (contracts.EncodedCall, error) {
+// EncodeCrossTokenPayroll encodes only the reviewed Mainnet calldata shape.
+// Its output is not executable without later-track native-value or approval
+// handling selected from the fixed canonical token direction.
+func EncodeCrossTokenPayroll(registry *contracts.Registry, in CrossTokenPayrollInput) (contracts.EncodedCall, error) {
 	deployment, err := ExpectedDeployment(registry)
 	if err != nil {
 		return contracts.EncodedCall{}, err
@@ -56,76 +45,35 @@ func EncodeBatchSingleTokenOut(registry *contracts.Registry, in BatchSingleToken
 	if err := validateDeployment(deployment); err != nil {
 		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll deployment validation failed.", false, true, true, err)
 	}
-	if err := validateBatchSingle(in); err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll batch single-token input is invalid.", false, true, true, err)
+	if err := validateCrossToken(in); err != nil {
+		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Cross-token payroll descriptor is invalid.", false, true, true, err)
 	}
-	if !deployment.AllowsExecution(SigBatchSingleTokenOut) {
-		return contracts.EncodedCall{}, apperrors.New(apperrors.CodeValidationError, "Payroll execution function is not allowlisted.", false, true, true)
-	}
-
-	method, err := MethodBySignature(SigBatchSingleTokenOut)
-	if err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeInternalError, "Payroll ABI method resolution failed.", false, false, true, err)
-	}
-	packed, err := method.Inputs.Pack(
-		common.HexToAddress(in.TokenIn),
-		common.HexToAddress(in.TokenOut),
-		toAddresses(in.Recipients),
-		copyBigInts(in.AmountsIn),
-		copyBigInts(in.MinAmountsOut),
-		in.ReferenceID,
-	)
-	if err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll batch single-token encoding failed.", false, true, true, err)
-	}
-	return buildCall(deployment, SigBatchSingleTokenOut, method.ID, packed)
-}
-
-// EncodeRouteAndPay encodes the single routeAndPay function.
-func EncodeRouteAndPay(registry *contracts.Registry, in SinglePayment) (contracts.EncodedCall, error) {
-	deployment, err := ExpectedDeployment(registry)
+	method, err := MethodBySignature(SigExecuteCrossTokenPayroll)
 	if err != nil {
 		return contracts.EncodedCall{}, err
 	}
-	if err := validateDeployment(deployment); err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll deployment validation failed.", false, true, true, err)
-	}
-	if err := validateSingle(in); err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll single payment input is invalid.", false, true, true, err)
-	}
-	if !deployment.AllowsExecution(SigRouteAndPay) {
-		return contracts.EncodedCall{}, apperrors.New(apperrors.CodeValidationError, "Payroll execution function is not allowlisted.", false, true, true)
-	}
-
-	method, err := MethodBySignature(SigRouteAndPay)
-	if err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeInternalError, "Payroll ABI method resolution failed.", false, false, true, err)
-	}
 	packed, err := method.Inputs.Pack(
-		common.HexToAddress(in.TokenIn),
-		common.HexToAddress(in.TokenOut),
-		new(big.Int).Set(in.AmountIn),
-		new(big.Int).Set(in.MinAmountOut),
-		common.HexToAddress(in.Recipient),
+		common.HexToAddress(in.TokenIn), common.HexToAddress(in.TokenOut),
+		toAddresses(in.Recipients), copyBigInts(in.OutputAmounts),
+		new(big.Int).Set(in.GrossInput), new(big.Int).Set(in.MinTotalOut),
+		new(big.Int).Set(in.MinHopPriceX36), new(big.Int).Set(in.Deadline), in.ReferenceID,
 	)
 	if err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll single payment encoding failed.", false, true, true, err)
+		return contracts.EncodedCall{}, fmt.Errorf("encode cross-token payroll descriptor: %w", err)
 	}
-	return buildCall(deployment, SigRouteAndPay, method.ID, packed)
+	return buildCall(deployment, SigExecuteCrossTokenPayroll, method.ID, packed)
 }
 
-func buildCall(deployment contracts.Deployment, signature string, selector []byte, packed []byte) (contracts.EncodedCall, error) {
+func buildCall(deployment contracts.Deployment, signature string, selector, packed []byte) (contracts.EncodedCall, error) {
 	if len(selector) != 4 {
 		return contracts.EncodedCall{}, fmt.Errorf("invalid selector length")
 	}
 	var sel [4]byte
 	copy(sel[:], selector)
 	if err := RejectAdminSelector(sel); err != nil {
-		return contracts.EncodedCall{}, apperrors.Wrap(apperrors.CodeValidationError, "Payroll encoder refused a non-allowlisted selector.", false, true, true, err)
+		return contracts.EncodedCall{}, err
 	}
-	callData := make([]byte, 0, 4+len(packed))
-	callData = append(callData, selector...)
-	callData = append(callData, packed...)
+	callData := append(append(make([]byte, 0, 4+len(packed)), selector...), packed...)
 	return contracts.NewEncodedCall(deployment, signature, sel, callData)
 }
 

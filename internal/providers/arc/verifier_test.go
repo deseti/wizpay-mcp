@@ -30,8 +30,8 @@ func (f fakeSource) BlockNumber(context.Context) (uint64, error) {
 
 func verifierConfig() Config {
 	return Config{
-		Enabled: true, ChainID: ChainIDTestnet, Network: NetworkTestnet,
-		RPCURL: RPCTestnet, ExplorerURL: ExplorerTestnet, MinConfirmations: 1, Timeout: 15 * time.Second,
+		Enabled: true, ChainID: ChainIDMainnet, Network: NetworkMainnet,
+		RPCURL: RPCMainnet, ExplorerURL: ExplorerMainnet, MinConfirmations: 1, Timeout: 15 * time.Second,
 	}
 }
 
@@ -58,7 +58,7 @@ func TestTransactionReceiptRejectsForeignChainAndBadHash(t *testing.T) {
 	if _, err := verifier.TransactionReceipt(context.Background(), "1", verifierHash); err == nil {
 		t.Fatalf("evidence from another chain must be refused")
 	}
-	if _, err := verifier.TransactionReceipt(context.Background(), ChainIDTestnet, "not-a-hash"); err == nil {
+	if _, err := verifier.TransactionReceipt(context.Background(), ChainIDMainnet, "not-a-hash"); err == nil {
 		t.Fatalf("an invalid transaction hash must be refused")
 	}
 }
@@ -71,7 +71,7 @@ func TestTransactionReceiptPendingCases(t *testing.T) {
 		"unrecognized status":   {found: true, head: 100, payload: receiptPayload{Status: "0x2", BlockNumber: "0x10", TransactionHash: verifierHash}},
 	}
 	for name, source := range cases {
-		receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
+		receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, verifierHash)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", name, err)
 		}
@@ -89,7 +89,7 @@ func TestTransactionReceiptSuccessAtOneConfirmation(t *testing.T) {
 		Status: "0x1", BlockNumber: "0x10", BlockHash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		TransactionHash: verifierHash,
 	}}
-	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
+	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, verifierHash)
 	if err != nil {
 		t.Fatalf("TransactionReceipt: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestTransactionReceiptSuccessAtOneConfirmation(t *testing.T) {
 func TestTransactionReceiptSuccessDeeperConfirmations(t *testing.T) {
 	// block 0x10 == 16, head 17 → confirmations = 2 (still success with min=1).
 	source := fakeSource{found: true, head: 17, payload: receiptPayload{Status: "0x1", BlockNumber: "0x10", TransactionHash: verifierHash}}
-	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
+	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, verifierHash)
 	if err != nil {
 		t.Fatalf("TransactionReceipt: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestTransactionReceiptRequiresConfiguredDepth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVerifier: %v", err)
 	}
-	receipt, err := verifier.TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
+	receipt, err := verifier.TransactionReceipt(context.Background(), ChainIDMainnet, verifierHash)
 	if err != nil {
 		t.Fatalf("TransactionReceipt: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestTransactionReceiptRequiresConfiguredDepth(t *testing.T) {
 func TestTransactionReceiptReverted(t *testing.T) {
 	// A revert is final regardless of confirmation depth.
 	source := fakeSource{found: true, head: 16, payload: receiptPayload{Status: "0x0", BlockNumber: "0x10", TransactionHash: verifierHash}}
-	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash)
+	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, verifierHash)
 	if err != nil {
 		t.Fatalf("TransactionReceipt: %v", err)
 	}
@@ -152,21 +152,21 @@ func TestTransactionReceiptReverted(t *testing.T) {
 func TestTransactionReceiptHashMismatch(t *testing.T) {
 	other := "0x2222222222222222222222222222222222222222222222222222222222222222"
 	source := fakeSource{found: true, head: 100, payload: receiptPayload{Status: "0x1", BlockNumber: "0x10", TransactionHash: other}}
-	if _, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash); err == nil {
+	if _, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, verifierHash); err == nil {
 		t.Fatalf("a receipt for a different transaction must be refused")
 	}
 }
 
 func TestTransactionReceiptPropagatesSourceErrors(t *testing.T) {
 	source := fakeSource{receiptErr: fmt.Errorf("boom")}
-	if _, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, verifierHash); err == nil {
+	if _, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, verifierHash); err == nil {
 		t.Fatalf("a source error must propagate")
 	}
 }
 
 func TestExplorerURL(t *testing.T) {
 	verifier := newVerifier(t, fakeSource{})
-	if got := verifier.ExplorerURL(verifierHash); got != ExplorerTestnet+"/tx/"+verifierHash {
+	if got := verifier.ExplorerURL(verifierHash); got != ExplorerMainnet+"/tx/"+verifierHash {
 		t.Fatalf("unexpected explorer URL %q", got)
 	}
 	if verifier.ExplorerURL("not-a-hash") != "" {

@@ -136,7 +136,8 @@ func (c *Client) Receipt(ctx context.Context, transactionHash string) (receiptPa
 
 // call performs one JSON-RPC request. Errors carry no response body.
 //
-// Only the three methods this package issues may reach this function. When a
+// Only the explicitly implemented read methods in this package may reach this
+// function. When a
 // circuit breaker is configured, infrastructure failures open the breaker;
 // successful RPC responses close it.
 func (c *Client) call(ctx context.Context, method string, params []any, out any) error {

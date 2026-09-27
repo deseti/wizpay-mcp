@@ -4,7 +4,8 @@
 // The surface is deliberately minimal and read-only. This package never imports
 // a private key or seed phrase, never signs locally, never executes arbitrary
 // contract calls, and exposes no general-purpose JSON-RPC passthrough. It reads
-// transaction receipts and the current block height, and nothing else.
+// transaction receipts, the current block height, canonical deployment code,
+// and a fixed allowlist of canonical deployment getters.
 package arc
 
 import (
@@ -16,16 +17,14 @@ import (
 )
 
 const (
-	// ChainIDTestnet is the Arc Testnet chain ID.
-	ChainIDTestnet = "5042002"
-	// RPCTestnet is the canonical Arc Testnet JSON-RPC endpoint.
-	// Official Arc documentation uses this host; do not substitute
-	// rpc.testnet.arc.network.
-	RPCTestnet = "https://rpc.testnet.arc.io"
-	// ExplorerTestnet is the Arc Testnet block explorer.
-	ExplorerTestnet = "https://testnet.arcscan.app"
-	// NetworkTestnet is this system's network label for Arc Testnet.
-	NetworkTestnet = "TESTNET"
+	// ChainIDMainnet is the Arc Mainnet chain ID.
+	ChainIDMainnet = "5042"
+	// RPCMainnet is the canonical Arc Mainnet JSON-RPC endpoint.
+	RPCMainnet = "https://rpc.mainnet.arc.io"
+	// ExplorerMainnet is the canonical Arc Mainnet block explorer.
+	ExplorerMainnet = "https://explorer.arc.io"
+	// NetworkMainnet is this system's network label for Arc Mainnet.
+	NetworkMainnet = "MAINNET"
 
 	// NativeCurrencyDecimals is the precision of Arc's native gas currency.
 	//
@@ -43,10 +42,6 @@ const (
 	// of committed blocks. Confirmation depth still cannot be configured below 1.
 	defaultMinConfirmations = 1
 	maxMinConfirmations     = 64
-
-	// rejectedRPCHost is a known non-canonical host that must never be used as
-	// the Arc Testnet RPC endpoint in this repository.
-	rejectedRPCHost = "rpc.testnet.arc.network"
 )
 
 // Config is the Arc chain configuration. Exactly one RPC endpoint is used: no
@@ -63,17 +58,17 @@ type Config struct {
 }
 
 // LoadConfig reads Arc configuration from the environment, defaulting to the
-// Arc Testnet values this phase targets. No mainnet configuration is provided.
+// canonical Arc Mainnet values targeted by Track A.
 func LoadConfig(lookup func(string) (string, bool)) (Config, error) {
 	if lookup == nil {
 		return Config{}, fmt.Errorf("environment lookup is required")
 	}
 	config := Config{
 		Enabled:          boolValue(lookup, "WIZPAY_ARC_ENABLED", false),
-		ChainID:          stringValue(lookup, "WIZPAY_ARC_CHAIN_ID", ChainIDTestnet),
-		Network:          stringValue(lookup, "WIZPAY_ARC_NETWORK", NetworkTestnet),
-		RPCURL:           stringValue(lookup, "WIZPAY_ARC_RPC_URL", RPCTestnet),
-		ExplorerURL:      stringValue(lookup, "WIZPAY_ARC_EXPLORER_URL", ExplorerTestnet),
+		ChainID:          stringValue(lookup, "WIZPAY_ARC_CHAIN_ID", ChainIDMainnet),
+		Network:          stringValue(lookup, "WIZPAY_ARC_NETWORK", NetworkMainnet),
+		RPCURL:           stringValue(lookup, "WIZPAY_ARC_RPC_URL", RPCMainnet),
+		ExplorerURL:      stringValue(lookup, "WIZPAY_ARC_EXPLORER_URL", ExplorerMainnet),
 		MinConfirmations: uintValue(lookup, "WIZPAY_ARC_MIN_CONFIRMATIONS", defaultMinConfirmations),
 		Timeout:          durationValue(lookup, "WIZPAY_ARC_TIMEOUT", defaultTimeout),
 	}
@@ -90,11 +85,11 @@ func (c Config) Validate() error {
 	if !c.Enabled {
 		return nil
 	}
-	if c.ChainID != ChainIDTestnet {
-		return fmt.Errorf("Arc chain ID %q is not supported by this phase", c.ChainID)
+	if c.ChainID != ChainIDMainnet {
+		return fmt.Errorf("Arc chain ID %q is not the required Mainnet chain ID", c.ChainID)
 	}
-	if c.Network != NetworkTestnet {
-		return fmt.Errorf("Arc network %q is not supported by this phase", c.Network)
+	if c.Network != NetworkMainnet {
+		return fmt.Errorf("Arc network %q is not the required Mainnet network", c.Network)
 	}
 	if err := validateHTTPSURL(c.RPCURL, "RPC"); err != nil {
 		return err
@@ -105,8 +100,11 @@ func (c Config) Validate() error {
 	if strings.Contains(c.RPCURL, ",") {
 		return fmt.Errorf("Arc RPC URL must be a single endpoint")
 	}
-	if err := rejectNonCanonicalRPC(c.RPCURL); err != nil {
-		return err
+	if c.RPCURL != RPCMainnet {
+		return fmt.Errorf("Arc RPC URL must be the canonical Mainnet endpoint %s", RPCMainnet)
+	}
+	if c.ExplorerURL != ExplorerMainnet {
+		return fmt.Errorf("Arc explorer URL must be the canonical Mainnet explorer %s", ExplorerMainnet)
 	}
 	if c.MinConfirmations < 1 || c.MinConfirmations > maxMinConfirmations {
 		return fmt.Errorf("Arc minimum confirmations must be between 1 and %d", maxMinConfirmations)
@@ -124,21 +122,6 @@ func validateHTTPSURL(value, name string) error {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		return fmt.Errorf("Arc %s URL must be an absolute HTTPS URL", name)
-	}
-	return nil
-}
-
-// rejectNonCanonicalRPC fails closed on the known incorrect Arc Testnet host.
-// The canonical production/default endpoint remains RPCTestnet (.io). No
-// fallback RPC list is introduced.
-func rejectNonCanonicalRPC(value string) error {
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return fmt.Errorf("Arc RPC URL must be an absolute HTTPS URL")
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == rejectedRPCHost {
-		return fmt.Errorf("Arc RPC URL must not use the non-canonical host %s; use %s", rejectedRPCHost, RPCTestnet)
 	}
 	return nil
 }

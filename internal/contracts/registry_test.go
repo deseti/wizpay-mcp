@@ -14,13 +14,13 @@ func TestDefaultRegistryPayrollAndSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payroll.Name != "WizPay" {
+	if payroll.Name != "WizPayPayrollMainnet" {
 		t.Fatalf("payroll name = %q", payroll.Name)
 	}
 	if !contracts.AddressesEqual(payroll.Address, contracts.AddressWizPayPayroll) {
 		t.Fatalf("payroll address = %q", payroll.Address)
 	}
-	if payroll.ChainID != contracts.ChainIDArcTestnet || payroll.Network != contracts.NetworkArcTestnet {
+	if payroll.ChainID != contracts.ChainIDArcMainnet || payroll.Network != contracts.NetworkArcMainnet {
 		t.Fatalf("payroll chain/network = %q/%q", payroll.ChainID, payroll.Network)
 	}
 
@@ -28,7 +28,7 @@ func TestDefaultRegistryPayrollAndSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if swap.Name != "WizPaySwapExecutor" {
+	if swap.Name != "WizPaySwapExecutorMainnet" {
 		t.Fatalf("swap name = %q", swap.Name)
 	}
 	if !contracts.AddressesEqual(swap.Address, contracts.AddressWizPaySwapExecutor) {
@@ -78,7 +78,7 @@ func TestRegistryExactLookupAndWrongChain(t *testing.T) {
 	if !hasCode(err, apperrors.CodeContractNotFound) {
 		t.Fatalf("missing version error = %v", err)
 	}
-	_, err = registry.Require(contracts.ContractWizPayPayroll, contracts.RegistryVersion, "1", contracts.NetworkArcTestnet)
+	_, err = registry.Require(contracts.ContractWizPayPayroll, contracts.RegistryVersion, "1", contracts.NetworkArcMainnet)
 	if !hasCode(err, apperrors.CodeValidationError) {
 		t.Fatalf("wrong chain error = %v", err)
 	}
@@ -112,14 +112,14 @@ func TestRegistryRejectsMalformedAddressAndAmbiguity(t *testing.T) {
 
 func TestRegistryLookupByAddress(t *testing.T) {
 	registry := contracts.DefaultRegistry()
-	got, err := registry.LookupByAddress(contracts.ChainIDArcTestnet, contracts.AddressWizPaySwapExecutor)
+	got, err := registry.LookupByAddress(contracts.ChainIDArcMainnet, contracts.AddressWizPaySwapExecutor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.ID != contracts.ContractWizPaySwapExecutor {
 		t.Fatalf("lookup ID = %q", got.ID)
 	}
-	_, err = registry.LookupByAddress(contracts.ChainIDArcTestnet, "0x00000000000000000000000000000000000000aa")
+	_, err = registry.LookupByAddress(contracts.ChainIDArcMainnet, "0x00000000000000000000000000000000000000aa")
 	if !hasCode(err, apperrors.CodeContractNotFound) {
 		t.Fatalf("unknown address error = %v", err)
 	}

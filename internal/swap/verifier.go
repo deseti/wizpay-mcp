@@ -2,7 +2,6 @@ package swap
 
 import (
 	"fmt"
-	"math/big"
 	"strings"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
@@ -11,23 +10,14 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/providers"
 )
 
-// Domain verification status for Swap financial completion.
-//
-// Generic chain receipt SUCCESS is never sufficient. Only DomainVerified means
-// a canonical WizPaySwapExecuted event matched the immutable intent/plan.
 type DomainStatus string
 
 const (
-	// DomainVerified means canonical event evidence fully matched the intent.
-	DomainVerified DomainStatus = "DOMAIN_VERIFIED"
-	// DomainUnverified means no usable matching event evidence was found.
+	DomainVerified   DomainStatus = "DOMAIN_VERIFIED"
 	DomainUnverified DomainStatus = "DOMAIN_UNVERIFIED"
-	// DomainFailed means evidence was present but inconsistent with the intent.
-	DomainFailed DomainStatus = "DOMAIN_FAILED"
+	DomainFailed     DomainStatus = "DOMAIN_FAILED"
 )
 
-// DomainResult is the pure deterministic outcome of Swap event verification.
-// It performs no RPC, wall-clock, or Circle calls.
 type DomainResult struct {
 	Status            DomainStatus
 	ReasonCode        string
@@ -37,260 +27,78 @@ type DomainResult struct {
 	definitiveFailure bool
 }
 
-// DefinitiveFailure reports whether a DOMAIN_FAILED result is grounded in a
-// canonical event whose immutable financial fields contradict the intent.
-// Domain-owned orchestration and material failures deliberately return false.
 func (r DomainResult) DefinitiveFailure() bool {
 	return r.Status == DomainFailed && r.definitiveFailure
 }
+func (r DomainResult) FinancialComplete() bool { return r.Status == DomainVerified }
 
-// FinancialComplete reports whether the result authorizes Swap financial completion.
-func (r DomainResult) FinancialComplete() bool {
-	return r.Status == DomainVerified
-}
+// Verifier remains fail-closed until a later track implements and reviews the
+// Mainnet swap execution and receipt semantics.
+type Verifier struct{ registry *contracts.Registry }
 
-// Verifier performs pure deterministic Swap domain verification against trusted
-// static contract event definitions and immutable intent/plan material.
-type Verifier struct {
-	registry *contracts.Registry
-}
+func NewVerifier(registry *contracts.Registry) Verifier { return Verifier{registry: registry} }
 
-// NewVerifier binds verification to a trusted static registry. A nil registry
-// uses the repository's verified default deployment registry.
-func NewVerifier(registry *contracts.Registry) Verifier {
-	return Verifier{registry: registry}
-}
-
-// Verify checks chain receipt evidence against the frozen Swap intent and
-// sealed plan.
-//
-// Requirements for DOMAIN_VERIFIED:
-//   - receipt status SUCCESS
-//   - plan binds the same intent digest and canonical swap executor
-//   - exactly one WizPaySwapExecuted from the canonical swap address
-//   - user, router, tokenIn, tokenOut, amountIn, recipient exact
-//   - amountOut >= frozen MinimumOutput (not ExpectedOutput)
-//   - feeAmount non-negative when present (no second MCP fee)
 func (v Verifier) Verify(intent intents.Intent, plan Plan, receipt providers.Receipt) (DomainResult, error) {
 	if err := intent.Validate(); err != nil {
 		return DomainResult{}, fmt.Errorf("swap intent is invalid: %w", err)
 	}
-	if intent.Type() != intents.TypeSwap {
-		return DomainResult{}, fmt.Errorf("swap verifier requires SWAP intent")
-	}
-	if intent.Digest() == "" || intent.Status() == intents.StatusDraft {
-		return DomainResult{}, fmt.Errorf("swap verifier requires a frozen intent")
-	}
-	financial := intent.Financial().Swap
-	if financial == nil || !financial.Phase12Executable() {
-		return DomainResult{}, fmt.Errorf("swap intent is not Phase 12 executable")
+	if intent.Type() != intents.TypeSwap || intent.Digest() == "" || intent.Status() == intents.StatusDraft {
+		return DomainResult{}, fmt.Errorf("swap verifier requires a frozen SWAP intent")
 	}
 	if err := v.validatePlan(intent, plan); err != nil {
-		return DomainResult{
-			Status:          DomainFailed,
-			ReasonCode:      "SWAP_PLAN_MISMATCH",
-			TransactionHash: strings.ToLower(strings.TrimSpace(receipt.TransactionHash)),
-		}, nil
+		return DomainResult{}, fmt.Errorf("swap plan binding is invalid: %w", err)
 	}
-	base := DomainResult{
+	result := DomainResult{
+		Status:          DomainUnverified,
+		ReasonCode:      "ARC_MAINNET_SWAP_EXECUTION_DISABLED",
 		TransactionHash: strings.ToLower(strings.TrimSpace(receipt.TransactionHash)),
-		EventSignature:  contractswap.SigWizPaySwapExecuted,
+		Provable:        nil,
 	}
-
 	if receipt.Status == providers.ReceiptReverted {
-		base.Status = DomainFailed
-		base.ReasonCode = "ONCHAIN_EXECUTION_REVERTED"
-		return base, nil
+		result.Status = DomainFailed
+		result.ReasonCode = "ONCHAIN_EXECUTION_REVERTED"
+		return result, nil
 	}
 	if receipt.Status != providers.ReceiptSuccess {
-		// Provider/chain receipt not yet SUCCESS: domain remains unverified.
-		// This covers "provider receipt success without valid event" when the
-		// receipt is SUCCESS but also when callers pass incomplete evidence.
-		base.Status = DomainUnverified
-		base.ReasonCode = "RECEIPT_NOT_SUCCESS"
-		return base, nil
+		result.ReasonCode = "RECEIPT_NOT_SUCCESS"
+		return result, nil
 	}
 	if receipt.ChainID != "" && receipt.ChainID != plan.ChainID() {
-		base.Status = DomainFailed
-		base.ReasonCode = "RECEIPT_CHAIN_MISMATCH"
-		return base, nil
+		result.Status = DomainFailed
+		result.ReasonCode = "RECEIPT_CHAIN_MISMATCH"
+		return result, nil
 	}
-	if receipt.TransactionHash != "" && !providers.ValidTransactionHash(strings.ToLower(receipt.TransactionHash)) {
-		base.Status = DomainFailed
-		base.ReasonCode = "RECEIPT_HASH_INVALID"
-		return base, nil
+	if receipt.TransactionHash != "" && !providers.ValidTransactionHash(result.TransactionHash) {
+		result.Status = DomainFailed
+		result.ReasonCode = "RECEIPT_HASH_INVALID"
+		return result, nil
 	}
 	if err := providers.ValidateLogs(receipt.Logs); err != nil {
-		base.Status = DomainUnverified
-		base.ReasonCode = "RECEIPT_LOGS_MALFORMED"
-		return base, nil
+		result.ReasonCode = "RECEIPT_LOGS_MALFORMED"
 	}
-
-	matches, ambiguous, err := v.collectSwapExecuted(receipt)
-	if err != nil {
-		base.Status = DomainUnverified
-		base.ReasonCode = "SWAP_EXECUTED_DECODE_ERROR"
-		return base, nil
-	}
-	if ambiguous {
-		base.Status = DomainUnverified
-		base.ReasonCode = "SWAP_EXECUTED_DECODE_ERROR"
-		return base, nil
-	}
-	if len(matches) == 0 {
-		// Receipt SUCCESS without a valid WizPaySwapExecuted is not domain verified.
-		base.Status = DomainUnverified
-		base.ReasonCode = "SWAP_EXECUTED_NOT_FOUND"
-		return base, nil
-	}
-	if len(matches) > 1 {
-		return definitive(base, "SWAP_EXECUTED_AMBIGUOUS"), nil
-	}
-	event := matches[0]
-
-	amountIn, err := financial.InputAmount.BaseInt()
-	if err != nil {
-		return DomainResult{}, fmt.Errorf("input amount: %w", err)
-	}
-	minOut, err := financial.MinimumOutput.BaseInt()
-	if err != nil {
-		return DomainResult{}, fmt.Errorf("minimum output: %w", err)
-	}
-
-	// User is the wallet that initiated executeSwap (ownership wallet).
-	if !contracts.AddressesEqual(event.User, ownershipWallet(intent)) {
-		return definitive(base, "SWAP_EXECUTED_USER_MISMATCH"), nil
-	}
-	if !contracts.AddressesEqual(event.Router, financial.Router) {
-		return definitive(base, "SWAP_EXECUTED_ROUTER_MISMATCH"), nil
-	}
-	if !contracts.AddressesEqual(event.TokenIn, financial.InputToken.Address) {
-		return definitive(base, "SWAP_EXECUTED_TOKEN_IN_MISMATCH"), nil
-	}
-	if !contracts.AddressesEqual(event.TokenOut, financial.OutputToken.Address) {
-		return definitive(base, "SWAP_EXECUTED_TOKEN_OUT_MISMATCH"), nil
-	}
-	if event.AmountIn == nil || event.AmountIn.Cmp(amountIn) != 0 {
-		return definitive(base, "SWAP_EXECUTED_AMOUNT_IN_MISMATCH"), nil
-	}
-	if event.AmountOut == nil || event.AmountOut.Sign() < 0 {
-		return definitive(base, "SWAP_EXECUTED_AMOUNT_OUT_INVALID"), nil
-	}
-	// Critical: compare against MinimumOutput only. ExpectedOutput is quote info.
-	if event.AmountOut.Cmp(minOut) < 0 {
-		return definitive(base, "SWAP_EXECUTED_AMOUNT_OUT_BELOW_MINIMUM"), nil
-	}
-	if !contracts.AddressesEqual(event.Recipient, financial.Recipient) {
-		return definitive(base, "SWAP_EXECUTED_RECIPIENT_MISMATCH"), nil
-	}
-	if event.FeeAmount == nil || event.FeeAmount.Sign() < 0 {
-		return definitive(base, "SWAP_EXECUTED_FEE_INVALID"), nil
-	}
-	if event.NetAmountIn == nil || event.NetAmountIn.Sign() < 0 {
-		return definitive(base, "SWAP_EXECUTED_NET_AMOUNT_IN_INVALID"), nil
-	}
-	// Fee consistency with contract semantics: feeAmount + netAmountIn == amountIn.
-	// This validates observed emission only; it does not introduce an MCP fee.
-	sum := new(big.Int).Add(event.FeeAmount, event.NetAmountIn)
-	if sum.Cmp(event.AmountIn) != 0 {
-		return definitive(base, "SWAP_EXECUTED_FEE_SEMANTICS_MISMATCH"), nil
-	}
-
-	base.Status = DomainVerified
-	base.ReasonCode = ""
-	base.Provable = []string{
-		"emitting_address", "event_signature", "user", "router",
-		"token_in", "token_out", "amount_in", "amount_out_gte_minimum",
-		"recipient", "fee_amount_non_negative", "net_amount_in",
-	}
-	return base, nil
+	return result, nil
 }
 
 func (v Verifier) validatePlan(intent intents.Intent, plan Plan) error {
-	if plan.IntentID() != intent.IntentID() {
-		return fmt.Errorf("plan intent id mismatch")
+	if plan.IntentID() != intent.IntentID() || plan.IntentDigest() != intent.Digest() || plan.Capability() != intents.TypeSwap {
+		return fmt.Errorf("plan does not bind the frozen swap intent")
 	}
-	if plan.IntentDigest() != intent.Digest() {
-		return fmt.Errorf("plan intent digest mismatch")
+	if plan.ContractID() != contracts.ContractWizPaySwapExecutor || plan.RegistryVersion() != contracts.RegistryVersion || plan.ChainID() != contracts.ChainIDArcMainnet {
+		return fmt.Errorf("plan does not bind the canonical swap deployment")
 	}
-	if plan.Capability() != intents.TypeSwap {
-		return fmt.Errorf("plan capability is not SWAP")
-	}
-	if plan.ContractID() != contracts.ContractWizPaySwapExecutor {
-		return fmt.Errorf("plan contract is not WIZPAY_SWAP_EXECUTOR")
-	}
-	if plan.ChainID() != intent.Ownership().ChainID {
-		return fmt.Errorf("plan chain mismatch")
-	}
-	if !contracts.AddressesEqual(plan.WalletAddress(), intent.Ownership().WalletAddress) {
-		return fmt.Errorf("plan wallet mismatch")
+	if plan.ChainID() != intent.Ownership().ChainID || !contracts.AddressesEqual(plan.WalletAddress(), intent.Ownership().WalletAddress) {
+		return fmt.Errorf("plan sender or chain does not match intent ownership")
 	}
 	call := plan.EncodedCall()
-	if call.To() == "" || !contracts.AddressesEqual(call.To(), contracts.AddressWizPaySwapExecutor) {
-		return fmt.Errorf("plan target is not canonical swap executor")
+	if !contracts.AddressesEqual(call.To(), contracts.AddressWizPaySwapExecutor) || call.ContractID() != contracts.ContractWizPaySwapExecutor {
+		return fmt.Errorf("plan target is not the canonical swap contract")
 	}
 	deployment, err := contractswap.ExpectedDeployment(v.registry)
 	if err != nil {
 		return err
 	}
-	if !contracts.AddressesEqual(deployment.Address, contracts.AddressWizPaySwapExecutor) {
-		return fmt.Errorf("registry swap address is not canonical")
+	if !contracts.AddressesEqual(deployment.Address, call.To()) {
+		return fmt.Errorf("plan target does not match registry")
 	}
 	return nil
-}
-
-func (v Verifier) collectSwapExecuted(receipt providers.Receipt) (matches []contractswap.WizPaySwapExecuted, ambiguous bool, err error) {
-	var decoded []contractswap.WizPaySwapExecuted
-	var malformed int
-	topic0, terr := contractswap.EventTopic0()
-	if terr != nil {
-		return nil, false, terr
-	}
-	for _, log := range receipt.Logs {
-		if !contracts.ValidAddress(log.Address) || !contracts.AddressesEqual(log.Address, contracts.AddressWizPaySwapExecutor) {
-			continue
-		}
-		if len(log.Topics) == 0 {
-			continue
-		}
-		if !topicsEqual(log.Topics[0], topic0) {
-			continue
-		}
-		event, derr := contractswap.DecodeWizPaySwapExecuted(v.registry, log.ContractLog(receipt.ChainID))
-		if derr != nil {
-			malformed++
-			continue
-		}
-		decoded = append(decoded, event)
-	}
-	if malformed > 0 && len(decoded) == 0 {
-		return nil, false, fmt.Errorf("malformed WizPaySwapExecuted log")
-	}
-	if malformed > 0 && len(decoded) > 0 {
-		return decoded, true, nil
-	}
-	return decoded, false, nil
-}
-
-func ownershipWallet(intent intents.Intent) string {
-	return intent.Ownership().WalletAddress
-}
-
-func topicsEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func definitive(result DomainResult, code string) DomainResult {
-	result.Status = DomainFailed
-	result.ReasonCode = code
-	result.definitiveFailure = true
-	return result
 }

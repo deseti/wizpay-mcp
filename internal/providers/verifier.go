@@ -75,7 +75,7 @@ type ReferenceResolver interface {
 // VerifierConfig bounds when on-chain evidence is accepted as final.
 type VerifierConfig struct {
 	// MinConfirmations is the confirmation depth required before a successful
-	// receipt is treated as verified. It must be at least 1. On Arc Testnet the
+	// receipt is treated as verified. It must be at least 1. On Arc Mainnet the
 	// recommended and default value is 1 (deterministic BFT finality). This is
 	// generic chain-level verification only; domain event verification remains
 	// a separate Phase 12 gate for Payroll/Swap.

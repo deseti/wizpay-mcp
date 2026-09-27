@@ -6,35 +6,62 @@ package contracts
 
 var (
 	canonicalPayrollExecution = []string{
-		"batchRouteAndPay(address,address[],address[],uint256[],uint256[],string)",
-		"batchRouteAndPay(address,address,address[],uint256[],uint256[],string)",
-		"routeAndPay(address,address,uint256,uint256,address)",
+		"executeCrossTokenPayroll(address,address,address[],uint256[],uint256,uint256,uint256,uint256,string)",
+		"executeSameTokenPayroll(address,address[],uint256[],string)",
 	}
 	canonicalPayrollReads = []string{
-		"getBatchEstimatedOutputs(address,address[],uint256[])",
-		"getEstimatedOutput(address,address,uint256)",
-		"paused()",
-		"whitelistEnabled()",
-		"whitelistedTokens(address)",
+		"ARC_MAINNET_CHAIN_ID()",
+		"ARC_MAINNET_POOL_FEE()",
+		"ARC_MAINNET_POOL_TICK_SPACING()",
+		"ARC_NATIVE_USDC_SCALE()",
+		"EURC()",
+		"MAX_BATCH_SIZE()",
+		"MAX_DEADLINE_WINDOW()",
+		"MAX_FEE_BPS()",
+		"MAX_REFERENCE_ID_LENGTH()",
+		"USDC()",
 		"feeBps()",
+		"feeRecipient()",
+		"owner()",
+		"paused()",
+		"permit2()",
+		"poolFee()",
+		"poolManager()",
+		"poolTickSpacing()",
+		"universalRouter()",
+		"usedReferenceHashes(bytes32)",
 	}
 	canonicalPayrollEvents = []string{
-		"BatchPaymentRouted(address,address,address,uint256,uint256,uint256,uint256,string)",
-		"PaymentRouted(address,address,address,address,uint256,uint256,uint256)",
+		"PayrollBatchExecuted(address,address,address,uint256,uint256,uint256,uint256,string)",
+		"PayrollPayment(bytes32,address,address,address,uint256,uint256)",
+		"PayrollReferenceConsumed(bytes32,address,address,address,bytes32,uint256,uint256,uint256,uint256,string)",
+		"PayrollSurplusRefunded(bytes32,address,address,uint256)",
+		"PayrollSwapExecuted(bytes32,address,address,address,uint256,uint256,uint256,uint256,uint256)",
 	}
 
 	canonicalSwapExecution = []string{
-		"executeSwap(address,address,address,uint256,uint256,address,uint256)",
+		"executeSwap(address,address,uint256,uint256,uint256,uint256)",
 	}
 	canonicalSwapReads = []string{
-		"allowedRouters(address)",
-		"allowedTokens(address)",
+		"ARC_MAINNET_CHAIN_ID()",
+		"ARC_MAINNET_POOL_FEE()",
+		"ARC_MAINNET_POOL_TICK_SPACING()",
+		"ARC_NATIVE_USDC_SCALE()",
+		"EURC()",
+		"MAX_DEADLINE_WINDOW()",
+		"MAX_FEE_BPS()",
+		"USDC()",
 		"feeBps()",
 		"feeRecipient()",
+		"owner()",
 		"paused()",
+		"permit2()",
+		"poolFee()",
+		"poolTickSpacing()",
+		"universalRouter()",
 	}
 	canonicalSwapEvents = []string{
-		"WizPaySwapExecuted(address,address,address,address,uint256,uint256,uint256,uint256,address)",
+		"WizPayMainnetSwapExecuted(address,address,address,uint256,uint256,uint256,uint256,uint256)",
 	}
 )
 

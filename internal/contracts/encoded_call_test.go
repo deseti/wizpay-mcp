@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/contracts/payroll"
@@ -76,7 +75,7 @@ func TestNewEncodedCallRejectsAdminFunction(t *testing.T) {
 
 func TestNewEncodedCallRejectsMismatchedSelector(t *testing.T) {
 	deployment := contracts.DefaultDeployments()[0]
-	sig := "routeAndPay(address,address,uint256,uint256,address)"
+	sig := payroll.SigExecuteSameTokenPayroll
 	bad := [4]byte{0xde, 0xad, 0xbe, 0xef}
 	callData := append(bad[:], make([]byte, 32)...)
 	_, err := contracts.NewEncodedCall(deployment, sig, bad, callData)
@@ -86,12 +85,9 @@ func TestNewEncodedCallRejectsMismatchedSelector(t *testing.T) {
 }
 
 func TestNewEncodedCallUsesDeploymentAddressOnly(t *testing.T) {
-	call, err := payroll.EncodeRouteAndPay(nil, payroll.SinglePayment{
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000000",
-		AmountIn:     big.NewInt(1),
-		MinAmountOut: big.NewInt(0),
-		Recipient:    "0x3333333333333333333333333333333333333333",
+	call, err := payroll.EncodeSameTokenPayroll(nil, payroll.SameTokenPayrollInput{
+		Token: contracts.AddressUSDCMainnet, Recipients: []string{"0x3333333333333333333333333333333333333333"},
+		Amounts: []*big.Int{big.NewInt(1)}, ReferenceID: "payroll-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -112,12 +108,9 @@ func TestNewEncodedCallUsesDeploymentAddressOnly(t *testing.T) {
 }
 
 func TestPayrollAndSwapEncodersConstructSealedEncodedCall(t *testing.T) {
-	payrollCall, err := payroll.EncodeRouteAndPay(contracts.DefaultRegistry(), payroll.SinglePayment{
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000000",
-		AmountIn:     big.NewInt(10),
-		MinAmountOut: big.NewInt(1),
-		Recipient:    "0x3333333333333333333333333333333333333333",
+	payrollCall, err := payroll.EncodeSameTokenPayroll(contracts.DefaultRegistry(), payroll.SameTokenPayrollInput{
+		Token: contracts.AddressUSDCMainnet, Recipients: []string{"0x3333333333333333333333333333333333333333"},
+		Amounts: []*big.Int{big.NewInt(10)}, ReferenceID: "payroll-2",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -127,13 +120,12 @@ func TestPayrollAndSwapEncodersConstructSealedEncodedCall(t *testing.T) {
 	}
 
 	swapCall, err := swap.EncodeExecuteSwap(contracts.DefaultRegistry(), swap.ExecuteSwapInput{
-		Router:       "0x1111111111111111111111111111111111111111",
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000001",
-		AmountIn:     big.NewInt(10),
-		MinAmountOut: big.NewInt(1),
-		Recipient:    "0x2222222222222222222222222222222222222222",
-		Deadline:     time.Now().Add(time.Hour).Unix(),
+		TokenIn:        contracts.AddressEURCMainnet,
+		TokenOut:       contracts.AddressUSDCMainnet,
+		AmountIn:       big.NewInt(10),
+		MinAmountOut:   big.NewInt(1),
+		MinHopPriceX36: big.NewInt(1),
+		Deadline:       big.NewInt(1),
 	})
 	if err != nil {
 		t.Fatal(err)

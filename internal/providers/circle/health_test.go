@@ -24,44 +24,21 @@ func TestCircleHealthNotConfigured(t *testing.T) {
 	}
 }
 
-func TestCircleHealthProbeStatuses(t *testing.T) {
-	cases := map[int]providers.HealthStatus{
-		http.StatusOK:                  providers.HealthHealthy,
-		http.StatusNotFound:            providers.HealthHealthy,
-		http.StatusUnauthorized:        providers.HealthDegraded,
-		http.StatusInternalServerError: providers.HealthUnavailable,
+func TestCircleMainnetHealthRemainsOfflineInTrackA(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	defer server.Close()
+	config := Config{
+		Enabled: true, BaseURL: "https://api.circle.com", APIKey: APIKey{value: "test-key"},
+		Blockchain: Blockchain("ARC"), ChainID: "5042", Network: "MAINNET", Timeout: 2 * time.Second,
 	}
-	for code, want := range cases {
-		t.Run(http.StatusText(code), func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Header.Get("Authorization") == "" {
-					t.Fatal("API key header missing")
-				}
-				if r.Header.Get("X-User-Token") != "" {
-					t.Fatal("user token must not be sent on health probe")
-				}
-				w.WriteHeader(code)
-			}))
-			defer server.Close()
-
-			httpClient := &http.Client{Transport: &rewriteTransport{target: server.URL}, Timeout: 2 * time.Second}
-			config := Config{
-				Enabled: true, BaseURL: "https://api.circle.com", APIKey: APIKey{value: "test-key"},
-				Blockchain: BlockchainArcTestnet, ChainID: "5042002", Network: "TESTNET",
-				Timeout: 2 * time.Second,
-			}
-			checker, err := NewHealthChecker(config, httpClient, nil, time.Now)
-			if err != nil {
-				t.Fatal(err)
-			}
-			health := checker.Check(context.Background())
-			if health.Status != want {
-				t.Fatalf("status = %s want %s detail=%q", health.Status, want, health.Detail)
-			}
-			if health.Detail == "" {
-				t.Fatal("detail required")
-			}
-		})
+	checker, err := NewHealthChecker(config, &http.Client{Transport: &rewriteTransport{target: server.URL}}, nil, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	health := checker.Check(context.Background())
+	if health.Status != providers.HealthNotConfigured || called {
+		t.Fatalf("health=%#v network_called=%v", health, called)
 	}
 }
 

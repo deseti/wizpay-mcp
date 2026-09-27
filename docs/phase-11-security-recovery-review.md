@@ -8,8 +8,8 @@
 
 | Component | In scope |
 |---|---|
-| Circle User-Controlled Wallet boundary | Yes — initiate user challenge + reconcile only |
-| Arc read-only verification boundary | Yes — receipt/head, chain ID `5042002` |
+| Circle User-Controlled Wallet boundary | Historical adapter safeguards retained; Arc Mainnet construction is disabled in Track A pending owner review |
+| Arc read-only verification boundary | Track A supersedes this review's Testnet configuration with Mainnet receipt/head/code reads, chain ID `5042` |
 | Payroll contract primitives | Yes — encode/decode + registry allowlists |
 | Swap contract primitives | Yes — encode/decode + registry allowlists |
 | Provider health checks | Yes — non-financial probes |
@@ -38,7 +38,7 @@
 | No unilateral WizPay signing | Challenges require user authorization; backend never completes challenges |
 | User authorization required | Missing user token → `USER_AUTHORIZATION_REQUIRED` |
 | Provider submission ≠ verified success | Classification maps CONFIRMED/COMPLETE → submitted-pending; only Arc receipt at depth may verify |
-| Arc finality policy | Deterministic BFT; default `MinConfirmations=1`; canonical RPC `https://rpc.testnet.arc.io`; zero confirmations rejected |
+| Arc finality policy | Default `MinConfirmations=1`; Track A canonical RPC `https://rpc.mainnet.arc.io`; zero confirmations rejected |
 | Observation inconsistency never triggers blind resubmission | Contradictory receipt observations → verification PENDING; submission-start marker forces `GetStatus` reconcile; not an expected Arc consensus reorg path |
 | No generic arbitrary contract execution | Sealed `EncodedCall`; typed Payroll/Swap encoders only |
 | Admin ABI surface excluded | Canonical allowlists; admin functions not registered |
@@ -60,7 +60,7 @@
 | Item | Status |
 |---|---|
 | Offline unit/fake tests for health, breaker, observation integrity | Implemented and run in default CI |
-| Optional Arc Testnet read-only harness (`WIZPAY_ARC_INTEGRATION=1`) | Implemented; **not executed** in this closure unless operators opt in |
+| Optional Arc Mainnet read-only harness (`WIZPAY_ARC_INTEGRATION=1`) | Track A checks chain identity, head, and canonical deployment bytecode; no transaction methods |
 | Optional Circle non-financial harness (`WIZPAY_CIRCLE_INTEGRATION=1` + API key) | Implemented; **not executed** in this closure (no credentials used) |
 | Live production or money-moving tests | **Not performed** |
 
@@ -71,8 +71,8 @@
 go test -count=1 ./...
 go test -race -count=1 ./...
 
-# Optional Arc Testnet read-only
-WIZPAY_ARC_INTEGRATION=1 go test -count=1 ./internal/providers/arc -run TestArcTestnetIntegration
+# Optional Arc Mainnet read-only
+WIZPAY_ARC_INTEGRATION=1 go test -count=1 ./internal/providers/arc -run TestArcMainnetIntegration
 
 # Optional Circle non-financial (secrets via env only; never commit)
 WIZPAY_CIRCLE_INTEGRATION=1 WIZPAY_CIRCLE_API_KEY=... go test -count=1 ./internal/providers/circle -run TestCircleSandboxIntegration
@@ -81,7 +81,7 @@ WIZPAY_CIRCLE_INTEGRATION=1 WIZPAY_CIRCLE_API_KEY=... go test -count=1 ./interna
 ## Residual notes (not Phase 12)
 
 - Domain planners remain nil in production worker assembly; the plane stays inert for money movement until Phase 12 supplies planners.
-- Formal owner sign-off on UNVERIFIED Circle Arc Testnet product decisions in `docs/official-sources.md` remains an operator governance item, not a code gap in this corrective.
+- Formal owner sign-off on UNVERIFIED Circle Arc Mainnet product decisions in `docs/official-sources.md` remains an operator governance item, not a code gap in this corrective.
 
 ## Closure
 

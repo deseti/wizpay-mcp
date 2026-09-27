@@ -21,8 +21,10 @@ import (
 // Blockchain is a documented Circle blockchain enum value.
 type Blockchain string
 
-// BlockchainArcTestnet is the documented Circle enum value for Arc Testnet.
-const BlockchainArcTestnet Blockchain = "ARC-TESTNET"
+const (
+	arcMainnetChainID = "5042"
+	arcMainnetNetwork = "MAINNET"
+)
 
 const (
 	defaultBaseURL = "https://api.circle.com"
@@ -64,10 +66,13 @@ func LoadConfig(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, fmt.Errorf("environment lookup is required")
 	}
 	config := Config{
-		Enabled:    boolValue(lookup, "WIZPAY_CIRCLE_ENABLED", false),
-		BaseURL:    stringValue(lookup, "WIZPAY_CIRCLE_BASE_URL", defaultBaseURL),
-		APIKey:     APIKey{value: strings.TrimSpace(stringValue(lookup, "WIZPAY_CIRCLE_API_KEY", ""))},
-		Blockchain: Blockchain(stringValue(lookup, "WIZPAY_CIRCLE_BLOCKCHAIN", string(BlockchainArcTestnet))),
+		Enabled: boolValue(lookup, "WIZPAY_CIRCLE_ENABLED", false),
+		BaseURL: stringValue(lookup, "WIZPAY_CIRCLE_BASE_URL", defaultBaseURL),
+		APIKey:  APIKey{value: strings.TrimSpace(stringValue(lookup, "WIZPAY_CIRCLE_API_KEY", ""))},
+		// No Arc Mainnet execution enum is selected in Track A. A configured
+		// value is retained only as unresolved metadata and never authorizes an
+		// adapter.
+		Blockchain: Blockchain(stringValue(lookup, "WIZPAY_CIRCLE_BLOCKCHAIN", "")),
 		ChainID:    stringValue(lookup, "WIZPAY_ARC_CHAIN_ID", ""),
 		Network:    stringValue(lookup, "WIZPAY_ARC_NETWORK", ""),
 		Timeout:    durationValue(lookup, "WIZPAY_CIRCLE_TIMEOUT", defaultTimeout),
@@ -95,21 +100,19 @@ func (c Config) Validate() error {
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
 		return fmt.Errorf("Circle base URL must not contain a query or fragment")
 	}
-	if c.Blockchain != BlockchainArcTestnet {
-		return fmt.Errorf("Circle blockchain %q is not supported by this phase", c.Blockchain)
-	}
-	if c.ChainID == "" || c.Network == "" {
-		return fmt.Errorf("Circle provider requires a chain ID and network")
+	if c.ChainID != arcMainnetChainID || c.Network != arcMainnetNetwork {
+		return fmt.Errorf("Circle provider requires Arc Mainnet chain ID %s and network %s", arcMainnetChainID, arcMainnetNetwork)
 	}
 	if c.Timeout <= 0 || c.Timeout > maxTimeout {
 		return fmt.Errorf("Circle timeout must be positive and at most %s", maxTimeout)
 	}
-	return nil
+	return fmt.Errorf("Circle Arc Mainnet execution is UNVERIFIED / REQUIRES OWNER DECISION and unavailable in Track A")
 }
 
-// Configured reports whether the provider can actually execute. It is a
-// configuration check only and never a live network health check.
-func (c Config) Configured() bool { return c.Validate() == nil && c.Enabled }
+// Configured reports whether the provider can actually execute. Track A has no
+// reviewed Arc Mainnet user/delegated authorization provider, so this always
+// fails closed even when environment fields and an API key are present.
+func (c Config) Configured() bool { return false }
 
 func stringValue(lookup func(string) (string, bool), key, fallback string) string {
 	if value, found := lookup(key); found {

@@ -1,5 +1,5 @@
 // Package contracts provides typed, allowlisted contract deployment metadata
-// and encoding primitives for the verified Arc Testnet Payroll and Swap
+// and encoding primitives for the reviewed Arc Mainnet Payroll and Swap
 // contracts. It never submits transactions, never signs, and never exposes a
 // generic arbitrary-call executor.
 //
@@ -38,21 +38,21 @@ func (id ContractID) Valid() bool {
 // RegistryVersion is the MCP-side deployment descriptor version.
 //
 // RegistryVersion != Solidity contract semantic version. The verified Arc
-// Testnet deployments do not expose an on-chain semantic version, so this
+// Mainnet deployments do not expose an on-chain semantic version, so this
 // value versions only the MCP artifact metadata (address, allowlists, chain).
 const RegistryVersion uint = 1
 
-// Arc Testnet constants shared by registered deployments.
+// Arc Mainnet constants shared by registered deployments.
 const (
-	ChainIDArcTestnet = "5042002"
-	NetworkArcTestnet = "TESTNET"
-	NetworkNameArc    = "Arc Testnet"
+	ChainIDArcMainnet = "5042"
+	NetworkArcMainnet = "MAINNET"
+	NetworkNameArc    = "Arc Mainnet"
 )
 
-// Known Arc Testnet deployment addresses (authoritative for this phase).
+// Known reviewed Arc Mainnet deployment addresses.
 const (
-	AddressWizPayPayroll      = "0x87ACE45582f45cC81AC1E627E875AE84cbd75946"
-	AddressWizPaySwapExecutor = "0x17685466759f9Cde06f0DCbB5464164ABe541eFA"
+	AddressWizPayPayroll      = "0x77AC7Cb6507D404b5530fC03e3D39BAaEdE10C34"
+	AddressWizPaySwapExecutor = "0x7A051F17B237750EF9D4E63fb75381B9F8755774"
 )
 
 // Status is the enablement status of a deployment descriptor.
@@ -107,11 +107,11 @@ func (d Deployment) Validate() error {
 	if err := validateSafeText("contract name", d.Name); err != nil {
 		return err
 	}
-	if d.ChainID != ChainIDArcTestnet {
-		return fmt.Errorf("chain ID %q is not the supported Arc Testnet chain", d.ChainID)
+	if d.ChainID != ChainIDArcMainnet {
+		return fmt.Errorf("chain ID %q is not the supported Arc Mainnet chain", d.ChainID)
 	}
-	if d.Network != NetworkArcTestnet {
-		return fmt.Errorf("network %q is not the supported Arc Testnet network label", d.Network)
+	if d.Network != NetworkArcMainnet {
+		return fmt.Errorf("network %q is not the supported Arc Mainnet network label", d.Network)
 	}
 	if !ValidAddress(d.Address) {
 		return fmt.Errorf("deployment address is malformed")
@@ -148,17 +148,17 @@ func (d Deployment) validateAddressMatchesID() error {
 	switch d.ID {
 	case ContractWizPayPayroll:
 		if normalized != NormalizeAddress(AddressWizPayPayroll) {
-			return fmt.Errorf("WIZPAY_PAYROLL address does not match the verified Arc Testnet deployment")
+			return fmt.Errorf("WIZPAY_PAYROLL address does not match the reviewed Arc Mainnet deployment")
 		}
-		if d.Name != "WizPay" {
-			return fmt.Errorf("WIZPAY_PAYROLL name must be WizPay")
+		if d.Name != "WizPayPayrollMainnet" {
+			return fmt.Errorf("WIZPAY_PAYROLL name must be WizPayPayrollMainnet")
 		}
 	case ContractWizPaySwapExecutor:
 		if normalized != NormalizeAddress(AddressWizPaySwapExecutor) {
-			return fmt.Errorf("WIZPAY_SWAP_EXECUTOR address does not match the verified Arc Testnet deployment")
+			return fmt.Errorf("WIZPAY_SWAP_EXECUTOR address does not match the reviewed Arc Mainnet deployment")
 		}
-		if d.Name != "WizPaySwapExecutor" {
-			return fmt.Errorf("WIZPAY_SWAP_EXECUTOR name must be WizPaySwapExecutor")
+		if d.Name != "WizPaySwapExecutorMainnet" {
+			return fmt.Errorf("WIZPAY_SWAP_EXECUTOR name must be WizPaySwapExecutorMainnet")
 		}
 	}
 	return nil

@@ -128,7 +128,7 @@ func TestTransactionReceiptIncludesLogs(t *testing.T) {
 		TransactionHash: logTestHash,
 		Logs:            []rawReceiptLog{validLog()},
 	}}
-	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, logTestHash)
+	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, logTestHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestTransactionReceiptRejectsMalformedLogs(t *testing.T) {
 		TransactionHash: logTestHash,
 		Logs:            []rawReceiptLog{bad},
 	}}
-	if _, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, logTestHash); err == nil {
+	if _, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, logTestHash); err == nil {
 		t.Fatal("malformed logs must fail closed")
 	}
 }
@@ -162,7 +162,7 @@ func TestTransactionReceiptStatusFailureRetainsNoSuccess(t *testing.T) {
 		TransactionHash: logTestHash,
 		Logs:            []rawReceiptLog{validLog()},
 	}}
-	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, logTestHash)
+	receipt, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, logTestHash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestTransactionReceiptHashMismatchStillRefused(t *testing.T) {
 		Status: "0x1", BlockNumber: "0x10", TransactionHash: other,
 		Logs: []rawReceiptLog{validLog()},
 	}}
-	if _, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDTestnet, logTestHash); err == nil {
+	if _, err := newVerifier(t, source).TransactionReceipt(context.Background(), ChainIDMainnet, logTestHash); err == nil {
 		t.Fatal("receipt for a different transaction must be refused")
 	}
 }

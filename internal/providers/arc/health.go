@@ -38,7 +38,7 @@ func NewHealthChecker(config Config, httpClient *http.Client, breaker *circuit.B
 
 func (h *HealthChecker) Name() string { return "arc" }
 
-// Check validates RPC reachability and chain ID 5042002, and reads block height.
+// Check validates RPC reachability and Arc Mainnet chain identity, and reads block height.
 func (h *HealthChecker) Check(ctx context.Context) providers.ComponentHealth {
 	observed := h.now().UTC()
 	result := providers.ComponentHealth{Name: h.Name(), CheckedAt: observed}
@@ -65,7 +65,7 @@ func (h *HealthChecker) Check(ctx context.Context) providers.ComponentHealth {
 		}
 		return result
 	}
-	if chainID != ChainIDTestnet {
+	if chainID != ChainIDMainnet {
 		result.Status = providers.HealthUnavailable
 		result.Detail = "Arc chain ID mismatch"
 		return result

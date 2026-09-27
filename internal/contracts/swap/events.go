@@ -4,140 +4,72 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 )
 
-// WizPaySwapExecuted is the typed verification event for swap execution.
-//
-// Indexed/non-indexed layout is derived from contracts/abi/WizPaySwapExecutor.json:
-//   - indexed: user, router, tokenIn
-//   - non-indexed: tokenOut, amountIn, feeAmount, netAmountIn, amountOut, recipient
-//
-// Successful decoding is observation evidence only. It does not mark financial
-// success; Phase 12 defines domain verification semantics.
-type WizPaySwapExecuted struct {
-	User        string
-	Router      string
-	TokenIn     string
-	TokenOut    string
-	AmountIn    *big.Int
-	FeeAmount   *big.Int
-	NetAmountIn *big.Int
-	AmountOut   *big.Int
-	Recipient   string
+type WizPayMainnetSwapExecuted struct {
+	Caller       string
+	TokenIn      string
+	TokenOut     string
+	AmountIn     *big.Int
+	FeeAmount    *big.Int
+	NetAmountIn  *big.Int
+	AmountOut    *big.Int
+	MinAmountOut *big.Int
 }
 
-// DecodeWizPaySwapExecuted decodes a WizPaySwapExecuted log against the
-// registered Swap deployment. Malformed logs and wrong contract addresses
-// fail closed.
-func DecodeWizPaySwapExecuted(registry *contracts.Registry, log contracts.Log) (WizPaySwapExecuted, error) {
+func DecodeWizPayMainnetSwapExecuted(registry *contracts.Registry, log contracts.Log) (WizPayMainnetSwapExecuted, error) {
 	deployment, err := ExpectedDeployment(registry)
 	if err != nil {
-		return WizPaySwapExecuted{}, err
+		return WizPayMainnetSwapExecuted{}, err
 	}
-	if err := validateLogContext(deployment, log); err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeValidationError, "WizPaySwapExecuted log is invalid.", false, true, true, err)
+	if !deployment.AllowsEvent(SigWizPayMainnetSwapExecuted) || (log.ChainID != "" && log.ChainID != deployment.ChainID) || !contracts.AddressesEqual(log.Address, deployment.Address) || len(log.Topics) != 4 {
+		return WizPayMainnetSwapExecuted{}, apperrors.New(apperrors.CodeValidationError, "WizPayMainnetSwapExecuted log context is invalid.", false, true, true)
 	}
-
-	event, err := EventBySignature(SigWizPaySwapExecuted)
+	event, err := EventBySignature(SigWizPayMainnetSwapExecuted)
 	if err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeInternalError, "Swap event resolution failed.", false, false, true, err)
+		return WizPayMainnetSwapExecuted{}, err
 	}
-	if !topicsEqual(log.Topics[0], event.ID.Bytes()) {
-		return WizPaySwapExecuted{}, apperrors.New(apperrors.CodeValidationError, "WizPaySwapExecuted topic mismatch.", false, true, true)
+	if !bytesEqual(log.Topics[0], event.ID.Bytes()) {
+		return WizPayMainnetSwapExecuted{}, fmt.Errorf("swap event topic mismatch")
 	}
-
-	user, ok := contracts.AddressFromTopic(log.Topics[1])
+	caller, ok := contracts.AddressFromTopic(log.Topics[1])
 	if !ok {
-		return WizPaySwapExecuted{}, apperrors.New(apperrors.CodeValidationError, "WizPaySwapExecuted user topic is malformed.", false, true, true)
+		return WizPayMainnetSwapExecuted{}, fmt.Errorf("caller topic is malformed")
 	}
-	router, ok := contracts.AddressFromTopic(log.Topics[2])
+	tokenIn, ok := contracts.AddressFromTopic(log.Topics[2])
 	if !ok {
-		return WizPaySwapExecuted{}, apperrors.New(apperrors.CodeValidationError, "WizPaySwapExecuted router topic is malformed.", false, true, true)
+		return WizPayMainnetSwapExecuted{}, fmt.Errorf("tokenIn topic is malformed")
 	}
-	tokenIn, ok := contracts.AddressFromTopic(log.Topics[3])
+	tokenOut, ok := contracts.AddressFromTopic(log.Topics[3])
 	if !ok {
-		return WizPaySwapExecuted{}, apperrors.New(apperrors.CodeValidationError, "WizPaySwapExecuted tokenIn topic is malformed.", false, true, true)
+		return WizPayMainnetSwapExecuted{}, fmt.Errorf("tokenOut topic is malformed")
 	}
-
 	values, err := event.Inputs.NonIndexed().Unpack(log.Data)
-	if err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeValidationError, "WizPaySwapExecuted data decoding failed.", false, true, true, err)
+	if err != nil || len(values) != 5 {
+		return WizPayMainnetSwapExecuted{}, fmt.Errorf("swap event data is malformed")
 	}
-	if len(values) != 6 {
-		return WizPaySwapExecuted{}, apperrors.New(apperrors.CodeValidationError, "WizPaySwapExecuted data field count mismatch.", false, true, true)
+	amounts := make([]*big.Int, 5)
+	for i, value := range values {
+		amount, ok := value.(*big.Int)
+		if !ok || amount == nil {
+			return WizPayMainnetSwapExecuted{}, fmt.Errorf("swap event amount %d is malformed", i)
+		}
+		amounts[i] = new(big.Int).Set(amount)
 	}
-
-	tokenOut, err := asAddress(values[0])
-	if err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeValidationError, "WizPaySwapExecuted tokenOut is invalid.", false, true, true, err)
-	}
-	amountIn, err := asBigInt(values[1])
-	if err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeValidationError, "WizPaySwapExecuted amountIn is invalid.", false, true, true, err)
-	}
-	feeAmount, err := asBigInt(values[2])
-	if err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeValidationError, "WizPaySwapExecuted feeAmount is invalid.", false, true, true, err)
-	}
-	netAmountIn, err := asBigInt(values[3])
-	if err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeValidationError, "WizPaySwapExecuted netAmountIn is invalid.", false, true, true, err)
-	}
-	amountOut, err := asBigInt(values[4])
-	if err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeValidationError, "WizPaySwapExecuted amountOut is invalid.", false, true, true, err)
-	}
-	recipient, err := asAddress(values[5])
-	if err != nil {
-		return WizPaySwapExecuted{}, apperrors.Wrap(apperrors.CodeValidationError, "WizPaySwapExecuted recipient is invalid.", false, true, true, err)
-	}
-
-	return WizPaySwapExecuted{
-		User:        user,
-		Router:      router,
-		TokenIn:     tokenIn,
-		TokenOut:    tokenOut,
-		AmountIn:    amountIn,
-		FeeAmount:   feeAmount,
-		NetAmountIn: netAmountIn,
-		AmountOut:   amountOut,
-		Recipient:   recipient,
-	}, nil
+	return WizPayMainnetSwapExecuted{Caller: caller, TokenIn: tokenIn, TokenOut: tokenOut, AmountIn: amounts[0], FeeAmount: amounts[1], NetAmountIn: amounts[2], AmountOut: amounts[3], MinAmountOut: amounts[4]}, nil
 }
 
-// EventTopic0 returns the topic0 hash for the swap verification event.
 func EventTopic0() ([]byte, error) {
-	event, err := EventBySignature(SigWizPaySwapExecuted)
+	event, err := EventBySignature(SigWizPayMainnetSwapExecuted)
 	if err != nil {
 		return nil, err
 	}
 	return event.ID.Bytes(), nil
 }
 
-func validateLogContext(deployment contracts.Deployment, log contracts.Log) error {
-	if !deployment.AllowsEvent(SigWizPaySwapExecuted) {
-		return fmt.Errorf("event is not allowlisted for swap verification")
-	}
-	if log.ChainID != "" && log.ChainID != deployment.ChainID {
-		return fmt.Errorf("log chain ID does not match swap deployment")
-	}
-	if !contracts.ValidAddress(log.Address) || !contracts.AddressesEqual(log.Address, deployment.Address) {
-		return fmt.Errorf("log address does not match registered swap contract")
-	}
-	if len(log.Topics) < 4 {
-		return fmt.Errorf("log topic count is insufficient")
-	}
-	if len(log.Topics[0]) != 32 {
-		return fmt.Errorf("log topic0 is malformed")
-	}
-	return nil
-}
-
-func topicsEqual(a, b []byte) bool {
+func bytesEqual(a, b []byte) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -147,25 +79,4 @@ func topicsEqual(a, b []byte) bool {
 		}
 	}
 	return true
-}
-
-func asAddress(value any) (string, error) {
-	switch typed := value.(type) {
-	case common.Address:
-		return typed.Hex(), nil
-	default:
-		return "", fmt.Errorf("expected address, got %T", value)
-	}
-}
-
-func asBigInt(value any) (*big.Int, error) {
-	switch typed := value.(type) {
-	case *big.Int:
-		if typed == nil {
-			return nil, fmt.Errorf("nil uint256")
-		}
-		return new(big.Int).Set(typed), nil
-	default:
-		return nil, fmt.Errorf("expected *big.Int, got %T", value)
-	}
 }

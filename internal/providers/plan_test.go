@@ -47,7 +47,7 @@ func TestNewContractExecutionPlanPayrollAndSwap(t *testing.T) {
 			plan, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
 				WalletBindingID: "binding-test", WalletID: "wallet-test",
 				WalletAddress: "0x2222222222222222222222222222222222222222",
-				ChainID:       contracts.ChainIDArcTestnet, Network: contracts.NetworkArcTestnet,
+				ChainID:       contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
 				Call: tc.call, SubmitNotAfter: bound,
 			})
 			if err != nil {
@@ -80,7 +80,7 @@ func TestNewContractExecutionPlanRejectsMissingFreshness(t *testing.T) {
 	_, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
 		WalletBindingID: "binding-test", WalletID: "wallet-test",
 		WalletAddress: "0x2222222222222222222222222222222222222222",
-		ChainID:       contracts.ChainIDArcTestnet, Network: contracts.NetworkArcTestnet,
+		ChainID:       contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
 		Call: mustPayrollCall(t),
 	})
 	if err == nil {
@@ -92,7 +92,7 @@ func TestContractExecutionPlanRejectsTransferFields(t *testing.T) {
 	plan, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
 		WalletBindingID: "binding-test", WalletID: "wallet-test",
 		WalletAddress: "0x2222222222222222222222222222222222222222",
-		ChainID:       contracts.ChainIDArcTestnet, Network: contracts.NetworkArcTestnet,
+		ChainID:       contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
 		Call: mustPayrollCall(t), SubmitNotAfter: planTestNow.Add(time.Minute),
 	})
 	if err != nil {
@@ -144,10 +144,9 @@ func TestEarliestDeadline(t *testing.T) {
 
 func mustPayrollCall(t *testing.T) contracts.EncodedCall {
 	t.Helper()
-	call, err := payroll.EncodeRouteAndPay(nil, payroll.SinglePayment{
-		TokenIn: "0x1111111111111111111111111111111111111111", TokenOut: "0x5555555555555555555555555555555555555555",
-		AmountIn: big.NewInt(1), MinAmountOut: big.NewInt(1),
-		Recipient: "0x3333333333333333333333333333333333333333",
+	call, err := payroll.EncodeSameTokenPayroll(nil, payroll.SameTokenPayrollInput{
+		Token: contracts.AddressUSDCMainnet, Recipients: []string{"0x3333333333333333333333333333333333333333"},
+		Amounts: []*big.Int{big.NewInt(1)}, ReferenceID: "plan-test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -158,10 +157,9 @@ func mustPayrollCall(t *testing.T) contracts.EncodedCall {
 func mustSwapCall(t *testing.T) contracts.EncodedCall {
 	t.Helper()
 	call, err := swap.EncodeExecuteSwap(nil, swap.ExecuteSwapInput{
-		Router:  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		TokenIn: "0x1111111111111111111111111111111111111111", TokenOut: "0x5555555555555555555555555555555555555555",
+		TokenIn: contracts.AddressEURCMainnet, TokenOut: contracts.AddressUSDCMainnet,
 		AmountIn: big.NewInt(10), MinAmountOut: big.NewInt(9),
-		Recipient: "0x2222222222222222222222222222222222222222", Deadline: planTestNow.Add(15 * time.Minute).Unix(),
+		MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(planTestNow.Add(15 * time.Minute).Unix()),
 	})
 	if err != nil {
 		t.Fatal(err)

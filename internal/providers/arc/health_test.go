@@ -34,7 +34,7 @@ func TestArcHealthProbeHealthy(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch req.Method {
 		case "eth_chainId":
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x4cef52"}`)) // 5042002
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x13b2"}`)) // 5042
 		case "eth_blockNumber":
 			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x10"}`))
 		default:
@@ -44,8 +44,8 @@ func TestArcHealthProbeHealthy(t *testing.T) {
 	defer server.Close()
 
 	config := Config{
-		Enabled: true, ChainID: ChainIDTestnet, Network: NetworkTestnet,
-		RPCURL: server.URL, ExplorerURL: ExplorerTestnet, MinConfirmations: 1, Timeout: 2 * time.Second,
+		Enabled: true, ChainID: ChainIDMainnet, Network: NetworkMainnet,
+		RPCURL: server.URL, ExplorerURL: ExplorerMainnet, MinConfirmations: 1, Timeout: 2 * time.Second,
 	}
 	// httptest uses http URL; config validation requires https. Bypass by
 	// constructing client without Validate path for test: use NewClient only
@@ -65,7 +65,7 @@ func TestArcHealthProbeHealthy(t *testing.T) {
 	//
 	// Use a transport that rewrites to the test server while Config has https URL.
 	httpClient := &http.Client{Transport: &rewriteTransport{target: server.URL}, Timeout: 2 * time.Second}
-	config.RPCURL = "https://rpc.testnet.arc.io"
+	config.RPCURL = RPCMainnet
 	client, err := NewClientWithBreaker(config, httpClient, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestArcHealthProbeHealthy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HealthCheck: %v", err)
 	}
-	if chainID != ChainIDTestnet || blockNumber == 0 {
+	if chainID != ChainIDMainnet || blockNumber == 0 {
 		t.Fatalf("chain=%s block=%d", chainID, blockNumber)
 	}
 	checker := &HealthChecker{config: config, client: client, now: time.Now}

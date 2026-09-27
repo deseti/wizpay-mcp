@@ -1,9 +1,5 @@
-// Package payroll provides the narrow typed Payroll contract primitive for the
-// verified WizPay Arc Testnet deployment. It validates and encodes already-
-// approved immutable execution requirements and decodes verification events.
-//
-// It does not plan payroll, choose recipients, fetch prices, submit
-// transactions, or mark financial success.
+// Package payroll provides the narrow typed ABI boundary for the reviewed
+// WizPayPayrollMainnet deployment. Track A does not wire financial execution.
 package payroll
 
 import (
@@ -16,167 +12,52 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 )
 
-// Canonical execution signatures allowlisted for the Payroll contract.
 const (
-	SigBatchMultiTokenOut  = "batchRouteAndPay(address,address[],address[],uint256[],uint256[],string)"
-	SigBatchSingleTokenOut = "batchRouteAndPay(address,address,address[],uint256[],uint256[],string)"
-	SigRouteAndPay         = "routeAndPay(address,address,uint256,uint256,address)"
+	SigExecuteSameTokenPayroll  = "executeSameTokenPayroll(address,address[],uint256[],string)"
+	SigExecuteCrossTokenPayroll = "executeCrossTokenPayroll(address,address,address[],uint256[],uint256,uint256,uint256,uint256,string)"
 )
 
-// Canonical verification event signatures.
 const (
-	SigBatchPaymentRouted = "BatchPaymentRouted(address,address,address,uint256,uint256,uint256,uint256,string)"
-	SigPaymentRouted      = "PaymentRouted(address,address,address,address,uint256,uint256,uint256)"
+	SigPayrollBatchExecuted     = "PayrollBatchExecuted(address,address,address,uint256,uint256,uint256,uint256,string)"
+	SigPayrollPayment           = "PayrollPayment(bytes32,address,address,address,uint256,uint256)"
+	SigPayrollReferenceConsumed = "PayrollReferenceConsumed(bytes32,address,address,address,bytes32,uint256,uint256,uint256,uint256,string)"
+	SigPayrollSurplusRefunded   = "PayrollSurplusRefunded(bytes32,address,address,uint256)"
+	SigPayrollSwapExecuted      = "PayrollSwapExecuted(bytes32,address,address,address,uint256,uint256,uint256,uint256,uint256)"
 )
 
-// Admin function names present in the full ABI that MUST never be exposed as
-// runtime execution surface by this package.
-var AdminFunctionNames = []string{
-	"emergencyWithdraw",
-	"pause",
-	"unpause",
-	"setTokenWhitelist",
-	"batchSetTokenWhitelist",
-	"setWhitelistEnabled",
-	"updateFXEngine",
-	"updateFee",
-	"updateFeeCollector",
-	"transferOwnership",
-	"renounceOwnership",
-}
+var AdminFunctionNames = []string{"pause", "unpause", "rescueTokens", "transferOwnership", "renounceOwnership"}
 
-// minimalABI is the allowlisted ABI fragment derived from contracts/abi/WizPay.json.
-// Full admin surface is intentionally omitted.
-//
-// Event indexed/non-indexed layout is taken exactly from the verified ABI:
-//
-//	BatchPaymentRouted: sender indexed; remaining fields non-indexed
-//	PaymentRouted: sender and recipient indexed; remaining fields non-indexed
+// minimalABI is derived from contracts/abi/WizPayPayrollMainnet.json. Only
+// reviewed execution descriptors, attestation reads, and verification events
+// are present; administration is excluded.
 const minimalABI = `[
-  {
-    "type": "function",
-    "name": "batchRouteAndPay",
-    "stateMutability": "nonpayable",
-    "inputs": [
-      {"name": "tokenIn", "type": "address"},
-      {"name": "tokenOuts", "type": "address[]"},
-      {"name": "recipients", "type": "address[]"},
-      {"name": "amountsIn", "type": "uint256[]"},
-      {"name": "minAmountsOut", "type": "uint256[]"},
-      {"name": "referenceId", "type": "string"}
-    ],
-    "outputs": [{"name": "totalOut", "type": "uint256"}]
-  },
-  {
-    "type": "function",
-    "name": "batchRouteAndPay",
-    "stateMutability": "nonpayable",
-    "inputs": [
-      {"name": "tokenIn", "type": "address"},
-      {"name": "tokenOut", "type": "address"},
-      {"name": "recipients", "type": "address[]"},
-      {"name": "amountsIn", "type": "uint256[]"},
-      {"name": "minAmountsOut", "type": "uint256[]"},
-      {"name": "referenceId", "type": "string"}
-    ],
-    "outputs": [{"name": "totalOut", "type": "uint256"}]
-  },
-  {
-    "type": "function",
-    "name": "routeAndPay",
-    "stateMutability": "nonpayable",
-    "inputs": [
-      {"name": "tokenIn", "type": "address"},
-      {"name": "tokenOut", "type": "address"},
-      {"name": "amountIn", "type": "uint256"},
-      {"name": "minAmountOut", "type": "uint256"},
-      {"name": "recipient", "type": "address"}
-    ],
-    "outputs": [{"name": "amountOut", "type": "uint256"}]
-  },
-  {
-    "type": "function",
-    "name": "getBatchEstimatedOutputs",
-    "stateMutability": "view",
-    "inputs": [
-      {"name": "tokenIn", "type": "address"},
-      {"name": "tokenOuts", "type": "address[]"},
-      {"name": "amountsIn", "type": "uint256[]"}
-    ],
-    "outputs": [
-      {"name": "", "type": "uint256[]"},
-      {"name": "", "type": "uint256"},
-      {"name": "", "type": "uint256"}
-    ]
-  },
-  {
-    "type": "function",
-    "name": "getEstimatedOutput",
-    "stateMutability": "view",
-    "inputs": [
-      {"name": "tokenIn", "type": "address"},
-      {"name": "tokenOut", "type": "address"},
-      {"name": "amountIn", "type": "uint256"}
-    ],
-    "outputs": [{"name": "", "type": "uint256"}]
-  },
-  {
-    "type": "function",
-    "name": "paused",
-    "stateMutability": "view",
-    "inputs": [],
-    "outputs": [{"name": "", "type": "bool"}]
-  },
-  {
-    "type": "function",
-    "name": "whitelistEnabled",
-    "stateMutability": "view",
-    "inputs": [],
-    "outputs": [{"name": "", "type": "bool"}]
-  },
-  {
-    "type": "function",
-    "name": "whitelistedTokens",
-    "stateMutability": "view",
-    "inputs": [{"name": "", "type": "address"}],
-    "outputs": [{"name": "", "type": "bool"}]
-  },
-  {
-    "type": "function",
-    "name": "feeBps",
-    "stateMutability": "view",
-    "inputs": [],
-    "outputs": [{"name": "", "type": "uint256"}]
-  },
-  {
-    "type": "event",
-    "name": "BatchPaymentRouted",
-    "anonymous": false,
-    "inputs": [
-      {"name": "sender", "type": "address", "indexed": true},
-      {"name": "tokenIn", "type": "address", "indexed": false},
-      {"name": "tokenOut", "type": "address", "indexed": false},
-      {"name": "totalAmountIn", "type": "uint256", "indexed": false},
-      {"name": "totalAmountOut", "type": "uint256", "indexed": false},
-      {"name": "totalFees", "type": "uint256", "indexed": false},
-      {"name": "recipientCount", "type": "uint256", "indexed": false},
-      {"name": "referenceId", "type": "string", "indexed": false}
-    ]
-  },
-  {
-    "type": "event",
-    "name": "PaymentRouted",
-    "anonymous": false,
-    "inputs": [
-      {"name": "sender", "type": "address", "indexed": true},
-      {"name": "recipient", "type": "address", "indexed": true},
-      {"name": "tokenIn", "type": "address", "indexed": false},
-      {"name": "tokenOut", "type": "address", "indexed": false},
-      {"name": "amountIn", "type": "uint256", "indexed": false},
-      {"name": "amountOut", "type": "uint256", "indexed": false},
-      {"name": "feeAmount", "type": "uint256", "indexed": false}
-    ]
-  }
+  {"type":"function","name":"executeSameTokenPayroll","stateMutability":"payable","inputs":[{"name":"token","type":"address"},{"name":"recipients","type":"address[]"},{"name":"amounts","type":"uint256[]"},{"name":"referenceId","type":"string"}],"outputs":[{"name":"totalOut","type":"uint256"}]},
+  {"type":"function","name":"executeCrossTokenPayroll","stateMutability":"payable","inputs":[{"name":"tokenIn","type":"address"},{"name":"tokenOut","type":"address"},{"name":"recipients","type":"address[]"},{"name":"outputAmounts","type":"uint256[]"},{"name":"grossInput","type":"uint256"},{"name":"minTotalOut","type":"uint256"},{"name":"minHopPriceX36","type":"uint256"},{"name":"deadline","type":"uint256"},{"name":"referenceId","type":"string"}],"outputs":[{"name":"amountOut","type":"uint256"}]},
+  {"type":"function","name":"ARC_MAINNET_CHAIN_ID","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"ARC_MAINNET_POOL_FEE","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint24"}]},
+  {"type":"function","name":"ARC_MAINNET_POOL_TICK_SPACING","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"int24"}]},
+  {"type":"function","name":"ARC_NATIVE_USDC_SCALE","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"EURC","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"MAX_BATCH_SIZE","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"MAX_DEADLINE_WINDOW","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"MAX_FEE_BPS","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"MAX_REFERENCE_ID_LENGTH","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"USDC","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"feeBps","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"feeRecipient","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"owner","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"paused","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"bool"}]},
+  {"type":"function","name":"permit2","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"poolFee","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint24"}]},
+  {"type":"function","name":"poolManager","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"poolTickSpacing","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"int24"}]},
+  {"type":"function","name":"universalRouter","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"usedReferenceHashes","stateMutability":"view","inputs":[{"name":"","type":"bytes32"}],"outputs":[{"name":"","type":"bool"}]},
+  {"type":"event","name":"PayrollBatchExecuted","anonymous":false,"inputs":[{"name":"employer","type":"address","indexed":true},{"name":"tokenIn","type":"address","indexed":true},{"name":"tokenOut","type":"address","indexed":true},{"name":"totalInput","type":"uint256","indexed":false},{"name":"totalOutput","type":"uint256","indexed":false},{"name":"totalFees","type":"uint256","indexed":false},{"name":"recipientCount","type":"uint256","indexed":false},{"name":"referenceId","type":"string","indexed":false}]},
+  {"type":"event","name":"PayrollPayment","anonymous":false,"inputs":[{"name":"referenceHash","type":"bytes32","indexed":true},{"name":"employer","type":"address","indexed":true},{"name":"tokenOut","type":"address","indexed":true},{"name":"recipient","type":"address","indexed":false},{"name":"paymentIndex","type":"uint256","indexed":false},{"name":"amountOut","type":"uint256","indexed":false}]},
+  {"type":"event","name":"PayrollReferenceConsumed","anonymous":false,"inputs":[{"name":"referenceHash","type":"bytes32","indexed":true},{"name":"employer","type":"address","indexed":true},{"name":"tokenIn","type":"address","indexed":true},{"name":"tokenOut","type":"address","indexed":false},{"name":"batchDigest","type":"bytes32","indexed":false},{"name":"totalInput","type":"uint256","indexed":false},{"name":"totalOutput","type":"uint256","indexed":false},{"name":"totalFees","type":"uint256","indexed":false},{"name":"recipientCount","type":"uint256","indexed":false},{"name":"referenceId","type":"string","indexed":false}]},
+  {"type":"event","name":"PayrollSurplusRefunded","anonymous":false,"inputs":[{"name":"referenceHash","type":"bytes32","indexed":true},{"name":"employer","type":"address","indexed":true},{"name":"tokenOut","type":"address","indexed":true},{"name":"amount","type":"uint256","indexed":false}]},
+  {"type":"event","name":"PayrollSwapExecuted","anonymous":false,"inputs":[{"name":"referenceHash","type":"bytes32","indexed":true},{"name":"employer","type":"address","indexed":true},{"name":"tokenIn","type":"address","indexed":true},{"name":"tokenOut","type":"address","indexed":false},{"name":"grossInput","type":"uint256","indexed":false},{"name":"feeAmount","type":"uint256","indexed":false},{"name":"netAmountIn","type":"uint256","indexed":false},{"name":"amountOut","type":"uint256","indexed":false},{"name":"minTotalOut","type":"uint256","indexed":false}]}
 ]`
 
 var (
@@ -186,13 +67,10 @@ var (
 )
 
 func abiDefinition() (ethabi.ABI, error) {
-	parsedABIOnce.Do(func() {
-		parsedABI, parsedABIErr = ethabi.JSON(strings.NewReader(minimalABI))
-	})
+	parsedABIOnce.Do(func() { parsedABI, parsedABIErr = ethabi.JSON(strings.NewReader(minimalABI)) })
 	return parsedABI, parsedABIErr
 }
 
-// MethodBySignature returns the ABI method matching the exact canonical signature.
 func MethodBySignature(signature string) (ethabi.Method, error) {
 	definition, err := abiDefinition()
 	if err != nil {
@@ -206,7 +84,6 @@ func MethodBySignature(signature string) (ethabi.Method, error) {
 	return ethabi.Method{}, fmt.Errorf("payroll method %q is not on the allowlisted ABI fragment", signature)
 }
 
-// EventBySignature returns the ABI event matching the exact canonical signature.
 func EventBySignature(signature string) (ethabi.Event, error) {
 	definition, err := abiDefinition()
 	if err != nil {
@@ -220,7 +97,6 @@ func EventBySignature(signature string) (ethabi.Event, error) {
 	return ethabi.Event{}, fmt.Errorf("payroll event %q is not on the allowlisted ABI fragment", signature)
 }
 
-// Selector returns the 4-byte selector for a canonical allowlisted signature.
 func Selector(signature string) ([4]byte, error) {
 	method, err := MethodBySignature(signature)
 	if err != nil {
@@ -231,11 +107,9 @@ func Selector(signature string) ([4]byte, error) {
 	return out, nil
 }
 
-// ExpectedDeployment returns the verified Arc Testnet Payroll deployment from
-// the provided registry (or the default registry when nil).
 func ExpectedDeployment(registry *contracts.Registry) (contracts.Deployment, error) {
 	if registry == nil {
 		registry = contracts.DefaultRegistry()
 	}
-	return registry.Require(contracts.ContractWizPayPayroll, contracts.RegistryVersion, contracts.ChainIDArcTestnet, contracts.NetworkArcTestnet)
+	return registry.Require(contracts.ContractWizPayPayroll, contracts.RegistryVersion, contracts.ChainIDArcMainnet, contracts.NetworkArcMainnet)
 }

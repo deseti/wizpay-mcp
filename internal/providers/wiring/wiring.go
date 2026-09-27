@@ -114,31 +114,25 @@ func Build(config Config, dependencies Dependencies) (Plane, error) {
 
 	registry := providers.NewRegistry()
 
+	// Track A has no reviewed Arc Mainnet user/delegated authorization
+	// provider. Keep the execution adapter unavailable even if callers manually
+	// populate every Circle field and dependency.
 	var adapter *circle.Adapter
-	configured := config.Circle.Configured() && config.Arc.Configured() &&
-		dependencies.Planner != nil && dependencies.Authorization != nil && dependencies.References != nil
-	if configured {
-		built, err := circle.NewAdapterWithBreaker(config.Circle, dependencies.HTTPClient, dependencies.Planner,
-			dependencies.Authorization, dependencies.References, dependencies.Now, circleBreaker)
-		if err != nil {
-			return Plane{}, err
-		}
-		adapter = built
-	}
+	configured := false
 
 	descriptor := providers.Descriptor{
 		ID:      providers.ProviderCircleUserControlled,
 		Version: 1,
-		// Contract execution is provider capability metadata only. The actual
-		// planner remains typed and allowlisted; it does not permit arbitrary
-		// contract targets or calldata. Bridge and ANS are intentionally absent.
+		// These are historical provider capability categories only. Configured is
+		// unconditionally false for Track A, so they cannot be resolved or exposed
+		// as available Mainnet features.
 		Features: []capabilities.ProviderFeature{
 			capabilities.FeatureUserControlledWallet,
 			capabilities.FeatureContractExecution,
 			capabilities.FeatureSwapExecution,
 		},
-		ChainIDs:   []string{arc.ChainIDTestnet},
-		Networks:   []string{arc.NetworkTestnet},
+		ChainIDs:   []string{arc.ChainIDMainnet},
+		Networks:   []string{arc.NetworkMainnet},
 		Configured: configured,
 	}
 	if adapter != nil {

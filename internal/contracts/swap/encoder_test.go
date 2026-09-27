@@ -2,125 +2,43 @@ package swap_test
 
 import (
 	"bytes"
-	"encoding/hex"
 	"math/big"
 	"testing"
-	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/contracts/swap"
-	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 )
 
-func TestEncodeExecuteSwapDeterministic(t *testing.T) {
-	registry := contracts.DefaultRegistry()
-	in := swap.ExecuteSwapInput{
-		Router:       "0x1111111111111111111111111111111111111111",
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000001",
-		AmountIn:     big.NewInt(1_000_000),
-		MinAmountOut: big.NewInt(990_000),
-		Recipient:    "0x2222222222222222222222222222222222222222",
-		Deadline:     time.Now().Add(time.Hour).Unix(),
-	}
-	first, err := swap.EncodeExecuteSwap(registry, in)
+func TestMainnetSwapDescriptorEncodingParity(t *testing.T) {
+	in := swap.ExecuteSwapInput{TokenIn: contracts.AddressEURCMainnet, TokenOut: contracts.AddressUSDCMainnet, AmountIn: big.NewInt(1_000_000), MinAmountOut: big.NewInt(990_000), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(1)}
+	first, err := swap.EncodeExecuteSwap(nil, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := swap.EncodeExecuteSwap(registry, in)
+	second, err := swap.EncodeExecuteSwap(nil, in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(first.CallData(), second.CallData()) {
-		t.Fatal("encoding is not deterministic")
+		t.Fatal("swap encoding is not deterministic")
 	}
-	wantSel := contracts.Selector4(swap.SigExecuteSwap)
-	if first.Selector() != wantSel {
-		t.Fatalf("selector = %x, want %x", first.Selector(), wantSel)
+	if first.Function() != swap.SigExecuteSwap || first.Selector() != contracts.Selector4(swap.SigExecuteSwap) {
+		t.Fatal("swap selector mismatch")
 	}
-	sel := first.Selector()
-	if hex.EncodeToString(sel[:]) != "88e290b2" {
-		t.Fatalf("unexpected executeSwap selector %x", sel)
+	if got := first.Selector(); got != [4]byte{0x66, 0xa3, 0xbe, 0xe6} {
+		t.Fatalf("swap selector = 0x%x", got)
 	}
-	if !contracts.AddressesEqual(first.To(), contracts.AddressWizPaySwapExecutor) {
-		t.Fatalf("To = %q", first.To())
-	}
-	if first.ChainID() != contracts.ChainIDArcTestnet {
-		t.Fatalf("chain = %q", first.ChainID())
+	if first.ChainID() != contracts.ChainIDArcMainnet || first.Network() != contracts.NetworkArcMainnet || !contracts.AddressesEqual(first.To(), contracts.AddressWizPaySwapExecutor) {
+		t.Fatal("swap descriptor identity mismatch")
 	}
 }
 
-func TestEncodeExecuteSwapDoesNotReadWallClock(t *testing.T) {
-	call, err := swap.EncodeExecuteSwap(contracts.DefaultRegistry(), swap.ExecuteSwapInput{
-		Router:       "0x1111111111111111111111111111111111111111",
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000001",
-		AmountIn:     big.NewInt(1_000_000),
-		MinAmountOut: big.NewInt(990_000),
-		Recipient:    "0x2222222222222222222222222222222222222222",
-		Deadline:     1,
-	})
-	if err != nil {
-		t.Fatalf("positive frozen deadline must encode without a wall-clock read: %v", err)
-	}
-	if call.Function() != swap.SigExecuteSwap {
-		t.Fatalf("function = %q", call.Function())
-	}
-}
-
-func TestSwapValidationRejections(t *testing.T) {
-	registry := contracts.DefaultRegistry()
-	base := swap.ExecuteSwapInput{
-		Router:       "0x1111111111111111111111111111111111111111",
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000001",
-		AmountIn:     big.NewInt(1000),
-		MinAmountOut: big.NewInt(900),
-		Recipient:    "0x2222222222222222222222222222222222222222",
-		Deadline:     time.Now().Add(time.Hour).Unix(),
-	}
-	cases := map[string]func(*swap.ExecuteSwapInput){
-		"invalid router":     func(in *swap.ExecuteSwapInput) { in.Router = "bad" },
-		"invalid tokenIn":    func(in *swap.ExecuteSwapInput) { in.TokenIn = "0xzz" },
-		"invalid tokenOut":   func(in *swap.ExecuteSwapInput) { in.TokenOut = "" },
-		"zero amountIn":      func(in *swap.ExecuteSwapInput) { in.AmountIn = big.NewInt(0) },
-		"zero minAmountOut":  func(in *swap.ExecuteSwapInput) { in.MinAmountOut = big.NewInt(0) },
-		"invalid recipient":  func(in *swap.ExecuteSwapInput) { in.Recipient = "0x0" },
-		"zero deadline":      func(in *swap.ExecuteSwapInput) { in.Deadline = 0 },
-		"zero address token": func(in *swap.ExecuteSwapInput) { in.TokenIn = "0x0000000000000000000000000000000000000000" },
-	}
-	for name, mutate := range cases {
-		t.Run(name, func(t *testing.T) {
-			in := base
-			mutate(&in)
-			if _, err := swap.EncodeExecuteSwap(registry, in); !hasCode(err, apperrors.CodeValidationError) {
-				t.Fatalf("error = %v", err)
-			}
-		})
-	}
-}
-
-func TestSwapRegisteredAddressExact(t *testing.T) {
-	call, err := swap.EncodeExecuteSwap(nil, swap.ExecuteSwapInput{
-		Router:       "0x1111111111111111111111111111111111111111",
-		TokenIn:      "0x3600000000000000000000000000000000000000",
-		TokenOut:     "0x3600000000000000000000000000000000000001",
-		AmountIn:     big.NewInt(1),
-		MinAmountOut: big.NewInt(1),
-		Recipient:    "0x2222222222222222222222222222222222222222",
-		Deadline:     time.Now().Add(time.Hour).Unix(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !contracts.AddressesEqual(call.To(), contracts.AddressWizPaySwapExecutor) {
-		t.Fatalf("To = %q", call.To())
-	}
-}
-
-func hasCode(err error, code apperrors.Code) bool {
+func TestMainnetSwapDescriptorRejectsArbitraryTokenAndOldShape(t *testing.T) {
+	_, err := swap.EncodeExecuteSwap(nil, swap.ExecuteSwapInput{TokenIn: "0x1111111111111111111111111111111111111111", TokenOut: contracts.AddressUSDCMainnet, AmountIn: big.NewInt(1), MinAmountOut: big.NewInt(1), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(1)})
 	if err == nil {
-		return false
+		t.Fatal("unsupported token must fail closed")
 	}
-	return apperrors.ToPublic(err).Code == code
+	if _, err := swap.MethodBySignature("executeSwap(address,address,address,uint256,uint256,address,uint256)"); err == nil {
+		t.Fatal("Testnet swap shape must not remain in runtime ABI")
+	}
 }

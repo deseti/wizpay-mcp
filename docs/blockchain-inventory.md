@@ -1,70 +1,55 @@
-# Chain, token, contract, deployment, and ABI inventory
+# Arc Mainnet foundation inventory
 
-## Status contract
+This is the Track A static inventory. Registration is not execution authority: Payroll and Swap capabilities remain disabled, and no native-value or ERC-20 approval sequence is implemented.
 
-- `VERIFIED`: the stated static fact is supported by the cited official Arc documentation reviewed for Phase 0. This does not mean a runtime RPC/code verification has occurred.
-- `UNVERIFIED`: insufficient trusted evidence exists in this repository and the reviewed official documentation. It is disabled.
+## Network
 
-An address listed as `VERIFIED` is inventory evidence only, not permission to execute. Enablement separately requires owner selection, reviewed ABI, bytecode/runtime verification, domain verifier, tests, and explicit later-phase authorization.
+| Network | Chain ID | RPC | Explorer | Status |
+|---|---:|---|---|---|
+| Arc Mainnet (`MAINNET`) | `5042` | `https://rpc.mainnet.arc.io` | `https://explorer.arc.io` | VERIFIED against current [Arc connection documentation](https://docs.arc.io/arc/references/connect-to-arc) |
 
-## Networks
+Arc Testnet (`5042002`) is not accepted by the Mainnet provider or deployment registry.
 
-| Name | Network | Chain ID | Address | Source | Status | Purpose | Allowed MCP domain |
-|---|---|---:|---|---|---|---|---|
-| Arc Testnet | Arc public testnet | `5042002` | N/A (network) | [Arc Network](https://docs.arc.io/arc-chain), [Connect to Arc](https://docs.arc.io/arc/references/connect-to-arc) | VERIFIED | future non-production development | none in Phase 0 |
-| Arc Mainnet | Arc mainnet | UNVERIFIED | N/A (network) | [Arc deployment model](https://docs.arc.io/arc/concepts/deployment-model) says mainnet is upcoming in the reviewed material | UNVERIFIED | future production | none |
-| all other chains | owner-selected | UNVERIFIED | N/A (network) | no Phase 0 trusted project inventory | UNVERIFIED | future source/destination chains | none |
+## Canonical tokens
 
-## Tokens
+| Token | Address | ERC-20 decimals | Source |
+|---|---|---:|---|
+| USDC | `0x3600000000000000000000000000000000000000` | 6 | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) |
+| EURC | `0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1` | 6 | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) |
 
-| Name | Network | Chain ID | Address | Source | Status | Purpose | Allowed MCP domain |
-|---|---|---:|---|---|---|---|---|
-| USDC optional ERC-20 interface | Arc Testnet | `5042002` | `0x3600000000000000000000000000000000000000` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | token identity; documented as 6 decimals | candidate wallet/payroll/swap/bridge only; disabled |
-| USDC native gas representation | Arc Testnet | `5042002` | native (no contract address) | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | gas/native balance; documented as 18-decimal precision | candidate balance only; disabled |
-| EURC | Arc Testnet | `5042002` | UNVERIFIED in this Phase 0 inventory | reviewed official page but address not transcribed/validated | UNVERIFIED | potential swap token | none |
-| any mainnet token | Arc Mainnet | UNVERIFIED | UNVERIFIED | official mainnet deployment data unavailable in reviewed source | UNVERIFIED | future production | none |
+Arc native USDC uses 18-decimal native gas precision while the ERC-20 interface uses 6 decimals. Track A records this distinction but does not add native-value execution support.
 
-The native and ERC-20 USDC decimal representations must never be mixed. Token amounts use the selected token representation's exact decimals and base units.
+## WizPay contracts
 
-## Candidate official Arc Testnet contracts (not enabled)
-
-| Name | Network | Chain ID | Address | Source | Status | Purpose | Allowed MCP domain |
-|---|---|---:|---|---|---|---|---|
-| CCTP TokenMessengerV2 | Arc Testnet | `5042002` | `0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate cross-chain messaging/burn entrypoint | bridge candidate; disabled |
-| CCTP MessageTransmitterV2 | Arc Testnet | `5042002` | `0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate message receive/verification | bridge candidate; disabled |
-| CCTP TokenMinterV2 | Arc Testnet | `5042002` | `0xb43db544E2c27092c107639Ad201b3dEfAbcF192` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | protocol token minting component; not a public MCP target | none |
-| StableFX FxEscrow | Arc Testnet | `5042002` | `0x867650F5eAe8df91445971f14d89fd84F0C9a9f8` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate documented FX settlement escrow | swap candidate; disabled |
-| Permit2 | Arc Testnet | `5042002` | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate allowance mechanism required by documented StableFX flow | swap candidate; disabled |
-| GatewayWallet | Arc Testnet | `5042002` | `0x0077777d7EBA4688BDeF3E311b846F25870A19B9` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate chain-abstracted balance component | none until owner decision |
-| GatewayMinter | Arc Testnet | `5042002` | `0x0022222ABE238Cc2C7Bb1f21003F0a260052475B` | [Arc contract addresses](https://docs.arc.io/arc/references/contract-addresses) | VERIFIED | candidate gateway minting component; not a public MCP target | none |
-| WizPay (Payroll) | Arc Testnet | `5042002` | `0x87ACE45582f45cC81AC1E627E875AE84cbd75946` | project verified ABI `contracts/abi/WizPay.json`; MCP registry `WIZPAY_PAYROLL` RegistryVersion 1 | VERIFIED (static artifact; capability still disabled) | payroll encode/decode only | payroll candidate; no live execution |
-| WizPaySwapExecutor (Swap) | Arc Testnet | `5042002` | `0x17685466759f9Cde06f0DCbB5464164ABe541eFA` | project verified ABI `contracts/abi/WizPaySwapExecutor.json`; MCP registry `WIZPAY_SWAP_EXECUTOR` RegistryVersion 1 | VERIFIED (static artifact; capability still disabled) | swap encode/decode only | swap candidate; no live execution |
-| FX Engine | any | N/A | not registered | user confirmed no separate FX Engine deployment for this scope | not assumed | none | none |
-| ANS registry/resolver/registrar | Arc | `5042002` or mainnet UNVERIFIED | UNVERIFIED | no trusted project artifact supplied/reviewed official deployment | UNVERIFIED | ANS reads/registration | none |
-| withdrawal route/contract | any | UNVERIFIED | UNVERIFIED | owner decision absent | UNVERIFIED | withdrawal | none |
-
-## ABI requirements
-
-Full verified ABI artifacts for Payroll and Swap are present under `contracts/abi/`. Runtime embeds only minimal allowlisted fragments; admin functions remain excluded.
-
-| Contract/interface | Version/source | Required functions | Required events/evidence | Status |
+| Contract ID | Source name | Address | Allowed execution descriptors | Verification events |
 |---|---|---|---|---|
-| ERC-20 token | exact deployed source/official ABI UNVERIFIED | `balanceOf`, `decimals`, and only later-approved transfer/allowance functions | `Transfer`, plus call return/revert semantics | UNVERIFIED |
-| CCTP TokenMessengerV2 | official exact deployment ABI UNVERIFIED | exact burn/deposit function selected by later design | message/burn events linking source to destination | UNVERIFIED |
-| CCTP MessageTransmitterV2 | official exact deployment ABI UNVERIFIED | exact receive function selected later | message receipt and mint linkage | UNVERIFIED |
-| StableFX FxEscrow | official exact deployment ABI UNVERIFIED | exact taker/settlement functions selected later | trade identifiers, input/output, parties, terminal settlement | UNVERIFIED |
-| Permit2 | exact deployed ABI/version UNVERIFIED | only narrowly approved allowance/permit functions | approval/nonce evidence required by design | UNVERIFIED |
-| WizPay (Payroll) | `contracts/abi/WizPay.json`; MCP RegistryVersion 1 (not Solidity semver) | `batchRouteAndPay` (both overloads), `routeAndPay`; reads: estimates/pause/whitelist/feeBps | `BatchPaymentRouted`, `PaymentRouted` | VERIFIED artifact; runtime allowlisted; capability disabled |
-| WizPaySwapExecutor (Swap) | `contracts/abi/WizPaySwapExecutor.json`; MCP RegistryVersion 1 | `executeSwap`; reads: allowedRouters/Tokens, feeBps, feeRecipient, paused | `WizPaySwapExecuted` | VERIFIED artifact; runtime allowlisted; capability disabled |
-| ANS | registry/resolver/registrar version absent | availability/read and exact registration functions | ownership/controller/registration evidence | UNVERIFIED |
+| `WIZPAY_PAYROLL` | `WizPayPayrollMainnet` | `0x77AC7Cb6507D404b5530fC03e3D39BAaEdE10C34` | `executeSameTokenPayroll(address,address[],uint256[],string)`; `executeCrossTokenPayroll(address,address,address[],uint256[],uint256,uint256,uint256,uint256,string)` | `PayrollBatchExecuted`, `PayrollPayment`, `PayrollReferenceConsumed`, `PayrollSurplusRefunded`, `PayrollSwapExecuted` |
+| `WIZPAY_SWAP_EXECUTOR` | `WizPaySwapExecutorMainnet` | `0x7A051F17B237750EF9D4E63fb75381B9F8755774` | `executeSwap(address,address,uint256,uint256,uint256,uint256)` | `WizPayMainnetSwapExecuted` |
 
-## Owner decisions required before Phase 1 execution work
+Full reviewed ABI artifacts are `contracts/abi/WizPayPayrollMainnet.json` and `contracts/abi/WizPaySwapExecutorMainnet.json`. The old Testnet `batchRouteAndPay`, `routeAndPay`, router/recipient-parameterized swap shape, and Testnet events are not in the Mainnet allowlists.
 
-- first vertical-slice domain and whether it targets Arc Testnet;
-- exact Circle-supported Arc network identifier/account type and wallet API flow;
-- exact contracts/routes and official ABI sources;
-- receipt finality/verification policy per domain;
-- provider allowlist and idempotency/reconciliation guarantees;
-- production Arc/mainnet chain and deployment details when officially available;
-- ANS contracts, normalization standard, registration lifecycle, and trusted source;
-- fee policy (currently no added WizPay fee) and any custody/treasury proposal (currently prohibited by default).
+## Canonical Uniswap V4 resources
+
+| Resource | Value |
+|---|---|
+| PoolManager | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
+| UniversalRouter | `0x4fca4a51ab4f23a7447b3284fbd7d73289a89fb1` |
+| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| V4 Quoter | `0x8dc178efb8111bb0973dd9d722ebeff267c98f94` |
+| USDC/EURC candidate pool ID | `0xeb0fd02fb8044d5514fb6e165ee134fd547eff0378bb33b76f4b81d8b03bd1ae` |
+| Fee | `500` |
+| Tick spacing | `10` |
+| Hooks | `0x0000000000000000000000000000000000000000` |
+
+The pool ID is a candidate identity, not a claim of current liquidity, executable routing, or quote quality. Router, token, pool, and hook selection are not caller-configurable.
+
+## Track A execution status
+
+- Payroll capability: disabled.
+- Swap capability: disabled.
+- Mainnet Payroll and Swap planners: fail closed.
+- Native-value support: not implemented.
+- ERC-20 approval sequencing: not implemented.
+- Bridge/CCTP, ANS, invoice, payment link, x402, wallet creation, and generic transaction execution: not implemented.
+- Deployment attestation and RPC integration checks are read-only and opt-in; ordinary unit tests remain offline. Attestation observes runtime bytecode/hash and fixed getters for owner, fee recipient/rate, paused state, USDC, EURC, UniversalRouter, Permit2, exposed PoolManager, pool fee, and tick spacing. Bytecode or configuration presence is not execution readiness.
+- Circle Arc Mainnet authorization/execution is `UNVERIFIED / REQUIRES OWNER DECISION`; environment configuration cannot activate the adapter or worker in Track A.

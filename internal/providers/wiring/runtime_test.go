@@ -121,14 +121,14 @@ func TestBuildWorkerUnconfiguredWithoutAdapter(t *testing.T) {
 	}
 }
 
-func TestBuildWorkerConfiguredWithProductionComposedVerifier(t *testing.T) {
+func TestBuildWorkerCannotActivateUnreviewedCircleMainnet(t *testing.T) {
 	plane := configuredPlane(t)
 	worker, configured, err := BuildWorker(plane, stubRuntimeStore{}, workerConfig(), fixedClock(), noopSleep)
 	if err != nil {
 		t.Fatalf("BuildWorker: %v", err)
 	}
-	if !configured || worker == nil {
-		t.Fatalf("fully assembled typed provider plane must produce a worker")
+	if configured || worker != nil {
+		t.Fatalf("Track A Mainnet plane must remain idle")
 	}
 }
 

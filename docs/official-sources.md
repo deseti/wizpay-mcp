@@ -1,27 +1,20 @@
 # Official Circle and Arc sources reviewed
 
-Reviewed on 2026-08-02. These are the only external sources used for Circle/Arc-specific Phase 0 statements.
+Reviewed on 2026-09-27 for Track A — Mainnet Foundation.
 
 ## Circle
 
-- [User-Controlled Wallets](https://developers.circle.com/wallets/user-controlled): supports the selected wallet model, user custody/control, application orchestration without holding user keys, and user approval of transactions.
-- [Key Management](https://developers.circle.com/wallets/key-management): supports the statement that user-controlled wallets use 2-of-2 MPC and only users sign after their authentication; signing shares/credentials remain outside WizPay MCP.
-- [Transaction Signing and Authorization](https://developers.circle.com/wallets/signing-and-authorization-models): supports separation of initiation from user authorization and the rule that submitted and finalized are different events.
-- [Create wallets API reference](https://developers.circle.com/api-reference/wallets/user-controlled-wallets/create-user-wallet): reviewed only to confirm that Circle wallet creation is challenge-based and uses user-scoped credentials. No API behavior is implemented and no credential is stored.
-- [Create a challenge for contract execution](https://developers.circle.com/api-reference/wallets/user-controlled-wallets/create-user-transaction-contract-execution-challenge): official UCW endpoint `POST /v1/w3s/user/transactions/contractExecution`. Required fields include `idempotencyKey` and `contractAddress`; wallet identity is `walletId` or `walletAddress`+`blockchain`; `callData` is mutually exclusive with `abiFunctionSignature`/`abiParameters`; `feeLevel` or gas fields are required for gas. Response returns `data.challengeId`. Challenge creation is not financial success.
+- [User-Controlled Wallets](https://developers.circle.com/wallets/user-controlled): user custody/control and user-authorized transactions; WizPay does not hold signing secrets.
+- [Transaction signing and authorization](https://developers.circle.com/wallets/signing-and-authorization-models): initiation, authorization, submission, and finalization are distinct.
+- [Contract execution challenge](https://developers.circle.com/api-reference/wallets/user-controlled-wallets/create-user-transaction-contract-execution-challenge): challenge creation is not financial success.
+- [Supported blockchains](https://developers.circle.com/wallets/supported-blockchains) was reviewed, but Track A does not use a Circle Arc Mainnet enum or infer an executable authorization path from general network-support metadata.
 
-The exact Circle identifier for Arc Testnet, supported EOA/SCA choice, production API sequence, authentication mechanism, challenge lifecycle, webhook semantics, and wallet-binding verification procedure remain `UNVERIFIED / REQUIRES OWNER DECISION` for unreviewed details beyond the endpoint mappings implemented offline.
+The Arc Mainnet blockchain enum, production account-type selection, delegated/user authorization path, challenge lifecycle, webhook semantics, and wallet-binding verification procedure remain `UNVERIFIED / REQUIRES OWNER DECISION`. `WIZPAY_CIRCLE_ENABLED=true` is rejected and Track A cannot construct a Circle execution adapter.
 
 ## Arc
 
-- [Arc Network](https://docs.arc.io/arc-chain): supports Arc Testnet chain ID `5042002`, EVM execution, and USDC as gas.
-- [Connect to Arc](https://docs.arc.io/arc/references/connect-to-arc): corroborates Arc Testnet chain ID, USDC network currency/native gas precision, and the canonical Testnet RPC/explorer endpoints used by this repository:
-  - Chain ID: `5042002`
-  - RPC: `https://rpc.testnet.arc.io` (do not use `rpc.testnet.arc.network`)
-  - Explorer: `https://testnet.arcscan.app`
-- [Contract addresses](https://docs.arc.io/arc/references/contract-addresses): supports the specific Arc Testnet addresses and token precision facts transcribed in the inventory, and states mainnet addresses are not yet available in the reviewed documentation.
-- [Network deployment model](https://docs.arc.io/arc/concepts/deployment-model): supports classification of the public testnet as live and mainnet as upcoming in the reviewed documentation.
-- Official Arc finality guidance (deterministic BFT): once a block is committed it is irreversible; Arc documents no reorgs of committed blocks; recommended required confirmations is `1`. WizPay MCP defaults Arc `MinConfirmations` to `1` and still rejects values below `1`. Remaining observation-consistency machinery is a defensive guard against contradictory RPC/provider observations, not an expected consensus reorg path.
+- [Connect to Arc](https://docs.arc.io/arc/references/connect-to-arc): Arc Mainnet chain ID `5042`, RPC `https://rpc.mainnet.arc.io`, explorer `https://explorer.arc.io`, and native USDC gas precision. It separately identifies Testnet as `5042002`, which the Mainnet configuration rejects.
+- [Contract addresses](https://docs.arc.io/arc/references/contract-addresses): Mainnet USDC `0x3600000000000000000000000000000000000000` and EURC `0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1`, both with 6-decimal ERC-20 interfaces. Native USDC gas precision is 18 decimals and must not be mixed with ERC-20 units.
+- Official Arc finality guidance describes deterministic BFT finality. WizPay MCP retains a minimum confirmation value of `1` and defensive observation-consistency checks.
 
-No live financial transaction was performed as part of documenting these facts. Optional offline-disabled Arc integration harnesses may contact the public Testnet RPC when explicitly enabled by operators; default `go test` stays offline.
-
+No financial transaction was performed. The optional Arc integration harness is read-only and disabled unless `WIZPAY_ARC_INTEGRATION=1`; ordinary unit tests remain offline.

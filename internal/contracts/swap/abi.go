@@ -1,10 +1,5 @@
-// Package swap provides the narrow typed Swap contract primitive for the
-// verified WizPaySwapExecutor Arc Testnet deployment. It validates and encodes
-// already-approved immutable swap execution requirements and decodes the
-// verification event.
-//
-// It does not choose routers, fetch quotes, plan routes, submit transactions,
-// or mark financial success.
+// Package swap provides the narrow typed ABI boundary for the reviewed
+// WizPaySwapExecutorMainnet deployment. Track A does not wire swap execution.
 package swap
 
 import (
@@ -17,100 +12,31 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 )
 
-// Canonical execution signature allowlisted for the Swap executor.
-const SigExecuteSwap = "executeSwap(address,address,address,uint256,uint256,address,uint256)"
+const SigExecuteSwap = "executeSwap(address,address,uint256,uint256,uint256,uint256)"
+const SigWizPayMainnetSwapExecuted = "WizPayMainnetSwapExecuted(address,address,address,uint256,uint256,uint256,uint256,uint256)"
 
-// Canonical verification event signature.
-const SigWizPaySwapExecuted = "WizPaySwapExecuted(address,address,address,address,uint256,uint256,uint256,uint256,address)"
+var AdminFunctionNames = []string{"pause", "unpause", "rescueTokens", "transferOwnership", "renounceOwnership"}
 
-// Admin function names present in the full ABI that MUST never be exposed as
-// runtime execution surface by this package.
-var AdminFunctionNames = []string{
-	"pause",
-	"unpause",
-	"rescueTokens",
-	"setFeeBps",
-	"setFeeRecipient",
-	"setRouterAllowed",
-	"setTokenAllowed",
-	"transferOwnership",
-	"renounceOwnership",
-}
-
-// minimalABI is the allowlisted ABI fragment derived from
-// contracts/abi/WizPaySwapExecutor.json. Full admin surface is intentionally
-// omitted.
-//
-// Event indexed/non-indexed layout is taken exactly from the verified ABI:
-//
-//	WizPaySwapExecuted: user, router, tokenIn indexed; remaining fields non-indexed
+// minimalABI is derived from contracts/abi/WizPaySwapExecutorMainnet.json.
 const minimalABI = `[
-  {
-    "type": "function",
-    "name": "executeSwap",
-    "stateMutability": "nonpayable",
-    "inputs": [
-      {"name": "router", "type": "address"},
-      {"name": "tokenIn", "type": "address"},
-      {"name": "tokenOut", "type": "address"},
-      {"name": "amountIn", "type": "uint256"},
-      {"name": "minAmountOut", "type": "uint256"},
-      {"name": "recipient", "type": "address"},
-      {"name": "deadline", "type": "uint256"}
-    ],
-    "outputs": [{"name": "amountOut", "type": "uint256"}]
-  },
-  {
-    "type": "function",
-    "name": "allowedRouters",
-    "stateMutability": "view",
-    "inputs": [{"name": "", "type": "address"}],
-    "outputs": [{"name": "", "type": "bool"}]
-  },
-  {
-    "type": "function",
-    "name": "allowedTokens",
-    "stateMutability": "view",
-    "inputs": [{"name": "", "type": "address"}],
-    "outputs": [{"name": "", "type": "bool"}]
-  },
-  {
-    "type": "function",
-    "name": "feeBps",
-    "stateMutability": "view",
-    "inputs": [],
-    "outputs": [{"name": "", "type": "uint256"}]
-  },
-  {
-    "type": "function",
-    "name": "feeRecipient",
-    "stateMutability": "view",
-    "inputs": [],
-    "outputs": [{"name": "", "type": "address"}]
-  },
-  {
-    "type": "function",
-    "name": "paused",
-    "stateMutability": "view",
-    "inputs": [],
-    "outputs": [{"name": "", "type": "bool"}]
-  },
-  {
-    "type": "event",
-    "name": "WizPaySwapExecuted",
-    "anonymous": false,
-    "inputs": [
-      {"name": "user", "type": "address", "indexed": true},
-      {"name": "router", "type": "address", "indexed": true},
-      {"name": "tokenIn", "type": "address", "indexed": true},
-      {"name": "tokenOut", "type": "address", "indexed": false},
-      {"name": "amountIn", "type": "uint256", "indexed": false},
-      {"name": "feeAmount", "type": "uint256", "indexed": false},
-      {"name": "netAmountIn", "type": "uint256", "indexed": false},
-      {"name": "amountOut", "type": "uint256", "indexed": false},
-      {"name": "recipient", "type": "address", "indexed": false}
-    ]
-  }
+  {"type":"function","name":"executeSwap","stateMutability":"payable","inputs":[{"name":"tokenIn","type":"address"},{"name":"tokenOut","type":"address"},{"name":"amountIn","type":"uint256"},{"name":"minAmountOut","type":"uint256"},{"name":"minHopPriceX36","type":"uint256"},{"name":"deadline","type":"uint256"}],"outputs":[{"name":"amountOut","type":"uint256"}]},
+  {"type":"function","name":"ARC_MAINNET_CHAIN_ID","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"ARC_MAINNET_POOL_FEE","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint24"}]},
+  {"type":"function","name":"ARC_MAINNET_POOL_TICK_SPACING","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"int24"}]},
+  {"type":"function","name":"ARC_NATIVE_USDC_SCALE","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"EURC","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"MAX_DEADLINE_WINDOW","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"MAX_FEE_BPS","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"USDC","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"feeBps","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"feeRecipient","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"owner","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"paused","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"bool"}]},
+  {"type":"function","name":"permit2","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"poolFee","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint24"}]},
+  {"type":"function","name":"poolTickSpacing","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"int24"}]},
+  {"type":"function","name":"universalRouter","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"event","name":"WizPayMainnetSwapExecuted","anonymous":false,"inputs":[{"name":"caller","type":"address","indexed":true},{"name":"tokenIn","type":"address","indexed":true},{"name":"tokenOut","type":"address","indexed":true},{"name":"amountIn","type":"uint256","indexed":false},{"name":"feeAmount","type":"uint256","indexed":false},{"name":"netAmountIn","type":"uint256","indexed":false},{"name":"amountOut","type":"uint256","indexed":false},{"name":"minAmountOut","type":"uint256","indexed":false}]}
 ]`
 
 var (
@@ -120,13 +46,10 @@ var (
 )
 
 func abiDefinition() (ethabi.ABI, error) {
-	parsedABIOnce.Do(func() {
-		parsedABI, parsedABIErr = ethabi.JSON(strings.NewReader(minimalABI))
-	})
+	parsedABIOnce.Do(func() { parsedABI, parsedABIErr = ethabi.JSON(strings.NewReader(minimalABI)) })
 	return parsedABI, parsedABIErr
 }
 
-// MethodBySignature returns the ABI method matching the exact canonical signature.
 func MethodBySignature(signature string) (ethabi.Method, error) {
 	definition, err := abiDefinition()
 	if err != nil {
@@ -140,7 +63,6 @@ func MethodBySignature(signature string) (ethabi.Method, error) {
 	return ethabi.Method{}, fmt.Errorf("swap method %q is not on the allowlisted ABI fragment", signature)
 }
 
-// EventBySignature returns the ABI event matching the exact canonical signature.
 func EventBySignature(signature string) (ethabi.Event, error) {
 	definition, err := abiDefinition()
 	if err != nil {
@@ -154,7 +76,6 @@ func EventBySignature(signature string) (ethabi.Event, error) {
 	return ethabi.Event{}, fmt.Errorf("swap event %q is not on the allowlisted ABI fragment", signature)
 }
 
-// Selector returns the 4-byte selector for a canonical allowlisted signature.
 func Selector(signature string) ([4]byte, error) {
 	method, err := MethodBySignature(signature)
 	if err != nil {
@@ -165,11 +86,9 @@ func Selector(signature string) ([4]byte, error) {
 	return out, nil
 }
 
-// ExpectedDeployment returns the verified Arc Testnet Swap deployment from the
-// provided registry (or the default registry when nil).
 func ExpectedDeployment(registry *contracts.Registry) (contracts.Deployment, error) {
 	if registry == nil {
 		registry = contracts.DefaultRegistry()
 	}
-	return registry.Require(contracts.ContractWizPaySwapExecutor, contracts.RegistryVersion, contracts.ChainIDArcTestnet, contracts.NetworkArcTestnet)
+	return registry.Require(contracts.ContractWizPaySwapExecutor, contracts.RegistryVersion, contracts.ChainIDArcMainnet, contracts.NetworkArcMainnet)
 }

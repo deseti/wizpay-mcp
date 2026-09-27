@@ -58,6 +58,9 @@ func NewAdapterWithBreaker(config Config, httpClient *http.Client, planner provi
 	if planner == nil || authorization == nil || references == nil || now == nil {
 		return nil, fmt.Errorf("Circle adapter dependencies are required")
 	}
+	if !config.Configured() {
+		return nil, fmt.Errorf("Circle Arc Mainnet execution is unavailable in Track A")
+	}
 	transport, err := newClientWithBreaker(config, httpClient, breaker)
 	if err != nil {
 		return nil, err
@@ -379,7 +382,7 @@ func (a *Adapter) validateContractExecutionPlan(plan providers.Plan) error {
 	if call.RegistryVersion() != contracts.RegistryVersion {
 		return fmt.Errorf("contract registry version %d is unsupported", call.RegistryVersion())
 	}
-	if call.ChainID() != a.config.ChainID || call.ChainID() != contracts.ChainIDArcTestnet {
+	if call.ChainID() != a.config.ChainID || call.ChainID() != contracts.ChainIDArcMainnet {
 		return fmt.Errorf("encoded call targets an unsupported chain")
 	}
 	if call.Network() != "" && call.Network() != a.config.Network {

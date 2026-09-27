@@ -4,7 +4,7 @@ WizPay MCP is an independent MCP-native payment orchestration service. Phase 11 
 
 ## Current implementation status
 
-Phases 0–7 established the runtime, identity/wallet, intent/approval, policy, execution-control, MCP tool, and tenant-isolated PostgreSQL persistence foundations. Phase 8 adds verified-principal normalization, persisted identity eligibility checks, typed capability authorization, trusted request context, and canonical storage.Scope mapping. Phase 9 adds PostgreSQL-backed execution leases/fencing, deterministic resume, provider-neutral adapter/verifier boundaries, and verification-gated completion. Phase 10 registers Payroll, Swap, Bridge, and ANS as immutable versioned metadata and provides deterministic, provider-neutral availability decisions. Phase 11 assembles those boundaries into a concrete provider plane: a `providers/wiring` layer composes the Circle User-Controlled Wallet adapter and the Arc Testnet receipt verifier, wires them into the execution worker and into capability availability, and does so fail-closed.
+Phases 0–13 established the runtime, identity/wallet, intent/approval, policy, execution-control, MCP tool, provider, financial-module, autonomous-runtime, and tenant-isolated PostgreSQL foundations. Track A migrates the chain identity and sealed Payroll/Swap contract metadata to Arc Mainnet while keeping every money-moving capability disabled and fail-closed.
 
 Authentication is distinct from authorization, financial approval, and execution permission. Raw bearer credentials are transport input only: they are never domain/application input, logged, audited, or persisted. Tenant and actor identity are derived exclusively from verified claims plus persisted identity resolution; MCP tool arguments cannot override them.
 
@@ -48,8 +48,8 @@ The in-process registry describes capability-to-intent mappings, required permis
 
 The `internal/providers/wiring` package assembles the provider execution plane from configuration. It keeps the provider-neutral core, the Circle boundary, and the Arc boundary from importing one another, and assembly is declarative and fail-closed:
 
-- **Circle User-Controlled Wallet adapter** initiates transfers only the user can authorize and reconciles their outcome. It never signs, never holds a private key, seed phrase, or signing share, never completes a challenge on the user's behalf, and never accepts a wallet identifier from runtime input — the wallet comes from the approved plan alone.
-- **Arc receipt verifier** is read-only. It reads transaction receipts and the chain head over a single Arc Testnet JSON-RPC endpoint (`https://rpc.testnet.arc.io`, chain ID `5042002`), confirms the endpoint's chain identity before trusting any receipt, and is the only component permitted to assert on-chain success or failure. An absent receipt is reported as unknown, never as failure. Arc uses deterministic BFT finality; default required confirmations is `1`.
+- **Circle boundary** retains its user-controlled adapter and reconciliation safeguards, but Arc Mainnet authorization/execution is `UNVERIFIED / REQUIRES OWNER DECISION`. Track A never constructs the adapter, generic verifier, domain verifier, or worker, even when Circle environment fields are populated. It never signs or holds a private key, seed phrase, or signing share.
+- **Arc receipt verifier** is read-only. It reads transaction receipts and the chain head over the single Arc Mainnet JSON-RPC endpoint (`https://rpc.mainnet.arc.io`, chain ID `5042`), confirms the endpoint's chain identity before trusting any receipt, and is the only component permitted to assert on-chain success or failure. Arc Testnet configuration is rejected. An absent receipt is reported as unknown, never as failure. The default required confirmations is `1`.
 - **Provider submission is never verified success.** No Circle transaction state — including `CONFIRMED` and `COMPLETE` — maps to verified success; every post-submission state maps to submitted-pending so the runtime advances to on-chain verification. Only an Arc receipt at the configured confirmation depth yields generic chain-level verification. Phase 12 domain event verification remains separate.
 - **Reconcile, never blindly resubmit.** Once a request may have left the process, an inconclusive response is classified as ambiguous (reconciliation-only), and reconciliation recovers the persisted provider reference rather than issuing a second submission.
 
@@ -71,24 +71,25 @@ Additional fail-closed controls for the Payroll + Swap provider plane:
 
 ## Contract deployment artifacts (Payroll + Swap)
 
-Verified Arc Testnet deployments are registered in the static in-process registry `internal/contracts` at MCP `RegistryVersion` `1` (artifact metadata only — **not** a Solidity semantic version):
+Reviewed Arc Mainnet deployments are registered in the static in-process registry `internal/contracts` at MCP `RegistryVersion` `1` (artifact metadata only — **not** a Solidity semantic version):
 
 | Role | Contract | Address | Chain ID |
 |---|---|---|---:|
-| Payroll | WizPay | `0x87ACE45582f45cC81AC1E627E875AE84cbd75946` | `5042002` |
-| Swap | WizPaySwapExecutor | `0x17685466759f9Cde06f0DCbB5464164ABe541eFA` | `5042002` |
+| Payroll | WizPayPayrollMainnet | `0x77AC7Cb6507D404b5530fC03e3D39BAaEdE10C34` | `5042` |
+| Swap | WizPaySwapExecutorMainnet | `0x7A051F17B237750EF9D4E63fb75381B9F8755774` | `5042` |
 
-- Full verified ABIs: `contracts/abi/WizPay.json`, `contracts/abi/WizPaySwapExecutor.json` (reference-only).
+- Full reviewed ABIs: `contracts/abi/WizPayPayrollMainnet.json`, `contracts/abi/WizPaySwapExecutorMainnet.json` (reference-only).
 - Runtime uses minimal allowlisted ABI fragments in `internal/contracts/payroll` and `internal/contracts/swap`.
 - Admin functions are intentionally excluded from the runtime execution surface.
+- Optional Arc attestation reads bytecode plus fixed registry-only getters for owner, fee recipient/rate, paused state, canonical tokens, router/Permit2, and exposed pool configuration. These observations never enable execution.
 - No generic arbitrary contract executor exists; destination addresses come only from the registry.
 - No separate FX Engine deployment is assumed or registered.
 - Bridge, CCTP, and ANS remain untouched.
-- Contract artifacts do not enable Phase 10 capability availability. Phase 12 remains the Financial Capability Modules boundary.
+- Contract artifacts do not enable capability availability. Track A planners and domain verifiers explicitly refuse execution.
 - No live financial transaction was performed as part of this work.
 
 ## Explicit non-goals
 
-No domain planner, wallet creation, signing, broadcasting of live contract transactions, approval UI, autonomous spending, or treasury routing exists in Phase 11. The Circle adapter, Arc verifier, and contract encode/decode primitives are assembled but cannot drive an execution without a planner, which Phase 12 — the actual financial capability implementation boundary — will supply. No live financial transaction can occur from this phase, and no mainnet configuration is provided. The worker loop remains provider-neutral and idles whenever the plane is not fully configured.
+Track A adds no wallet creation, signing, live transaction broadcasting, ERC20 approval sequencing, native-value execution, autonomous spending, or treasury routing. Payroll and Swap remain disabled; their planners and domain verifiers fail closed. The Mainnet ABI encoders are typed descriptor primitives only and cannot by themselves activate execution.
 
 See docs/architecture.md and docs/persistence.md for boundaries.

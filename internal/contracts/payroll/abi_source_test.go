@@ -4,97 +4,85 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts/payroll"
 )
 
-func TestVerifiedWizPayABIContainsRequiredSurface(t *testing.T) {
-	root := findModuleRoot(t)
-	raw, err := os.ReadFile(filepath.Join(root, "contracts", "abi", "WizPay.json"))
+func TestVerifiedPayrollMainnetABIContainsExactSurface(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(moduleRoot(t), "contracts", "abi", "WizPayPayrollMainnet.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var entries []map[string]any
+	var entries []struct{ Type, Name string }
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		t.Fatalf("WizPay.json parse failed: %v", err)
+		t.Fatal(err)
 	}
-
-	functions := map[string]bool{}
-	events := map[string]bool{}
-	for _, entry := range entries {
-		switch entry["type"] {
-		case "function":
-			name, _ := entry["name"].(string)
-			functions[name] = true
-		case "event":
-			name, _ := entry["name"].(string)
-			events[name] = true
-		}
+	parsed, err := abi.JSON(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, required := range []string{
-		"batchRouteAndPay",
-		"routeAndPay",
-		"getBatchEstimatedOutputs",
-		"getEstimatedOutput",
-		"paused",
-		"whitelistEnabled",
-		"whitelistedTokens",
-		"feeBps",
+	for name, signature := range map[string]string{
+		"executeSameTokenPayroll":  payroll.SigExecuteSameTokenPayroll,
+		"executeCrossTokenPayroll": payroll.SigExecuteCrossTokenPayroll,
 	} {
-		if !functions[required] {
-			t.Fatalf("required function %q missing from verified ABI", required)
+		method, ok := parsed.Methods[name]
+		if !ok || method.Sig != signature {
+			t.Fatalf("full ABI %s signature = %q, want %q", name, method.Sig, signature)
 		}
 	}
-	for _, required := range []string{"BatchPaymentRouted", "PaymentRouted"} {
-		if !events[required] {
-			t.Fatalf("required event %q missing from verified ABI", required)
+	for name, signature := range map[string]string{
+		"PayrollBatchExecuted":     payroll.SigPayrollBatchExecuted,
+		"PayrollPayment":           payroll.SigPayrollPayment,
+		"PayrollReferenceConsumed": payroll.SigPayrollReferenceConsumed,
+		"PayrollSurplusRefunded":   payroll.SigPayrollSurplusRefunded,
+		"PayrollSwapExecuted":      payroll.SigPayrollSwapExecuted,
+	} {
+		event, ok := parsed.Events[name]
+		if !ok || event.Sig != signature {
+			t.Fatalf("full ABI %s signature = %q, want %q", name, event.Sig, signature)
 		}
 	}
-	// Admin functions may exist in source ABI...
+	functions, events := map[string]bool{}, map[string]bool{}
+	for _, entry := range entries {
+		if entry.Type == "function" {
+			functions[entry.Name] = true
+		}
+		if entry.Type == "event" {
+			events[entry.Name] = true
+		}
+	}
+	for _, name := range []string{"executeSameTokenPayroll", "executeCrossTokenPayroll", "USDC", "EURC", "universalRouter", "permit2", "poolManager"} {
+		if !functions[name] {
+			t.Fatalf("missing function %s", name)
+		}
+	}
+	for _, name := range []string{"PayrollBatchExecuted", "PayrollPayment", "PayrollReferenceConsumed", "PayrollSurplusRefunded", "PayrollSwapExecuted"} {
+		if !events[name] {
+			t.Fatalf("missing event %s", name)
+		}
+	}
+	for _, old := range []string{"batchRouteAndPay", "routeAndPay"} {
+		if functions[old] {
+			t.Fatalf("stale Testnet function %s", old)
+		}
+	}
 	for _, admin := range payroll.AdminFunctionNames {
 		if !functions[admin] {
-			t.Fatalf("expected admin function %q to exist in full ABI source", admin)
-		}
-	}
-	// ...but must not be present on the runtime allowlisted fragment.
-	for _, admin := range payroll.AdminFunctionNames {
-		if _, err := payroll.MethodBySignature(admin + "()"); err == nil {
-			t.Fatalf("admin function %q unexpectedly resolvable on runtime ABI fragment", admin)
+			t.Fatalf("full ABI missing admin function %s", admin)
 		}
 	}
 }
 
-func TestRuntimeABIHasNoAdminMethods(t *testing.T) {
-	// Ensure none of the admin names are available as MethodBySignature with
-	// any common signature shape used in the full ABI.
-	candidates := []string{
-		"emergencyWithdraw(address,uint256)",
-		"pause()",
-		"unpause()",
-		"setTokenWhitelist(address,bool)",
-		"batchSetTokenWhitelist(address[],bool)",
-		"setWhitelistEnabled(bool)",
-		"updateFXEngine(address)",
-		"updateFee(uint256)",
-		"updateFeeCollector(address)",
-		"transferOwnership(address)",
-		"renounceOwnership()",
-	}
-	for _, signature := range candidates {
-		if _, err := payroll.MethodBySignature(signature); err == nil {
-			t.Fatalf("admin signature %q is exposed by runtime ABI", signature)
-		}
-	}
-}
-
-func findModuleRoot(t *testing.T) string {
+func moduleRoot(t *testing.T) string {
 	t.Helper()
-	wd, err := os.Getwd()
+	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := wd
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir

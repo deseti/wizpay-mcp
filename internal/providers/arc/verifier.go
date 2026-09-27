@@ -21,7 +21,7 @@ type receiptSource interface {
 // failed on-chain. It does so from a receipt on the configured chain at the
 // configured confirmation depth, and from nothing else.
 //
-// Arc Testnet uses deterministic BFT finality: committed blocks are irreversible
+// Arc Mainnet uses deterministic BFT finality: committed blocks are irreversible
 // and Arc documents no consensus reorgs. The default confirmation depth is
 // therefore 1. Success here is generic chain-level receipt evidence only;
 // Phase 12 domain event verification remains separate and still required for

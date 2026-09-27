@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deseti/wizpay-mcp/internal/capabilities"
 	"github.com/deseti/wizpay-mcp/internal/execution"
 	"github.com/deseti/wizpay-mcp/internal/payroll"
 	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/providers/arc"
+	"github.com/deseti/wizpay-mcp/internal/providers/circle"
 	"github.com/deseti/wizpay-mcp/internal/swap"
 )
 
@@ -33,19 +33,37 @@ func fixedClock() func() time.Time {
 	return func() time.Time { return instant }
 }
 
-// configuredLookup returns an environment in which both providers are fully
-// configured for Arc Testnet.
+// configuredLookup models an attempted Circle Arc Mainnet activation. Track A
+// must reject it before provider assembly.
 func configuredLookup() func(string) (string, bool) {
 	values := map[string]string{
-		"WIZPAY_CIRCLE_ENABLED": "true",
-		"WIZPAY_CIRCLE_API_KEY": "test-api-key",
-		"WIZPAY_ARC_ENABLED":    "true",
-		"WIZPAY_ARC_CHAIN_ID":   arc.ChainIDTestnet,
-		"WIZPAY_ARC_NETWORK":    arc.NetworkTestnet,
+		"WIZPAY_CIRCLE_ENABLED":    "true",
+		"WIZPAY_CIRCLE_API_KEY":    "test-api-key",
+		"WIZPAY_CIRCLE_BLOCKCHAIN": "ARC",
+		"WIZPAY_ARC_ENABLED":       "true",
+		"WIZPAY_ARC_CHAIN_ID":      arc.ChainIDMainnet,
+		"WIZPAY_ARC_NETWORK":       arc.NetworkMainnet,
 	}
 	return func(key string) (string, bool) {
 		value, found := values[key]
 		return value, found
+	}
+}
+
+func mainnetAttemptConfig(t *testing.T) Config {
+	t.Helper()
+	arcConfig, err := arc.LoadConfig(func(key string) (string, bool) {
+		if key == "WIZPAY_ARC_ENABLED" {
+			return "true", true
+		}
+		return "", false
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Config{
+		Circle: circle.Config{Enabled: true, BaseURL: "https://api.circle.com", Blockchain: circle.Blockchain("ARC"), ChainID: arc.ChainIDMainnet, Network: arc.NetworkMainnet, Timeout: 20 * time.Second},
+		Arc:    arcConfig,
 	}
 }
 
@@ -81,6 +99,12 @@ func TestLoadConfigDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsCircleMainnetActivation(t *testing.T) {
+	if _, err := LoadConfig(configuredLookup()); err == nil {
+		t.Fatal("Circle Arc Mainnet activation must be rejected in Track A")
+	}
+}
+
 func TestBuildRequiresClock(t *testing.T) {
 	config, err := LoadConfig(emptyLookup())
 	if err != nil {
@@ -96,13 +120,7 @@ func TestBuildRequiresClock(t *testing.T) {
 func TestBuildUnconfiguredWithoutPlanner(t *testing.T) {
 	// Even with both providers configured, the absence of a planner must leave
 	// the adapter and verifier nil: no execution may be driven.
-	config, err := LoadConfig(configuredLookup())
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	if !config.Circle.Configured() || !config.Arc.Configured() {
-		t.Fatalf("expected both providers configured")
-	}
+	config := mainnetAttemptConfig(t)
 	deps := fullDependencies()
 	deps.Planner = nil
 	plane, err := Build(config, deps)
@@ -115,7 +133,7 @@ func TestBuildUnconfiguredWithoutPlanner(t *testing.T) {
 	if plane.Verifier != nil {
 		t.Fatalf("verifier must be nil without a configured adapter")
 	}
-	if len(plane.ProviderFeatures(arc.ChainIDTestnet, arc.NetworkTestnet)) != 0 {
+	if len(plane.ProviderFeatures(arc.ChainIDMainnet, arc.NetworkMainnet)) != 0 {
 		t.Fatalf("an unconfigured provider must expose no features")
 	}
 }
@@ -137,39 +155,27 @@ func TestBuildUnconfiguredWhenProvidersDisabled(t *testing.T) {
 	}
 }
 
-func TestBuildConfigured(t *testing.T) {
-	config, err := LoadConfig(configuredLookup())
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
+func TestBuildNeverActivatesCircleMainnetInTrackA(t *testing.T) {
+	config := mainnetAttemptConfig(t)
 	plane, err := Build(config, fullDependencies())
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if plane.Adapter == nil {
-		t.Fatalf("configured providers must produce an adapter")
+	if plane.Adapter != nil || plane.Verifier != nil || plane.DomainVerifier != nil {
+		t.Fatalf("Circle Mainnet attempt activated execution plane: %#v", plane)
 	}
-	if plane.Verifier == nil {
-		t.Fatalf("configured providers must produce a verifier")
-	}
-	if plane.DomainVerifier == nil {
-		t.Fatalf("configured providers must produce a typed domain verifier")
-	}
-	features := plane.ProviderFeatures(arc.ChainIDTestnet, arc.NetworkTestnet)
-	if !containsFeature(features, capabilities.FeatureUserControlledWallet) || !containsFeature(features, capabilities.FeatureContractExecution) || !containsFeature(features, capabilities.FeatureSwapExecution) {
-		t.Fatalf("configured provider must expose its declared features, got %v", features)
+	features := plane.ProviderFeatures(arc.ChainIDMainnet, arc.NetworkMainnet)
+	if len(features) != 0 {
+		t.Fatalf("unreviewed provider must expose no Mainnet execution features, got %v", features)
 	}
 	// A different chain must expose nothing: features are chain-scoped.
-	if len(plane.ProviderFeatures("1", arc.NetworkTestnet)) != 0 {
+	if len(plane.ProviderFeatures("1", arc.NetworkMainnet)) != 0 {
 		t.Fatalf("features must not leak onto an unsupported chain")
 	}
 }
 
 func TestBuildLeavesDomainVerifierUnconfiguredWithIncompleteTypedDependencies(t *testing.T) {
-	config, err := LoadConfig(configuredLookup())
-	if err != nil {
-		t.Fatal(err)
-	}
+	config := mainnetAttemptConfig(t)
 	tests := []struct {
 		name string
 		drop func(*Dependencies)
@@ -188,21 +194,9 @@ func TestBuildLeavesDomainVerifierUnconfiguredWithIncompleteTypedDependencies(t 
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
-			if plane.Verifier == nil {
-				t.Fatal("generic verifier should remain assembled")
-			}
-			if plane.DomainVerifier != nil {
-				t.Fatalf("missing %s produced a domain verifier", test.name)
+			if plane.Adapter != nil || plane.Verifier != nil || plane.DomainVerifier != nil {
+				t.Fatalf("missing %s unexpectedly activated provider plane", test.name)
 			}
 		})
 	}
-}
-
-func containsFeature(features []capabilities.ProviderFeature, target capabilities.ProviderFeature) bool {
-	for _, feature := range features {
-		if feature == target {
-			return true
-		}
-	}
-	return false
 }
