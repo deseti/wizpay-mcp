@@ -72,3 +72,14 @@ func NewAutonomyRegistry(service services.AutonomyService) (*Registry, error) {
 	}
 	return NewRegistry(definitions...)
 }
+
+func NewSendRegistry(service services.SendService) (*Registry, error) {
+	if service == nil {
+		return nil, fmt.Errorf("send service is required")
+	}
+	definitions, err := sendDefinitions(service)
+	if err != nil {
+		return nil, err
+	}
+	return NewRegistry(definitions...)
+}

@@ -52,6 +52,13 @@ type Receipt struct {
 	// Logs are bounded, normalized receipt logs in deterministic provider order.
 	// Empty when the receipt has no logs or logs were not extracted.
 	Logs []ReceiptLog
+	// Transaction fields are bounded evidence from eth_getTransactionByHash.
+	// HasTransaction distinguishes absent evidence from zero values.
+	HasTransaction bool
+	From           string
+	To             string
+	Value          string
+	Input          []byte
 }
 
 // ChainVerifier reads transaction receipts from a chain. Implementations must

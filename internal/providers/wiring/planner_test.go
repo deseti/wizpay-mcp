@@ -14,6 +14,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/intents"
 	"github.com/deseti/wizpay-mcp/internal/payroll"
 	"github.com/deseti/wizpay-mcp/internal/policies"
+	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/storage"
 	"github.com/deseti/wizpay-mcp/internal/swap"
 	"github.com/deseti/wizpay-mcp/internal/wallet"
@@ -87,6 +88,37 @@ func TestPlannerSameRequestDeterministicallyRefusesExecution(t *testing.T) {
 	_, second := planner.Plan(storage.WithScope(context.Background(), scope), request)
 	if first == nil || second == nil || first.Error() != second.Error() {
 		t.Fatalf("errors differ: %v / %v", first, second)
+	}
+}
+
+func TestPlannerBuildsStableSendPlanAndIdempotencyIdentity(t *testing.T) {
+	request, intent := executionRequest(t, frozenIntent(t, intents.TypeSend))
+	planner, err := NewPlanner(&intentRepositoryStub{intent: intent}, payroll.NewPlanner(nil), swap.NewPlanner(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, _ := storage.NewScope("tenant", "actor", "request", "trace")
+	first, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.TokenAddress != contracts.AddressUSDCMainnet || first.DestinationAddress != "0x3333333333333333333333333333333333333333" || first.AmountBaseUnits != "1000000" || first.WalletAddress != intent.Ownership().WalletAddress {
+		t.Fatalf("send provider plan = %#v", first)
+	}
+	if first.TokenAddress != second.TokenAddress || first.DestinationAddress != second.DestinationAddress || first.AmountBaseUnits != second.AmountBaseUnits || first.WalletAddress != second.WalletAddress {
+		t.Fatal("retry changed frozen SEND plan")
+	}
+	key1, err := providers.IdempotencyKey(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key2, err := providers.IdempotencyKey(request)
+	if err != nil || key1 != key2 {
+		t.Fatalf("idempotency keys = %q / %q, err %v", key1, key2, err)
 	}
 }
 
@@ -231,8 +263,15 @@ func frozenIntentVersion(t *testing.T, kind intents.Type, nonce string, version 
 	t.Helper()
 	owner := intents.Ownership{UserID: "user", IdentityProvider: "circle", ProviderUserReference: "provider-user", WalletBindingID: "binding", WalletBindingVersion: 1, WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet}
 	token := intents.Token{ChainID: contracts.ChainIDArcMainnet, Standard: "ERC20", Address: contracts.AddressUSDCMainnet, Symbol: "USDC", Decimals: 6}
-	params := intents.Params{IntentID: "intent-" + strings.ToLower(string(kind)), Version: version, ClientRequestID: "client", Nonce: nonce, Type: kind, Ownership: owner, Route: intents.Route{Type: intents.RouteAllowlistedContract, Reference: map[intents.Type]string{intents.TypePayroll: intents.RouteReferencePayroll, intents.TypeSwap: intents.RouteReferenceSwap}[kind], Version: 1}, Constraints: intents.Constraints{Deadline: plannerTestNow.Add(20 * time.Minute), PolicyReference: "policy:1"}, CreatedAt: plannerTestNow, ExpiresAt: plannerTestNow.Add(30 * time.Minute)}
-	if kind == intents.TypePayroll {
+	routeType := intents.RouteAllowlistedContract
+	routeReference := map[intents.Type]string{intents.TypePayroll: intents.RouteReferencePayroll, intents.TypeSwap: intents.RouteReferenceSwap}[kind]
+	if kind == intents.TypeSend {
+		routeType, routeReference = intents.RouteDirectWallet, intents.RouteReferenceSend
+	}
+	params := intents.Params{IntentID: "intent-" + strings.ToLower(string(kind)), Version: version, ClientRequestID: "client", Nonce: nonce, Type: kind, Ownership: owner, Route: intents.Route{Type: routeType, Reference: routeReference, Version: 1}, Constraints: intents.Constraints{Deadline: plannerTestNow.Add(20 * time.Minute), PolicyReference: "policy:1"}, CreatedAt: plannerTestNow, ExpiresAt: plannerTestNow.Add(30 * time.Minute)}
+	if kind == intents.TypeSend {
+		params.Financial = intents.FinancialParameters{Send: &intents.SendParameters{Token: token, Recipient: "0x3333333333333333333333333333333333333333", Amount: amount("1")}}
+	} else if kind == intents.TypePayroll {
 		params.Financial = intents.FinancialParameters{Payroll: &intents.PayrollParameters{SchemaVersion: intents.FinancialSchemaPhase12, Variant: intents.PayrollVariantSingle, TokenIn: token, Recipients: []intents.Recipient{{Address: "0x3333333333333333333333333333333333333333", TokenOut: token, AmountIn: amount("1"), MinAmountOut: amount("1")}}, Total: amount("1")}}
 	} else {
 		output := token

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 )
 
@@ -201,6 +202,19 @@ func validateParams(p Params) error {
 		return err
 	}
 	switch p.Type {
+	case TypeSend:
+		if p.Financial.Send.Token.ChainID != p.Ownership.ChainID {
+			return fmt.Errorf("send token chain does not match owning wallet chain")
+		}
+		if p.Ownership.ChainID != contracts.ChainIDArcMainnet || p.Ownership.Network != contracts.NetworkArcMainnet {
+			return fmt.Errorf("SEND requires Arc Mainnet wallet ownership")
+		}
+		if addressesEqual(p.Ownership.WalletAddress, p.Financial.Send.Recipient) {
+			return fmt.Errorf("send recipient cannot equal source wallet")
+		}
+		if err := validateSendRoute(p.Route); err != nil {
+			return err
+		}
 	case TypePayroll:
 		token := p.Financial.Payroll.SourceToken()
 		if token.ChainID != p.Ownership.ChainID {
@@ -318,6 +332,14 @@ func normalizeCreationAddresses(p *Params) {
 	normalizeOwnershipWalletAddress(&p.Ownership)
 	if p.Financial.Payroll != nil {
 		normalizePayrollAddresses(p.Financial.Payroll)
+	}
+	if p.Financial.Send != nil {
+		if contracts.ValidAddress(p.Financial.Send.Token.Address) {
+			p.Financial.Send.Token.Address = normalizeEVMAddress(p.Financial.Send.Token.Address)
+		}
+		if contracts.ValidAddress(p.Financial.Send.Recipient) {
+			p.Financial.Send.Recipient = normalizeEVMAddress(p.Financial.Send.Recipient)
+		}
 	}
 	if p.Financial.Swap != nil {
 		normalizeSwapAddresses(p.Financial.Swap)

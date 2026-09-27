@@ -14,6 +14,10 @@ type receiptSource interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 }
 
+type transactionSource interface {
+	Transaction(ctx context.Context, transactionHash string) (transactionPayload, bool, error)
+}
+
 // Verifier reads Arc transaction receipts and reports provider-neutral on-chain
 // outcomes.
 //
@@ -99,6 +103,23 @@ func (v *Verifier) TransactionReceipt(ctx context.Context, chainID, transactionH
 		BlockHash:       blockHash,
 		Confirmations:   head - blockNumber + 1,
 		Logs:            logs,
+	}
+	if source, ok := v.source.(transactionSource); ok {
+		transaction, found, txErr := source.Transaction(ctx, normalized)
+		if txErr != nil {
+			return providers.Receipt{}, txErr
+		}
+		if found {
+			input, decodeErr := decodeTransactionInput(transaction.Input)
+			if decodeErr != nil {
+				return providers.Receipt{}, fmt.Errorf("Arc transaction input is invalid")
+			}
+			receipt.HasTransaction = true
+			receipt.From = strings.ToLower(strings.TrimSpace(transaction.From))
+			receipt.To = strings.ToLower(strings.TrimSpace(transaction.To))
+			receipt.Value = strings.ToLower(strings.TrimSpace(transaction.Value))
+			receipt.Input = input
+		}
 	}
 	switch strings.ToLower(strings.TrimSpace(payload.Status)) {
 	case "0x1":

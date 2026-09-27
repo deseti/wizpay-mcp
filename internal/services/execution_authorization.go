@@ -108,7 +108,11 @@ func executionAuthorizationOf(approval approvals.Approval, intent intents.Intent
 	sum := sha256.Sum256([]byte("execution-authorization/" + approval.ApprovalID() + "/" + fmt.Sprint(approval.LifecycleRevision())))
 	result := ExecutionAuthorization{AuthorizationID: "eauth_" + hex.EncodeToString(sum[:12]), ApprovalID: approval.ApprovalID(), IntentID: approval.IntentID(), WalletBindingID: approval.WalletBindingID(), WalletBindingVersion: approval.WalletBindingVersion(), Status: approval.Status(), WalletReference: approval.WalletID() + " / " + approval.WalletAddress(), AgentIdentity: approval.UserID()}
 	financial := intent.Financial()
-	if financial.Payroll != nil {
+	if financial.Send != nil {
+		result.Amount = financial.Send.Amount.Decimal
+		result.Token = financial.Send.Token.Symbol
+		result.Recipient = financial.Send.Recipient
+	} else if financial.Payroll != nil {
 		p := financial.Payroll
 		token := p.SourceToken()
 		result.Amount = p.Total.Decimal

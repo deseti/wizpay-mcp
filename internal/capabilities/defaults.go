@@ -2,6 +2,7 @@ package capabilities
 
 import (
 	"github.com/deseti/wizpay-mcp/internal/auth"
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 )
 
@@ -17,10 +18,23 @@ func DefaultRegistry() *Registry {
 
 func DefaultDescriptors() []Descriptor {
 	return []Descriptor{
+		defaultSendDescriptor(),
 		defaultDescriptor(CapabilityPayroll, intents.TypePayroll, "Payroll supports typed allowlisted contract execution; production availability remains disabled by default and depends on complete provider and runtime authorization configuration.", []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution}),
 		defaultDescriptor(CapabilitySwap, intents.TypeSwap, "Swap supports typed allowlisted contract execution; production availability remains disabled by default and depends on complete provider and runtime authorization configuration.", []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution, FeatureSwapExecution}),
 		defaultDescriptor(CapabilityBridge, intents.TypeBridge, "Bridge capability metadata; execution is not implemented.", []ProviderFeature{FeatureUserControlledWallet, FeatureBridgeExecution}),
 		defaultDescriptor(CapabilityANS, intents.TypeANSRegistration, "ANS registration capability metadata; execution is not implemented.", []ProviderFeature{FeatureUserControlledWallet, FeatureANSRegistration}),
+	}
+}
+
+func defaultSendDescriptor() Descriptor {
+	return Descriptor{
+		ID: CapabilitySend, Version: 1, Status: StatusDisabled, IntentType: intents.TypeSend,
+		Permissions:     []auth.Permission{auth.PermissionCreateIntent, auth.PermissionRequestApproval, auth.PermissionEvaluatePolicy, auth.PermissionPrepareExecution},
+		Requirements:    Requirements{Approval: true, Policy: true, Execution: true},
+		SupportedChains: []string{contracts.ChainIDArcMainnet}, SupportedNetworks: []string{contracts.NetworkArcMainnet},
+		SupportedTokens: []TokenClass{"USDC", "EURC"}, SupportedRoutes: []RouteType{RouteDirect},
+		ProviderFeatures: []ProviderFeature{FeatureUserControlledWallet, FeatureTokenTransfer},
+		Description:      "Send supports direct canonical ERC-20 transfers on Arc Mainnet; it remains disabled until a validated user-controlled Mainnet authorization provider is configured.",
 	}
 }
 

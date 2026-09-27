@@ -151,7 +151,7 @@ func TestRegisteredDescriptorIsImmutableAndDigestDeterministic(t *testing.T) {
 
 func TestDefaultsAreRegisteredButUnavailable(t *testing.T) {
 	registry := DefaultRegistry()
-	for _, id := range []CapabilityID{CapabilityPayroll, CapabilitySwap, CapabilityBridge, CapabilityANS} {
+	for _, id := range []CapabilityID{CapabilitySend, CapabilityPayroll, CapabilitySwap, CapabilityBridge, CapabilityANS} {
 		_, err := registry.GetLatest(id)
 		if err == nil {
 			t.Fatalf("disabled default %s selected as latest", id)

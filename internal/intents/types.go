@@ -17,6 +17,7 @@ const maxTextLength = 256
 type Type string
 
 const (
+	TypeSend            Type = "SEND"
 	TypePayroll         Type = "PAYROLL"
 	TypeSwap            Type = "SWAP"
 	TypeBridge          Type = "BRIDGE"
@@ -25,7 +26,7 @@ const (
 
 func (t Type) Valid() bool {
 	switch t {
-	case TypePayroll, TypeSwap, TypeBridge, TypeANSRegistration:
+	case TypeSend, TypePayroll, TypeSwap, TypeBridge, TypeANSRegistration:
 		return true
 	default:
 		return false
@@ -273,6 +274,7 @@ type SwapParameters struct {
 // FinancialParameters is a closed discriminated union. Exactly one member must
 // be present and it must match the enclosing intent Type.
 type FinancialParameters struct {
+	Send    *SendParameters    `json:"send,omitempty"`
 	Payroll *PayrollParameters `json:"payroll,omitempty"`
 	Swap    *SwapParameters    `json:"swap,omitempty"`
 	Bridge  *BridgeParameters  `json:"bridge,omitempty"`
@@ -281,6 +283,9 @@ type FinancialParameters struct {
 
 func (p FinancialParameters) validate(kind Type) error {
 	count := 0
+	if p.Send != nil {
+		count++
+	}
 	if p.Payroll != nil {
 		count++
 	}
@@ -297,6 +302,11 @@ func (p FinancialParameters) validate(kind Type) error {
 		return fmt.Errorf("financial parameters must contain exactly one typed payload")
 	}
 	switch kind {
+	case TypeSend:
+		if p.Send == nil {
+			return fmt.Errorf("SEND requires send parameters")
+		}
+		return p.Send.validate()
 	case TypePayroll:
 		if p.Payroll == nil {
 			return fmt.Errorf("PAYROLL requires payroll parameters")
@@ -324,6 +334,10 @@ func (p FinancialParameters) validate(kind Type) error {
 
 func cloneFinancial(p FinancialParameters) FinancialParameters {
 	result := p
+	if p.Send != nil {
+		value := *p.Send
+		result.Send = &value
+	}
 	if p.Payroll != nil {
 		value := *p.Payroll
 		value.Recipients = append([]Recipient(nil), p.Payroll.Recipients...)

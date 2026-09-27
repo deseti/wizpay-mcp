@@ -20,6 +20,10 @@ const (
 	CreateScheduleName   = "wizpay.autonomy.create_schedule"
 	ControlScheduleName  = "wizpay.autonomy.control_schedule"
 	EmergencyStopName    = "wizpay.autonomy.emergency_stop"
+	SendPreviewName      = "wizpay.send.preview"
+	SendCreateIntentName = "wizpay.send.create_intent"
+	SendExecuteName      = "wizpay.send.execute"
+	SendStatusName       = "wizpay.send.status"
 )
 
 type Definition struct {

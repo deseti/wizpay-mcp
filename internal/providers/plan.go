@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -54,6 +55,12 @@ type Plan struct {
 	DestinationAddress string
 	TokenID            string
 	Amount             string
+	// TokenAddress, TokenDecimals, and AmountBaseUnits bind strict on-chain
+	// verification for direct ERC-20 sends. Legacy provider transfers may omit
+	// them, but the SEND planner always supplies all three from frozen intent.
+	TokenAddress    string
+	TokenDecimals   uint8
+	AmountBaseUnits string
 
 	// encodedCall is CONTRACT_EXECUTION only. It is unexported so external
 	// packages cannot inject arbitrary target/calldata without going through
@@ -67,6 +74,64 @@ type Plan struct {
 	// continue even if this bound is in the past.
 	submitNotAfter    time.Time
 	hasSubmitNotAfter bool
+}
+
+type TokenTransferParams struct {
+	WalletBindingID string
+	WalletID        string
+	WalletAddress   string
+	ChainID         string
+	Network         string
+	Destination     string
+	TokenID         string
+	TokenAddress    string
+	TokenDecimals   uint8
+	Amount          string
+	AmountBaseUnits string
+}
+
+// NewTokenTransferPlan constructs the strict token-transfer shape used by
+// SEND. Financial fields are expected to come from one frozen approved intent.
+func NewTokenTransferPlan(params TokenTransferParams) (Plan, error) {
+	plan := Plan{Kind: PlanKindTokenTransfer, WalletBindingID: params.WalletBindingID,
+		WalletID: params.WalletID, WalletAddress: params.WalletAddress, ChainID: params.ChainID,
+		Network: params.Network, DestinationAddress: params.Destination, TokenID: params.TokenID,
+		TokenAddress: params.TokenAddress, TokenDecimals: params.TokenDecimals,
+		Amount: params.Amount, AmountBaseUnits: params.AmountBaseUnits}
+	if err := plan.Validate(); err != nil {
+		return Plan{}, err
+	}
+	if !ValidAddress(plan.TokenAddress) || plan.AmountBaseUnits == "" {
+		return Plan{}, fmt.Errorf("strict token transfer requires token address and base units")
+	}
+	canonical, err := contracts.CanonicalToken(plan.TokenID)
+	if err != nil || plan.ChainID != canonical.ChainID || plan.Network != canonical.Network ||
+		!contracts.AddressesEqual(plan.TokenAddress, canonical.Address) || plan.TokenDecimals != canonical.Decimals {
+		return Plan{}, fmt.Errorf("strict token transfer requires a canonical Arc Mainnet token")
+	}
+	if err := validateExactBaseUnits(plan.Amount, plan.AmountBaseUnits, plan.TokenDecimals); err != nil {
+		return Plan{}, err
+	}
+	return plan, nil
+}
+
+func validateExactBaseUnits(decimal, baseUnits string, decimals uint8) error {
+	if baseUnits == "" || (len(baseUnits) > 1 && baseUnits[0] == '0') {
+		return fmt.Errorf("strict token transfer base units are invalid")
+	}
+	actual, ok := new(big.Int).SetString(baseUnits, 10)
+	if !ok || actual.Sign() <= 0 {
+		return fmt.Errorf("strict token transfer base units must be positive")
+	}
+	whole, fraction, hasFraction := strings.Cut(decimal, ".")
+	if len(fraction) > int(decimals) || whole == "" || (hasFraction && fraction == "") {
+		return fmt.Errorf("strict token transfer amount precision is invalid")
+	}
+	expected, ok := new(big.Int).SetString(whole+fraction+strings.Repeat("0", int(decimals)-len(fraction)), 10)
+	if !ok || expected.Cmp(actual) != 0 {
+		return fmt.Errorf("strict token transfer decimal and base units do not match")
+	}
+	return nil
 }
 
 // ContractExecutionParams constructs a sealed CONTRACT_EXECUTION plan.

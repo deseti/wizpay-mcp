@@ -39,6 +39,9 @@ func (in CreateIntentInput) Validate() error {
 	}
 
 	count := 0
+	if in.Financial.Send != nil {
+		count++
+	}
 	if in.Financial.Payroll != nil {
 		count++
 	}
@@ -54,7 +57,8 @@ func (in CreateIntentInput) Validate() error {
 	if count != 1 {
 		return fmt.Errorf("financial must contain exactly one typed payload")
 	}
-	if (in.IntentType == intents.TypePayroll) != (in.Financial.Payroll != nil) ||
+	if (in.IntentType == intents.TypeSend) != (in.Financial.Send != nil) ||
+		(in.IntentType == intents.TypePayroll) != (in.Financial.Payroll != nil) ||
 		(in.IntentType == intents.TypeSwap) != (in.Financial.Swap != nil) ||
 		(in.IntentType == intents.TypeBridge) != (in.Financial.Bridge != nil) ||
 		(in.IntentType == intents.TypeANSRegistration) != (in.Financial.ANS != nil) {
@@ -64,6 +68,17 @@ func (in CreateIntentInput) Validate() error {
 }
 
 func validateFinancial(financial intents.FinancialParameters) error {
+	if send := financial.Send; send != nil {
+		if err := send.Token.Validate(); err != nil {
+			return err
+		}
+		if err := validateReference("recipient", send.Recipient); err != nil {
+			return err
+		}
+		if err := send.Amount.Validate(); err != nil {
+			return err
+		}
+	}
 	if payroll := financial.Payroll; payroll != nil {
 		if err := payroll.Token.Validate(); err != nil {
 			return err
@@ -200,6 +215,43 @@ func (in PrepareExecutionInput) Validate() error {
 		return fmt.Errorf("policy_version must be at least 1")
 	}
 	return nil
+}
+
+func (in SendDraftInput) Validate() error {
+	for name, value := range map[string]string{"request_id": in.RequestID, "client_request_id": in.ClientRequestID, "nonce": in.Nonce, "wallet_binding_id": in.WalletBindingID, "recipient": in.Recipient, "policy_reference": in.PolicyReference} {
+		if err := validateReference(name, value); err != nil {
+			return err
+		}
+	}
+	if in.Token != "USDC" && in.Token != "EURC" {
+		return fmt.Errorf("token must be USDC or EURC")
+	}
+	if !in.Amount.IsPositive() {
+		return fmt.Errorf("amount must be positive and exact")
+	}
+	if in.Deadline.IsZero() {
+		return fmt.Errorf("deadline is required")
+	}
+	return nil
+}
+
+func (in SendExecuteInput) Validate() error {
+	for name, value := range map[string]string{"request_id": in.RequestID, "intent_id": in.IntentID, "approval_id": in.ApprovalID, "policy_id": in.PolicyID} {
+		if err := validateReference(name, value); err != nil {
+			return err
+		}
+	}
+	if in.PolicyVersion == 0 {
+		return fmt.Errorf("policy_version must be at least 1")
+	}
+	return nil
+}
+
+func (in SendStatusInput) Validate() error {
+	if err := validateRequestID(in.RequestID); err != nil {
+		return err
+	}
+	return validateReference("execution_id", in.ExecutionID)
 }
 
 func publicToolError(requestID string, err error) *ToolError {

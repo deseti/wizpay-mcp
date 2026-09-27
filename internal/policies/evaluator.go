@@ -160,6 +160,11 @@ func newIntentView(intent intents.Intent) (intentView, error) {
 		view.effectiveDeadline = deadline
 	}
 	switch intent.Type() {
+	case intents.TypeSend:
+		view.spendToken, view.spendAmount = tokenReference(financial.Send.Token), financial.Send.Amount
+		view.chains = []string{financial.Send.Token.ChainID}
+		view.tokens = []TokenReference{tokenReference(financial.Send.Token)}
+		view.recipients = []string{financial.Send.Recipient}
 	case intents.TypePayroll:
 		source := financial.Payroll.SourceToken()
 		view.spendToken, view.spendAmount = tokenReference(source), financial.Payroll.Total

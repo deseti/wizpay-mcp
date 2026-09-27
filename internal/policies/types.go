@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 )
 
@@ -139,7 +140,7 @@ func tokenReference(token intents.Token) TokenReference {
 }
 
 func (t TokenReference) key() string {
-	return t.ChainID + "\x00" + t.Standard + "\x00" + t.Address + "\x00" + strconv.Itoa(int(t.Decimals))
+	return t.ChainID + "\x00" + t.Standard + "\x00" + contracts.NormalizeAddress(t.Address) + "\x00" + strconv.Itoa(int(t.Decimals))
 }
 
 // Reason is a stable, non-sensitive explanation suitable for audit metadata.

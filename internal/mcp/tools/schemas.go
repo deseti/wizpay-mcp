@@ -84,7 +84,7 @@ type CreateIntentInput struct {
 	ClientRequestID string                      `json:"client_request_id" jsonschema:"idempotency identifier chosen by the client"`
 	Nonce           string                      `json:"nonce" jsonschema:"unique intent nonce"`
 	WalletBindingID string                      `json:"wallet_binding_id" jsonschema:"previously authorized wallet binding reference"`
-	IntentType      intents.Type                `json:"intent_type" jsonschema:"one of PAYROLL, SWAP, BRIDGE, ANS_REGISTRATION"`
+	IntentType      intents.Type                `json:"intent_type" jsonschema:"one of SEND, PAYROLL, SWAP, BRIDGE, ANS_REGISTRATION"`
 	Financial       intents.FinancialParameters `json:"financial" jsonschema:"exactly one typed financial payload matching intent_type"`
 	Route           intents.Route               `json:"route" jsonschema:"approved provider-neutral route reference"`
 	Deadline        time.Time                   `json:"deadline" jsonschema:"authorization deadline in RFC3339 format"`
@@ -205,6 +205,57 @@ type EvaluatePolicyResponse struct {
 	Error  *ToolError    `json:"error,omitempty"`
 }
 type PrepareExecutionResponse struct {
+	Result *ExecutionOutput `json:"result,omitempty"`
+	Error  *ToolError       `json:"error,omitempty"`
+}
+
+type SendDraftInput struct {
+	RequestID       string         `json:"request_id"`
+	ClientRequestID string         `json:"client_request_id"`
+	Nonce           string         `json:"nonce"`
+	WalletBindingID string         `json:"wallet_binding_id"`
+	Token           string         `json:"token" jsonschema:"one of USDC, EURC"`
+	Recipient       string         `json:"recipient"`
+	Amount          intents.Amount `json:"amount"`
+	Deadline        time.Time      `json:"deadline"`
+	PolicyReference string         `json:"policy_reference"`
+}
+
+type SendExecuteInput struct {
+	RequestID     string `json:"request_id"`
+	IntentID      string `json:"intent_id"`
+	ApprovalID    string `json:"approval_id"`
+	PolicyID      string `json:"policy_id"`
+	PolicyVersion uint64 `json:"policy_version"`
+}
+
+type SendStatusInput struct {
+	RequestID   string `json:"request_id"`
+	ExecutionID string `json:"execution_id"`
+}
+
+type SendPreviewOutput struct {
+	Token        string         `json:"token"`
+	TokenAddress string         `json:"token_address"`
+	Recipient    string         `json:"recipient"`
+	Amount       intents.Amount `json:"amount"`
+	ChainID      string         `json:"chain_id"`
+	Network      string         `json:"network"`
+}
+
+type SendPreviewResponse struct {
+	Result *SendPreviewOutput `json:"result,omitempty"`
+	Error  *ToolError         `json:"error,omitempty"`
+}
+type SendIntentResponse struct {
+	Result *IntentOutput `json:"result,omitempty"`
+	Error  *ToolError    `json:"error,omitempty"`
+}
+type SendExecuteResponse struct {
+	Result *ExecutionOutput `json:"result,omitempty"`
+	Error  *ToolError       `json:"error,omitempty"`
+}
+type SendStatusResponse struct {
 	Result *ExecutionOutput `json:"result,omitempty"`
 	Error  *ToolError       `json:"error,omitempty"`
 }

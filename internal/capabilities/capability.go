@@ -7,6 +7,7 @@ import "github.com/deseti/wizpay-mcp/internal/intents"
 type CapabilityID string
 
 const (
+	CapabilitySend    CapabilityID = "SEND"
 	CapabilityPayroll CapabilityID = "PAYROLL"
 	CapabilitySwap    CapabilityID = "SWAP"
 	CapabilityBridge  CapabilityID = "BRIDGE"
@@ -15,7 +16,7 @@ const (
 
 func (id CapabilityID) Valid() bool {
 	switch id {
-	case CapabilityPayroll, CapabilitySwap, CapabilityBridge, CapabilityANS:
+	case CapabilitySend, CapabilityPayroll, CapabilitySwap, CapabilityBridge, CapabilityANS:
 		return true
 	default:
 		return false
@@ -24,6 +25,8 @@ func (id CapabilityID) Valid() bool {
 
 func expectedIntentType(id CapabilityID) intents.Type {
 	switch id {
+	case CapabilitySend:
+		return intents.TypeSend
 	case CapabilityPayroll:
 		return intents.TypePayroll
 	case CapabilitySwap:

@@ -88,12 +88,23 @@ func run() error {
 		if registryErr != nil {
 			return registryErr
 		}
+		sendService := &services.PersistedSendService{
+			Intents: foundationBundle.Intents.(*services.PersistedIntentService), Executions: foundationBundle.Executions.(*services.PersistedExecutionService),
+			ExecutionDB: database, Wallets: database, Authorizer: authorizer,
+			// Authority intentionally remains nil: no Arc Mainnet signing provider
+			// has been validated, so wizpay.send.execute fails closed.
+		}
+		sendRegistry, registryErr := tools.NewSendRegistry(sendService)
+		if registryErr != nil {
+			return registryErr
+		}
 		autonomyService := &services.PersistedAutonomyService{Repository: database, Authorizer: authorizer, Audit: database, Wallets: database, Now: time.Now, Enabled: cfg.AutonomousEnabled}
 		autonomyRegistry, registryErr := tools.NewAutonomyRegistry(autonomyService)
 		if registryErr != nil {
 			return registryErr
 		}
-		registrations := append(foundationRegistry.Tools(), autonomyRegistry.Tools()...)
+		registrations := append(foundationRegistry.Tools(), sendRegistry.Tools()...)
+		registrations = append(registrations, autonomyRegistry.Tools()...)
 		server, err = app.NewAuthenticatedServerWithApproval(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, registrations...)
 	} else {
 		server, err = app.NewServerWithReadiness(cfg, logger, database)

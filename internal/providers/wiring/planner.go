@@ -10,6 +10,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/intents"
 	"github.com/deseti/wizpay-mcp/internal/payroll"
 	"github.com/deseti/wizpay-mcp/internal/providers"
+	"github.com/deseti/wizpay-mcp/internal/send"
 	"github.com/deseti/wizpay-mcp/internal/storage"
 	"github.com/deseti/wizpay-mcp/internal/swap"
 )
@@ -23,16 +24,21 @@ type Planner struct {
 	intents storage.IntentRepository
 	payroll payroll.Planner
 	swap    swap.Planner
+	send    send.Planner
 }
 
 // NewPlanner assembles a provider planner from the frozen-intent repository
 // and the typed domain planners. Domain planners remain separate so a payroll
 // plan can never be produced by swap logic, or vice versa.
-func NewPlanner(repository storage.IntentRepository, payrollPlanner payroll.Planner, swapPlanner swap.Planner) (*Planner, error) {
+func NewPlanner(repository storage.IntentRepository, payrollPlanner payroll.Planner, swapPlanner swap.Planner, sendPlanner ...send.Planner) (*Planner, error) {
 	if repository == nil {
 		return nil, fmt.Errorf("intent repository is required")
 	}
-	return &Planner{intents: repository, payroll: payrollPlanner, swap: swapPlanner}, nil
+	selected := send.NewPlanner()
+	if len(sendPlanner) > 0 {
+		selected = sendPlanner[0]
+	}
+	return &Planner{intents: repository, payroll: payrollPlanner, swap: swapPlanner, send: selected}, nil
 }
 
 var _ providers.Planner = (*Planner)(nil)
@@ -65,6 +71,12 @@ func (p *Planner) Plan(ctx context.Context, request execution.Request) (provider
 	}
 
 	switch intent.Type() {
+	case intents.TypeSend:
+		domainPlan, err := p.send.Plan(intent)
+		if err != nil {
+			return providers.Plan{}, fmt.Errorf("plan send intent: %w", err)
+		}
+		return domainPlan.ProviderPlan(), nil
 	case intents.TypePayroll:
 		domainPlan, err := p.payroll.Plan(intent)
 		if err != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/intents"
 	"github.com/deseti/wizpay-mcp/internal/payroll"
 	"github.com/deseti/wizpay-mcp/internal/providers"
+	"github.com/deseti/wizpay-mcp/internal/send"
 	"github.com/deseti/wizpay-mcp/internal/storage"
 	"github.com/deseti/wizpay-mcp/internal/swap"
 )
@@ -26,6 +27,8 @@ type ComposedVerifier struct {
 	swap     *swap.Planner
 	payrollV *payroll.Verifier
 	swapV    *swap.Verifier
+	send     send.Planner
+	sendV    send.Verifier
 }
 
 func NewComposedVerifier(provider *providers.Verifier, repository storage.IntentRepository, payrollPlanner *payroll.Planner, swapPlanner *swap.Planner, payrollVerifier *payroll.Verifier, swapVerifier *swap.Verifier) (*ComposedVerifier, error) {
@@ -35,7 +38,7 @@ func NewComposedVerifier(provider *providers.Verifier, repository storage.Intent
 	return &ComposedVerifier{
 		provider: provider, intents: repository,
 		payroll: payrollPlanner, swap: swapPlanner,
-		payrollV: payrollVerifier, swapV: swapVerifier,
+		payrollV: payrollVerifier, swapV: swapVerifier, send: send.NewPlanner(), sendV: send.NewVerifier(),
 	}, nil
 }
 
@@ -72,6 +75,15 @@ func (v *ComposedVerifier) Verify(ctx context.Context, value execution.Execution
 	}
 
 	switch intent.Type() {
+	case intents.TypeSend:
+		plan, planErr := v.send.Plan(intent)
+		if planErr != nil {
+			return runtime.VerificationResult{}, fmt.Errorf("plan send intent for domain verification: %w", planErr)
+		}
+		if verifyErr := v.sendV.Verify(intent, plan, observation.Receipt); verifyErr != nil {
+			return runtime.VerificationResult{Outcome: runtime.VerificationFailed, ReasonCode: "SEND_EVIDENCE_MISMATCH", ObservedAt: observation.Result.ObservedAt}, nil
+		}
+		return observation.Result, nil
 	case intents.TypePayroll:
 		plan, planErr := v.payroll.Plan(intent)
 		if planErr != nil {

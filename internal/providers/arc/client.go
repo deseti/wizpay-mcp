@@ -134,6 +134,33 @@ func (c *Client) Receipt(ctx context.Context, transactionHash string) (receiptPa
 	return payload, true, nil
 }
 
+type transactionPayload struct {
+	Hash  string `json:"hash"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Value string `json:"value"`
+	Input string `json:"input"`
+}
+
+// Transaction reads only the execution-critical envelope for a known hash.
+func (c *Client) Transaction(ctx context.Context, transactionHash string) (transactionPayload, bool, error) {
+	if err := c.ensureChainIdentity(ctx); err != nil {
+		return transactionPayload{}, false, err
+	}
+	var raw json.RawMessage
+	if err := c.call(ctx, "eth_getTransactionByHash", []any{transactionHash}, &raw); err != nil {
+		return transactionPayload{}, false, err
+	}
+	if len(raw) == 0 || string(raw) == "null" {
+		return transactionPayload{}, false, nil
+	}
+	var payload transactionPayload
+	if err := json.Unmarshal(raw, &payload); err != nil || !strings.EqualFold(payload.Hash, transactionHash) {
+		return transactionPayload{}, false, fmt.Errorf("Arc transaction is unreadable")
+	}
+	return payload, true, nil
+}
+
 // call performs one JSON-RPC request. Errors carry no response body.
 //
 // Only the explicitly implemented read methods in this package may reach this
