@@ -238,16 +238,75 @@ func (s *Store) ClaimAutonomyDue(ctx context.Context, scope storage.Scope, now t
 		return autonomy.Occurrence{}, false, err
 	}
 	defer cancel()
-	// Row locking plus SKIP LOCKED provides the claim winner semantics; using
-	// the default isolation avoids turning independent users' due scans into a
-	// spurious serialization conflict.
+	// The schedule row is the FORBID_OVERLAP serialization primitive. The
+	// second statement gets a fresh READ COMMITTED snapshot after that lock is
+	// held, so a concurrent claim cannot make a stale sibling decision.
 	tx, err := s.pool.BeginTx(b, pgx.TxOptions{})
 	if err != nil {
 		return autonomy.Occurrence{}, false, mapDatabaseError(err)
 	}
 	defer tx.Rollback(context.Background())
+	var scheduleID string
+	var scheduleVersion int64
+	err = tx.QueryRow(b, `
+		SELECT schedule.schedule_id, schedule.version
+		FROM autonomy_schedules schedule
+		JOIN LATERAL (
+			SELECT occurrence.occurrence_id, occurrence.scheduled_at
+			FROM autonomy_occurrences occurrence
+			WHERE occurrence.tenant_id=schedule.tenant_id
+				AND occurrence.schedule_id=schedule.schedule_id
+				AND occurrence.schedule_version=schedule.version
+				AND occurrence.scheduled_at <= $3
+				AND occurrence.status IN ('DUE','CLAIMED')
+				AND (occurrence.lease_until IS NULL OR occurrence.lease_until <= $3)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM autonomy_occurrences active
+					WHERE active.tenant_id=occurrence.tenant_id
+						AND active.schedule_id=occurrence.schedule_id
+						AND active.status IN ('CLAIMED','DISPATCHED','RECONCILIATION_ONLY')
+						AND active.occurrence_id <> occurrence.occurrence_id
+				)
+			ORDER BY occurrence.scheduled_at, occurrence.occurrence_id
+			LIMIT 1
+		) candidate ON true
+		WHERE schedule.tenant_id=$1
+			AND schedule.user_id=$2
+			AND schedule.status='ACTIVE'
+		ORDER BY candidate.scheduled_at, candidate.occurrence_id
+		FOR UPDATE OF schedule SKIP LOCKED
+		LIMIT 1`, scope.TenantID(), scope.ActorID(), now.UTC()).Scan(&scheduleID, &scheduleVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return autonomy.Occurrence{}, false, nil
+	}
+	if err != nil {
+		return autonomy.Occurrence{}, false, mapDatabaseError(err)
+	}
 	var id string
-	err = tx.QueryRow(b, `SELECT o.occurrence_id FROM autonomy_occurrences o JOIN autonomy_schedules s ON s.tenant_id=o.tenant_id AND s.schedule_id=o.schedule_id AND s.version=o.schedule_version WHERE o.tenant_id=$1 AND s.user_id=$2 AND s.status='ACTIVE' AND o.scheduled_at <= $3 AND o.status IN ('DUE','CLAIMED') AND (o.lease_until IS NULL OR o.lease_until <= $3) AND NOT EXISTS (SELECT 1 FROM autonomy_occurrences active WHERE active.tenant_id=o.tenant_id AND active.schedule_id=o.schedule_id AND active.status IN ('CLAIMED','DISPATCHED','RECONCILIATION_ONLY') AND active.occurrence_id <> o.occurrence_id) ORDER BY o.scheduled_at,o.occurrence_id FOR UPDATE OF s, o SKIP LOCKED LIMIT 1`, scope.TenantID(), scope.ActorID(), now.UTC()).Scan(&id)
+	err = tx.QueryRow(b, `
+		SELECT occurrence.occurrence_id
+		FROM autonomy_occurrences occurrence
+		JOIN autonomy_schedules schedule ON schedule.tenant_id=occurrence.tenant_id AND schedule.schedule_id=occurrence.schedule_id AND schedule.version=occurrence.schedule_version
+		WHERE occurrence.tenant_id=$1
+			AND schedule.user_id=$2
+			AND schedule.schedule_id=$3
+			AND schedule.version=$4
+			AND schedule.status='ACTIVE'
+			AND occurrence.scheduled_at <= $5
+			AND occurrence.status IN ('DUE','CLAIMED')
+			AND (occurrence.lease_until IS NULL OR occurrence.lease_until <= $5)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM autonomy_occurrences active
+				WHERE active.tenant_id=occurrence.tenant_id
+					AND active.schedule_id=occurrence.schedule_id
+					AND active.status IN ('CLAIMED','DISPATCHED','RECONCILIATION_ONLY')
+					AND active.occurrence_id <> occurrence.occurrence_id
+			)
+		ORDER BY occurrence.scheduled_at, occurrence.occurrence_id
+		FOR UPDATE OF occurrence SKIP LOCKED
+		LIMIT 1`, scope.TenantID(), scope.ActorID(), scheduleID, scheduleVersion, now.UTC()).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return autonomy.Occurrence{}, false, nil
 	}
@@ -279,16 +338,42 @@ func (s *Store) ClaimNextAutonomyDue(ctx context.Context, worker string, now tim
 		return storage.Scope{}, autonomy.Occurrence{}, false, err
 	}
 	defer cancel()
-	var tenant, user, id string
-	// The selected row is locked and the update occurs in this same
-	// transaction. The returned scope is therefore derived from the claimed
-	// row, never from a second selection.
+	var tenant, user, scheduleID string
+	var scheduleVersion int64
+	// Lock only the selected schedule first. A fresh statement below then
+	// re-checks claimability and locks the occurrence before updating it.
 	tx, err := s.pool.BeginTx(b, pgx.TxOptions{})
 	if err != nil {
 		return storage.Scope{}, autonomy.Occurrence{}, false, mapDatabaseError(err)
 	}
 	defer tx.Rollback(context.Background())
-	err = tx.QueryRow(b, `SELECT o.tenant_id,s.user_id,o.occurrence_id FROM autonomy_occurrences o JOIN autonomy_schedules s ON s.tenant_id=o.tenant_id AND s.schedule_id=o.schedule_id AND s.version=o.schedule_version WHERE s.status='ACTIVE' AND o.scheduled_at <= $1 AND o.status IN ('DUE','CLAIMED') AND (o.lease_until IS NULL OR o.lease_until <= $1) AND NOT EXISTS (SELECT 1 FROM autonomy_occurrences active WHERE active.tenant_id=o.tenant_id AND active.schedule_id=o.schedule_id AND active.status IN ('CLAIMED','DISPATCHED','RECONCILIATION_ONLY') AND active.occurrence_id <> o.occurrence_id) ORDER BY o.scheduled_at,o.occurrence_id FOR UPDATE OF s, o SKIP LOCKED LIMIT 1`, now.UTC()).Scan(&tenant, &user, &id)
+	err = tx.QueryRow(b, `
+		SELECT schedule.tenant_id, schedule.user_id, schedule.schedule_id, schedule.version
+		FROM autonomy_schedules schedule
+		JOIN LATERAL (
+			SELECT occurrence.occurrence_id, occurrence.scheduled_at
+			FROM autonomy_occurrences occurrence
+			WHERE occurrence.tenant_id=schedule.tenant_id
+				AND occurrence.schedule_id=schedule.schedule_id
+				AND occurrence.schedule_version=schedule.version
+				AND occurrence.scheduled_at <= $1
+				AND occurrence.status IN ('DUE','CLAIMED')
+				AND (occurrence.lease_until IS NULL OR occurrence.lease_until <= $1)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM autonomy_occurrences active
+					WHERE active.tenant_id=occurrence.tenant_id
+						AND active.schedule_id=occurrence.schedule_id
+						AND active.status IN ('CLAIMED','DISPATCHED','RECONCILIATION_ONLY')
+						AND active.occurrence_id <> occurrence.occurrence_id
+				)
+			ORDER BY occurrence.scheduled_at, occurrence.occurrence_id
+			LIMIT 1
+		) candidate ON true
+		WHERE schedule.status='ACTIVE'
+		ORDER BY candidate.scheduled_at, candidate.occurrence_id
+		FOR UPDATE OF schedule SKIP LOCKED
+		LIMIT 1`, now.UTC()).Scan(&tenant, &user, &scheduleID, &scheduleVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return storage.Scope{}, autonomy.Occurrence{}, false, nil
 	}
@@ -298,6 +383,36 @@ func (s *Store) ClaimNextAutonomyDue(ctx context.Context, worker string, now tim
 	scope, err := storage.NewScope(tenant, user, "autonomy-"+worker, "")
 	if err != nil {
 		return storage.Scope{}, autonomy.Occurrence{}, false, err
+	}
+	var id string
+	err = tx.QueryRow(b, `
+		SELECT occurrence.occurrence_id
+		FROM autonomy_occurrences occurrence
+		JOIN autonomy_schedules schedule ON schedule.tenant_id=occurrence.tenant_id AND schedule.schedule_id=occurrence.schedule_id AND schedule.version=occurrence.schedule_version
+		WHERE occurrence.tenant_id=$1
+			AND schedule.user_id=$2
+			AND schedule.schedule_id=$3
+			AND schedule.version=$4
+			AND schedule.status='ACTIVE'
+			AND occurrence.scheduled_at <= $5
+			AND occurrence.status IN ('DUE','CLAIMED')
+			AND (occurrence.lease_until IS NULL OR occurrence.lease_until <= $5)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM autonomy_occurrences active
+				WHERE active.tenant_id=occurrence.tenant_id
+					AND active.schedule_id=occurrence.schedule_id
+					AND active.status IN ('CLAIMED','DISPATCHED','RECONCILIATION_ONLY')
+					AND active.occurrence_id <> occurrence.occurrence_id
+			)
+		ORDER BY occurrence.scheduled_at, occurrence.occurrence_id
+		FOR UPDATE OF occurrence SKIP LOCKED
+		LIMIT 1`, tenant, user, scheduleID, scheduleVersion, now.UTC()).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return storage.Scope{}, autonomy.Occurrence{}, false, nil
+	}
+	if err != nil {
+		return storage.Scope{}, autonomy.Occurrence{}, false, mapDatabaseError(err)
 	}
 	var fence int64
 	err = tx.QueryRow(b, `UPDATE autonomy_occurrences SET status='CLAIMED',lease_owner=$1,lease_until=$2,fence=fence+1,updated_at=$2 WHERE tenant_id=$3 AND occurrence_id=$4 RETURNING fence`, worker, now.UTC().Add(lease), tenant, id).Scan(&fence)

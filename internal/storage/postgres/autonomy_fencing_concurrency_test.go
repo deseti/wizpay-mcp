@@ -104,11 +104,16 @@ func TestPostgresAutonomyForbidOverlapSerializesSameSchedule(t *testing.T) {
 		saveDueOccurrence(t, f, fixtureNow.Add(-2*time.Minute))
 		saveDueOccurrence(t, f, fixtureNow.Add(-time.Minute))
 		var wg sync.WaitGroup
+		var ready sync.WaitGroup
+		ready.Add(2)
+		start := make(chan struct{})
 		results := make(chan bool, 2)
 		for i := 0; i < 2; i++ {
 			wg.Add(1)
 			go func(worker string) {
 				defer wg.Done()
+				ready.Done()
+				<-start
 				_, ok, err := integrationStore.ClaimAutonomyDue(context.Background(), f.scope, fixtureNow, worker, time.Minute)
 				if err != nil {
 					t.Errorf("claim: %v", err)
@@ -116,6 +121,8 @@ func TestPostgresAutonomyForbidOverlapSerializesSameSchedule(t *testing.T) {
 				results <- ok
 			}(unique("worker"))
 		}
+		ready.Wait()
+		close(start)
 		wg.Wait()
 		close(results)
 		winners := 0
@@ -147,11 +154,16 @@ func TestPostgresAutonomyDifferentSchedulesClaimConcurrently(t *testing.T) {
 		}
 	}
 	var wg sync.WaitGroup
+	var ready sync.WaitGroup
+	ready.Add(2)
+	start := make(chan struct{})
 	results := make(chan bool, 2)
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 		go func(worker string) {
 			defer wg.Done()
+			ready.Done()
+			<-start
 			_, ok, err := integrationStore.ClaimAutonomyDue(context.Background(), f.scope, fixtureNow, worker, time.Minute)
 			if err != nil {
 				t.Errorf("claim: %v", err)
@@ -159,6 +171,8 @@ func TestPostgresAutonomyDifferentSchedulesClaimConcurrently(t *testing.T) {
 			results <- ok
 		}(unique("worker"))
 	}
+	ready.Wait()
+	close(start)
 	wg.Wait()
 	close(results)
 	winners := 0

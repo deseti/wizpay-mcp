@@ -55,22 +55,32 @@ func TestAttestDeploymentCodeIsCanonicalAndReadOnly(t *testing.T) {
 	}
 }
 
-func TestAttestDeploymentStateUsesOnlyCanonicalGetters(t *testing.T) {
-	responses := map[string]string{
-		selectorHex("owner()"):           addressWord("0x1111111111111111111111111111111111111111"),
-		selectorHex("feeRecipient()"):    addressWord("0x2222222222222222222222222222222222222222"),
+// canonicalOwner is the owner/feeRecipient address used in state attestation
+// tests. feeRecipient must equal owner per the corrective patch.
+const canonicalOwner = "0x1111111111111111111111111111111111111111"
+
+// canonicalStateResponses returns a fresh response map whose owner and
+// feeRecipient are identical (required by ValidateCanonicalResources) and whose
+// feeBps is within the contract MAX_FEE_BPS of 100.
+func canonicalStateResponses() map[string]string {
+	return map[string]string{
+		selectorHex("owner()"):           addressWord(canonicalOwner),
+		selectorHex("feeRecipient()"):    addressWord(canonicalOwner),
 		selectorHex("USDC()"):            addressWord(contracts.AddressUSDCMainnet),
 		selectorHex("EURC()"):            addressWord(contracts.AddressEURCMainnet),
 		selectorHex("poolManager()"):     addressWord(contracts.AddressUniswapV4PoolManager),
 		selectorHex("universalRouter()"): addressWord(contracts.AddressUniswapUniversalRouter),
 		selectorHex("permit2()"):         addressWord(contracts.AddressPermit2),
-		selectorHex("feeBps()"):          uintWord(20),
+		selectorHex("feeBps()"):          uintWord(25),
 		selectorHex("paused()"):          uintWord(0),
 		selectorHex("poolFee()"):         uintWord(500),
 		selectorHex("poolTickSpacing()"): uintWord(10),
 	}
-	var calls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+}
+
+func newStateTestServer(t *testing.T, responses map[string]string, callCount *int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Method string            `json:"method"`
 			Params []json.RawMessage `json:"params"`
@@ -102,9 +112,17 @@ func TestAttestDeploymentStateUsesOnlyCanonicalGetters(t *testing.T) {
 			t.Errorf("unallowlisted selector %q", call["data"])
 			return
 		}
-		calls++
+		if callCount != nil {
+			*callCount++
+		}
 		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":"%s"}`, result)
 	}))
+}
+
+func TestAttestDeploymentStateUsesOnlyCanonicalGetters(t *testing.T) {
+	responses := canonicalStateResponses()
+	var calls int
+	server := newStateTestServer(t, responses, &calls)
 	defer server.Close()
 
 	config := Config{Enabled: true, ChainID: ChainIDMainnet, Network: NetworkMainnet, RPCURL: RPCMainnet, ExplorerURL: ExplorerMainnet, MinConfirmations: 1, Timeout: 2 * time.Second}
@@ -116,15 +134,86 @@ func TestAttestDeploymentStateUsesOnlyCanonicalGetters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != len(responses) || attestation.FeeBPS != 20 || attestation.Paused || attestation.PoolFee != 500 || attestation.PoolTickSpacing != 10 {
+	if calls != len(responses) || attestation.FeeBPS != 25 || attestation.Paused || attestation.PoolFee != 500 || attestation.PoolTickSpacing != 10 {
 		t.Fatalf("calls=%d attestation=%#v", calls, attestation)
 	}
 	if err := attestation.ValidateCanonicalResources(); err != nil {
 		t.Fatal(err)
 	}
-	attestation.USDC = "0x3333333333333333333333333333333333333333"
+	// Mutating a canonical resource must fail closed.
+	mutated := attestation
+	mutated.USDC = "0x3333333333333333333333333333333333333333"
+	if err := mutated.ValidateCanonicalResources(); err == nil {
+		t.Fatal("mismatched canonical USDC resource must fail closed")
+	}
+}
+
+// TestValidateCanonicalResourcesRejectsFeeRecipientMismatch verifies that an
+// attestation where feeRecipient != owner is rejected, regardless of whether
+// both addresses are individually valid.
+func TestValidateCanonicalResourcesRejectsFeeRecipientMismatch(t *testing.T) {
+	responses := canonicalStateResponses()
+	// Overwrite feeRecipient with a different valid address.
+	responses[selectorHex("feeRecipient()")] = addressWord("0x2222222222222222222222222222222222222222")
+	server := newStateTestServer(t, responses, nil)
+	defer server.Close()
+
+	config := Config{Enabled: true, ChainID: ChainIDMainnet, Network: NetworkMainnet, RPCURL: RPCMainnet, ExplorerURL: ExplorerMainnet, MinConfirmations: 1, Timeout: 2 * time.Second}
+	client, err := NewClient(config, &http.Client{Transport: &rewriteTransport{target: server.URL}, Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attestation, err := client.AttestDeploymentState(context.Background(), contracts.ContractWizPayPayroll, contracts.RegistryVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := attestation.ValidateCanonicalResources(); err == nil {
-		t.Fatal("mismatched canonical resource must fail closed")
+		t.Fatal("feeRecipient != owner must fail ValidateCanonicalResources")
+	}
+}
+
+// TestValidateCanonicalResourcesRejectsExcessiveFeeBPS verifies that a feeBps
+// value above the contract MAX_FEE_BPS (100) is rejected.
+func TestValidateCanonicalResourcesRejectsExcessiveFeeBPS(t *testing.T) {
+	responses := canonicalStateResponses()
+	// Set feeBps to 101, which is one above the contract MAX_FEE_BPS.
+	responses[selectorHex("feeBps()")] = uintWord(101)
+	server := newStateTestServer(t, responses, nil)
+	defer server.Close()
+
+	config := Config{Enabled: true, ChainID: ChainIDMainnet, Network: NetworkMainnet, RPCURL: RPCMainnet, ExplorerURL: ExplorerMainnet, MinConfirmations: 1, Timeout: 2 * time.Second}
+	client, err := NewClient(config, &http.Client{Transport: &rewriteTransport{target: server.URL}, Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attestation, err := client.AttestDeploymentState(context.Background(), contracts.ContractWizPayPayroll, contracts.RegistryVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := attestation.ValidateCanonicalResources(); err == nil {
+		t.Fatal("feeBps=101 must exceed contract MAX_FEE_BPS and fail ValidateCanonicalResources")
+	}
+}
+
+// TestValidateCanonicalResourcesAcceptsMaxFeeBPS verifies that a feeBps value
+// exactly equal to the contract MAX_FEE_BPS (100) is accepted.
+func TestValidateCanonicalResourcesAcceptsMaxFeeBPS(t *testing.T) {
+	responses := canonicalStateResponses()
+	responses[selectorHex("feeBps()")] = uintWord(contracts.ContractMaxFeeBPS)
+	server := newStateTestServer(t, responses, nil)
+	defer server.Close()
+
+	config := Config{Enabled: true, ChainID: ChainIDMainnet, Network: NetworkMainnet, RPCURL: RPCMainnet, ExplorerURL: ExplorerMainnet, MinConfirmations: 1, Timeout: 2 * time.Second}
+	client, err := NewClient(config, &http.Client{Transport: &rewriteTransport{target: server.URL}, Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attestation, err := client.AttestDeploymentState(context.Background(), contracts.ContractWizPayPayroll, contracts.RegistryVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := attestation.ValidateCanonicalResources(); err != nil {
+		t.Fatalf("feeBps=100 (MAX_FEE_BPS) must be accepted: %v", err)
 	}
 }
 

@@ -48,9 +48,14 @@ func (a DeploymentStateAttestation) ValidateCanonicalResources() error {
 	if expectedAddress == "" || !contracts.AddressesEqual(a.Address, expectedAddress) {
 		return fmt.Errorf("attested deployment address is not canonical")
 	}
-	if !contracts.ValidAddress(a.Owner) || contracts.AddressesEqual(a.Owner, contracts.AddressZero) ||
-		!contracts.ValidAddress(a.FeeRecipient) || contracts.AddressesEqual(a.FeeRecipient, contracts.AddressZero) {
-		return fmt.Errorf("attested owner or fee recipient is invalid")
+	if !contracts.ValidAddress(a.Owner) || contracts.AddressesEqual(a.Owner, contracts.AddressZero) {
+		return fmt.Errorf("attested owner is invalid")
+	}
+	if !contracts.ValidAddress(a.FeeRecipient) || contracts.AddressesEqual(a.FeeRecipient, contracts.AddressZero) {
+		return fmt.Errorf("attested fee recipient is invalid")
+	}
+	if !contracts.AddressesEqual(a.FeeRecipient, a.Owner) {
+		return fmt.Errorf("attested fee recipient must equal the owner")
 	}
 	if !contracts.AddressesEqual(a.USDC, contracts.AddressUSDCMainnet) ||
 		!contracts.AddressesEqual(a.EURC, contracts.AddressEURCMainnet) ||
@@ -64,8 +69,8 @@ func (a DeploymentStateAttestation) ValidateCanonicalResources() error {
 	if a.PoolFee != contracts.UniswapV4USDCEURCFee || a.PoolTickSpacing != contracts.UniswapV4TickSpacing {
 		return fmt.Errorf("attested pool parameters are not canonical")
 	}
-	if a.FeeBPS > 10_000 {
-		return fmt.Errorf("attested fee basis points exceed the basis-point denominator")
+	if a.FeeBPS > contracts.ContractMaxFeeBPS {
+		return fmt.Errorf("attested fee basis points exceed the contract MAX_FEE_BPS of %d", contracts.ContractMaxFeeBPS)
 	}
 	return nil
 }

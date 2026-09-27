@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 )
@@ -70,8 +69,10 @@ func validateBatch(recipients []string, amounts []*big.Int, referenceID string) 
 	if len(amounts) != len(recipients) {
 		return fmt.Errorf("amounts length must match recipients length")
 	}
-	if referenceID == "" || strings.TrimSpace(referenceID) != referenceID || utf8.RuneCountInString(referenceID) > maxReferenceIDLength {
-		return fmt.Errorf("referenceId must be non-empty trimmed text of at most %d characters", maxReferenceIDLength)
+	// Solidity validates bytes(referenceId).length <= maxReferenceIDLength.
+	// len() returns the UTF-8 byte length, which matches Solidity's bytes cast.
+	if referenceID == "" || strings.TrimSpace(referenceID) != referenceID || len(referenceID) > maxReferenceIDLength {
+		return fmt.Errorf("referenceId must be non-empty trimmed text of at most %d bytes", maxReferenceIDLength)
 	}
 	for i, recipient := range recipients {
 		if !contracts.ValidAddress(recipient) || contracts.AddressesEqual(recipient, contracts.AddressZero) {

@@ -15,6 +15,11 @@ const (
 	UniswapV4USDCEURCFee          uint32 = 500
 	UniswapV4TickSpacing          int32  = 10
 	CanonicalTokenDecimals        uint8  = 6
+
+	// ContractMaxFeeBPS is the on-chain MAX_FEE_BPS constant enforced by both
+	// WizPayPayrollMainnet and WizPaySwapExecutorMainnet (value: 100 = 1%).
+	// Attestation validation must reject any feeBps that exceeds this value.
+	ContractMaxFeeBPS uint64 = 100
 )
 
 // TokenResource is a closed Arc Mainnet token identity. It is registry
