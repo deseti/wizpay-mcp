@@ -22,15 +22,23 @@ type PayrollRecipientDraft struct {
 }
 type PayrollDraft struct {
 	ClientRequestID, Nonce, WalletBindingID, TokenSymbol string
+	OutputTokenSymbol                                    string
 	Recipients                                           []PayrollRecipientDraft
 	ReferenceID                                          string
 	Deadline                                             time.Time
+	GrossInput, MinTotalOut                              intents.Amount
+	MinHopPriceX36                                       string
+	SwapDeadline                                         time.Time
 	PolicyReference                                      string
 }
 type PayrollPreview struct {
 	Token                         intents.Token
+	OutputToken                   intents.Token
 	Recipients                    []PayrollRecipientDraft
 	Total                         intents.Amount
+	GrossInput, MinTotalOut       intents.Amount
+	MinHopPriceX36                string
+	SwapDeadline                  time.Time
 	ReferenceID, ChainID, Network string
 }
 
@@ -60,6 +68,32 @@ func payrollFinancial(draft PayrollDraft) (intents.PayrollParameters, error) {
 		return intents.PayrollParameters{}, err
 	}
 	token := tokenFromResource(resource)
+	if draft.OutputTokenSymbol != "" {
+		outputResource, err := contracts.CanonicalToken(draft.OutputTokenSymbol)
+		if err != nil {
+			return intents.PayrollParameters{}, err
+		}
+		output := tokenFromResource(outputResource)
+		lines := make([]intents.Recipient, len(draft.Recipients))
+		total := new(big.Int)
+		for i, recipient := range draft.Recipients {
+			value, err := recipient.Amount.BaseInt()
+			if err != nil || recipient.Amount.Decimals != output.Decimals {
+				return intents.PayrollParameters{}, fmt.Errorf("recipient %d output amount must use canonical token decimals", i)
+			}
+			total.Add(total, value)
+			lines[i] = intents.Recipient{Address: recipient.Address, TokenOut: output, MinAmountOut: recipient.Amount}
+		}
+		variant := intents.PayrollVariantBatchSingleTokenOut
+		if len(lines) == 1 {
+			variant = intents.PayrollVariantSingle
+		}
+		params := intents.PayrollParameters{SchemaVersion: intents.FinancialSchemaPhase12, Variant: variant, TokenIn: token, Recipients: lines, Total: amountFromBaseUnits(total, output.Decimals), ReferenceID: draft.ReferenceID, CrossToken: &intents.CrossTokenPayrollParameters{GrossInput: draft.GrossInput, MinTotalOut: draft.MinTotalOut, MinHopPriceX36: draft.MinHopPriceX36, Deadline: draft.SwapDeadline}}
+		if err := params.ValidateCrossToken(); err != nil {
+			return intents.PayrollParameters{}, err
+		}
+		return params, nil
+	}
 	lines := make([]intents.Recipient, len(draft.Recipients))
 	total := new(big.Int)
 	for i, recipient := range draft.Recipients {
@@ -133,7 +167,15 @@ func (s *PersistedPayrollService) PreviewPayroll(ctx context.Context, draft Payr
 		return PayrollPreview{}, err
 	}
 	resource, _ := contracts.CanonicalToken(draft.TokenSymbol)
-	return PayrollPreview{Token: params.TokenIn, Recipients: append([]PayrollRecipientDraft(nil), draft.Recipients...), Total: params.Total, ReferenceID: params.ReferenceID, ChainID: resource.ChainID, Network: resource.Network}, nil
+	preview := PayrollPreview{Token: params.TokenIn, Recipients: append([]PayrollRecipientDraft(nil), draft.Recipients...), Total: params.Total, ReferenceID: params.ReferenceID, ChainID: resource.ChainID, Network: resource.Network}
+	if params.CrossTokenExecutable() {
+		preview.OutputToken = params.Recipients[0].TokenOut
+		preview.GrossInput = params.CrossToken.GrossInput
+		preview.MinTotalOut = params.CrossToken.MinTotalOut
+		preview.MinHopPriceX36 = params.CrossToken.MinHopPriceX36
+		preview.SwapDeadline = params.CrossToken.Deadline
+	}
+	return preview, nil
 }
 
 func (s *PersistedPayrollService) CreatePayrollIntent(ctx context.Context, draft PayrollDraft) (intents.Intent, error) {
@@ -155,8 +197,8 @@ func (s *PersistedPayrollService) ExecutePayroll(ctx context.Context, intentID, 
 	if err != nil {
 		return execution.Request{}, err
 	}
-	if intent.Type() != intents.TypePayroll || intent.Financial().Payroll == nil || !intent.Financial().Payroll.SameTokenExecutable() {
-		return execution.Request{}, apperrors.New(apperrors.CodeValidationError, "Same-token PAYROLL intent is required.", false, true, true)
+	if intent.Type() != intents.TypePayroll || intent.Financial().Payroll == nil || (!intent.Financial().Payroll.SameTokenExecutable() && !intent.Financial().Payroll.CrossTokenExecutable()) {
+		return execution.Request{}, apperrors.New(apperrors.CodeValidationError, "Executable PAYROLL intent is required.", false, true, true)
 	}
 	if err := s.Authority.AuthorizePayroll(ctx, intent); err != nil {
 		return execution.Request{}, err

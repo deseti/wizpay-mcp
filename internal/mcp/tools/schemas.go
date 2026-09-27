@@ -270,9 +270,14 @@ type PayrollDraftInput struct {
 	Nonce           string                  `json:"nonce"`
 	WalletBindingID string                  `json:"wallet_binding_id"`
 	Token           string                  `json:"token" jsonschema:"one of USDC, EURC"`
+	OutputToken     string                  `json:"output_token,omitempty" jsonschema:"optional opposite token for cross-token payroll"`
 	Recipients      []PayrollRecipientInput `json:"recipients"`
 	ReferenceID     string                  `json:"reference_id"`
 	Deadline        time.Time               `json:"deadline"`
+	GrossInput      intents.Amount          `json:"gross_input,omitempty"`
+	MinTotalOut     intents.Amount          `json:"min_total_out,omitempty"`
+	MinHopPriceX36  string                  `json:"min_hop_price_x36,omitempty"`
+	SwapDeadline    time.Time               `json:"swap_deadline,omitempty"`
 	PolicyReference string                  `json:"policy_reference"`
 }
 type PayrollExecuteInput struct {
@@ -287,13 +292,19 @@ type PayrollStatusInput struct {
 	ExecutionID string `json:"execution_id"`
 }
 type PayrollPreviewOutput struct {
-	Token        string                  `json:"token"`
-	TokenAddress string                  `json:"token_address"`
-	Recipients   []PayrollRecipientInput `json:"recipients"`
-	Total        intents.Amount          `json:"total"`
-	ReferenceID  string                  `json:"reference_id"`
-	ChainID      string                  `json:"chain_id"`
-	Network      string                  `json:"network"`
+	Token              string                  `json:"token"`
+	TokenAddress       string                  `json:"token_address"`
+	OutputToken        string                  `json:"output_token,omitempty"`
+	OutputTokenAddress string                  `json:"output_token_address,omitempty"`
+	Recipients         []PayrollRecipientInput `json:"recipients"`
+	Total              intents.Amount          `json:"total"`
+	GrossInput         intents.Amount          `json:"gross_input,omitempty"`
+	MinTotalOut        intents.Amount          `json:"min_total_out,omitempty"`
+	MinHopPriceX36     string                  `json:"min_hop_price_x36,omitempty"`
+	SwapDeadline       string                  `json:"swap_deadline,omitempty"`
+	ReferenceID        string                  `json:"reference_id"`
+	ChainID            string                  `json:"chain_id"`
+	Network            string                  `json:"network"`
 }
 type PayrollPreviewResponse struct {
 	Result *PayrollPreviewOutput `json:"result,omitempty"`

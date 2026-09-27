@@ -37,13 +37,20 @@ func (p Planner) Plan(intent intents.Intent) (Plan, error) {
 	if financial == nil {
 		return Plan{}, fmt.Errorf("payroll financial parameters are required")
 	}
-	if err := financial.ValidateSameToken(); err != nil {
-		return Plan{}, fmt.Errorf("payroll intent is not Track C same-token executable: %w", err)
-	}
 	ownership := intent.Ownership()
 	if err := p.validateBinding(intent.Route(), ownership); err != nil {
 		return Plan{}, err
 	}
+	if financial.SameTokenExecutable() {
+		return p.planSameToken(intent, financial)
+	}
+	if err := financial.ValidateCrossToken(); err != nil {
+		return Plan{}, fmt.Errorf("payroll intent is not an executable same-token or cross-token payroll: %w", err)
+	}
+	return p.planCrossToken(intent, financial)
+}
+
+func (p Planner) planSameToken(intent intents.Intent, financial *intents.PayrollParameters) (Plan, error) {
 	recipients := make([]string, len(financial.Recipients))
 	amounts := make([]*big.Int, len(financial.Recipients))
 	for i, recipient := range financial.Recipients {
@@ -59,6 +66,24 @@ func (p Planner) Plan(intent intents.Intent) (Plan, error) {
 	})
 	if err != nil {
 		return Plan{}, fmt.Errorf("encode same-token payroll: %w", err)
+	}
+	return newPlan(intent, call), nil
+}
+
+func (p Planner) planCrossToken(intent intents.Intent, financial *intents.PayrollParameters) (Plan, error) {
+	recipients := make([]string, len(financial.Recipients))
+	outputs := make([]*big.Int, len(financial.Recipients))
+	for i, recipient := range financial.Recipients {
+		recipients[i] = recipient.Address
+		outputs[i], _ = recipient.MinAmountOut.BaseInt()
+	}
+	crossToken := financial.CrossToken
+	gross, _ := crossToken.GrossInput.BaseInt()
+	minimum, _ := crossToken.MinTotalOut.BaseInt()
+	price, _ := new(big.Int).SetString(crossToken.MinHopPriceX36, 10)
+	call, err := contractpayroll.EncodeCrossTokenPayroll(p.registry, contractpayroll.CrossTokenPayrollInput{TokenIn: financial.TokenIn.Address, TokenOut: financial.Recipients[0].TokenOut.Address, Recipients: recipients, OutputAmounts: outputs, GrossInput: gross, MinTotalOut: minimum, MinHopPriceX36: price, Deadline: big.NewInt(crossToken.Deadline.UTC().Unix()), ReferenceID: financial.ReferenceID})
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode cross-token payroll: %w", err)
 	}
 	return newPlan(intent, call), nil
 }

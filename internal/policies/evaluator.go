@@ -175,6 +175,11 @@ func newIntentView(intent intents.Intent) (intentView, error) {
 		// evaluation conservatively uses the canonical contract MAX_FEE_BPS.
 		if financial.Payroll.SameTokenExecutable() {
 			view.spendAmount = payrollMaximumEmployerExposure(financial.Payroll.Total)
+		} else if financial.Payroll.CrossTokenExecutable() {
+			view.spendAmount = financial.Payroll.CrossToken.GrossInput
+			if financial.Payroll.CrossToken.Deadline.Before(view.effectiveDeadline) {
+				view.effectiveDeadline = financial.Payroll.CrossToken.Deadline
+			}
 		}
 		view.chains = []string{source.ChainID}
 		view.tokens = []TokenReference{tokenReference(source)}

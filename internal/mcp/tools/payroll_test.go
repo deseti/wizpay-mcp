@@ -56,6 +56,12 @@ func TestPayrollRegistryExposesOnlyTypedLifecycle(t *testing.T) {
 			t.Fatalf("execute exposes %q", forbidden)
 		}
 	}
+	preview, _ := registry.Lookup(PayrollPreviewName)
+	for _, required := range []string{"output_token", "gross_input", "min_total_out", "min_hop_price_x36", "swap_deadline"} {
+		if _, ok := preview.InputSchema().Properties[required]; !ok {
+			t.Fatalf("preview missing Track E field %q", required)
+		}
+	}
 }
 
 func TestPayrollDraftValidationBoundsReferenceByUTF8Bytes(t *testing.T) {

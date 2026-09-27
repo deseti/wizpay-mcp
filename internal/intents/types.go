@@ -232,6 +232,18 @@ type PayrollParameters struct {
 	// ReferenceID is required for batch variants and is immutable intent metadata.
 	// Legacy intent variants may leave this optional. Track A does not execute them.
 	ReferenceID string `json:"reference_id,omitempty"`
+	// CrossToken is absent for Track C payrolls so their historical canonical
+	// representation and digest remain unchanged.
+	CrossToken *CrossTokenPayrollParameters `json:"cross_token,omitempty"`
+}
+
+// CrossTokenPayrollParameters freezes the aggregate swap material required by
+// executeCrossTokenPayroll. Recipient obligations remain in Recipients.
+type CrossTokenPayrollParameters struct {
+	GrossInput     Amount    `json:"gross_input"`
+	MinTotalOut    Amount    `json:"min_total_out"`
+	MinHopPriceX36 string    `json:"min_hop_price_x36"`
+	Deadline       time.Time `json:"deadline"`
 }
 
 // SwapQuote freezes quote evidence that must match the approved economic material.
@@ -344,6 +356,10 @@ func cloneFinancial(p FinancialParameters) FinancialParameters {
 	if p.Payroll != nil {
 		value := *p.Payroll
 		value.Recipients = append([]Recipient(nil), p.Payroll.Recipients...)
+		if p.Payroll.CrossToken != nil {
+			crossToken := *p.Payroll.CrossToken
+			value.CrossToken = &crossToken
+		}
 		result.Payroll = &value
 	}
 	if p.Swap != nil {

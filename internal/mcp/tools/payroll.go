@@ -8,15 +8,15 @@ import (
 )
 
 func payrollDefinitions(service services.PayrollService) ([]Definition, error) {
-	preview, err := newDefinition(PayrollPreviewName, "Validate an Arc Mainnet same-token Payroll without persisting or submitting it.", annotation(true), payrollPreviewHandler(service))
+	preview, err := newDefinition(PayrollPreviewName, "Validate an Arc Mainnet same-token or canonical cross-token Payroll without persisting or submitting it.", annotation(true), payrollPreviewHandler(service))
 	if err != nil {
 		return nil, err
 	}
-	create, err := newDefinition(PayrollCreateIntentName, "Create an immutable same-token PAYROLL intent; this does not approve or submit it.", annotation(false), payrollCreateHandler(service))
+	create, err := newDefinition(PayrollCreateIntentName, "Create an immutable same-token or canonical cross-token PAYROLL intent; this does not approve or submit it.", annotation(false), payrollCreateHandler(service))
 	if err != nil {
 		return nil, err
 	}
-	execute, err := newDefinition(PayrollExecuteName, "Prepare execution from an already approved same-token PAYROLL intent; frozen financial fields cannot be overridden.", annotation(false), payrollExecuteHandler(service))
+	execute, err := newDefinition(PayrollExecuteName, "Prepare execution from an already approved PAYROLL intent; frozen financial fields cannot be overridden.", annotation(false), payrollExecuteHandler(service))
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +31,7 @@ func payrollDraft(in PayrollDraftInput) services.PayrollDraft {
 	for i, r := range in.Recipients {
 		recipients[i] = services.PayrollRecipientDraft{Address: r.Address, Amount: r.Amount}
 	}
-	return services.PayrollDraft{ClientRequestID: in.ClientRequestID, Nonce: in.Nonce, WalletBindingID: in.WalletBindingID, TokenSymbol: in.Token, Recipients: recipients, ReferenceID: in.ReferenceID, Deadline: in.Deadline, PolicyReference: in.PolicyReference}
+	return services.PayrollDraft{ClientRequestID: in.ClientRequestID, Nonce: in.Nonce, WalletBindingID: in.WalletBindingID, TokenSymbol: in.Token, OutputTokenSymbol: in.OutputToken, Recipients: recipients, ReferenceID: in.ReferenceID, Deadline: in.Deadline, GrossInput: in.GrossInput, MinTotalOut: in.MinTotalOut, MinHopPriceX36: in.MinHopPriceX36, SwapDeadline: in.SwapDeadline, PolicyReference: in.PolicyReference}
 }
 func payrollPreviewHandler(service services.PayrollService) sdkmcp.ToolHandlerFor[PayrollDraftInput, PayrollPreviewResponse] {
 	return func(ctx context.Context, _ *sdkmcp.CallToolRequest, in PayrollDraftInput) (*sdkmcp.CallToolResult, PayrollPreviewResponse, error) {
@@ -46,7 +46,10 @@ func payrollPreviewHandler(service services.PayrollService) sdkmcp.ToolHandlerFo
 		for i, r := range value.Recipients {
 			recipients[i] = PayrollRecipientInput{Address: r.Address, Amount: r.Amount}
 		}
-		out := PayrollPreviewOutput{Token: value.Token.Symbol, TokenAddress: value.Token.Address, Recipients: recipients, Total: value.Total, ReferenceID: value.ReferenceID, ChainID: value.ChainID, Network: value.Network}
+		out := PayrollPreviewOutput{Token: value.Token.Symbol, TokenAddress: value.Token.Address, OutputToken: value.OutputToken.Symbol, OutputTokenAddress: value.OutputToken.Address, Recipients: recipients, Total: value.Total, GrossInput: value.GrossInput, MinTotalOut: value.MinTotalOut, MinHopPriceX36: value.MinHopPriceX36, ReferenceID: value.ReferenceID, ChainID: value.ChainID, Network: value.Network}
+		if !value.SwapDeadline.IsZero() {
+			out.SwapDeadline = value.SwapDeadline.UTC().Format("2006-01-02T15:04:05Z07:00")
+		}
 		return nil, PayrollPreviewResponse{Result: &out}, nil
 	}
 }

@@ -3,6 +3,7 @@ package intents
 import (
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
 )
@@ -35,6 +36,9 @@ func (p PayrollParameters) IsPhase12() bool {
 	if !p.TokenIn.IsZero() {
 		return true
 	}
+	if p.CrossToken != nil {
+		return true
+	}
 	for _, recipient := range p.Recipients {
 		if !recipient.TokenOut.IsZero() || !recipient.AmountIn.IsZero() || !recipient.MinAmountOut.IsZero() {
 			return true
@@ -46,12 +50,15 @@ func (p PayrollParameters) IsPhase12() bool {
 // Phase12Executable reports whether the payload is a fully validated Phase 12
 // shape ready for later planner/encoding work. Legacy shapes return false.
 func (p PayrollParameters) Phase12Executable() bool {
-	return p.IsPhase12() && p.validatePhase12() == nil
+	return p.IsPhase12() && p.validate() == nil
 }
 
 // ValidateSameToken verifies the only Payroll variant executable in Track C.
 // It deliberately rejects every cross-token or slippage-bearing shape.
 func (p PayrollParameters) ValidateSameToken() error {
+	if p.isCrossTokenShape() {
+		return fmt.Errorf("cross-token payroll is not same-token payroll")
+	}
 	if err := p.validatePhase12(); err != nil {
 		return err
 	}
@@ -75,6 +82,129 @@ func (p PayrollParameters) ValidateSameToken() error {
 	return nil
 }
 
+func (p PayrollParameters) isCrossTokenShape() bool {
+	return p.CrossToken != nil
+}
+
+// ValidateCrossToken verifies the immutable Track E aggregate execution shape.
+func (p PayrollParameters) ValidateCrossToken() error {
+	return p.validateCrossTokenTimeline(time.Time{}, time.Time{}, time.Time{}, "")
+}
+
+func (p PayrollParameters) CrossTokenExecutable() bool { return p.ValidateCrossToken() == nil }
+
+func (p PayrollParameters) validateCrossTokenTimeline(createdAt, constraintDeadline, expiresAt time.Time, employer string) error {
+	if p.CrossToken == nil {
+		return fmt.Errorf("cross-token payroll material is required")
+	}
+	crossToken := p.CrossToken
+	if p.SchemaVersion != FinancialSchemaPhase12 {
+		return fmt.Errorf("cross-token payroll requires schema_version %d", FinancialSchemaPhase12)
+	}
+	if p.Variant != PayrollVariantSingle && p.Variant != PayrollVariantBatchSingleTokenOut {
+		return fmt.Errorf("cross-token payroll requires a single output-token variant")
+	}
+	if !canonicalPayrollToken(p.TokenIn) {
+		return fmt.Errorf("token_in must be canonical Arc Mainnet USDC or EURC")
+	}
+	if len(p.Recipients) == 0 || len(p.Recipients) > maxPayrollRecipientsPhase12 {
+		return fmt.Errorf("cross-token payroll requires 1 to %d recipients", maxPayrollRecipientsPhase12)
+	}
+	if p.Variant == PayrollVariantSingle && len(p.Recipients) != 1 {
+		return fmt.Errorf("SINGLE payroll requires exactly one recipient")
+	}
+	if err := validatePayrollReferenceID(p.ReferenceID); err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, len(p.Recipients))
+	obligations := new(big.Int)
+	var tokenOut Token
+	for i, recipient := range p.Recipients {
+		if err := validateNonZeroEVMAddress(fmt.Sprintf("recipients[%d].address", i), recipient.Address); err != nil {
+			return err
+		}
+		if addressesEqual(recipient.Address, contracts.AddressWizPayPayroll) || (employer != "" && addressesEqual(recipient.Address, employer)) {
+			return fmt.Errorf("recipients[%d] is a forbidden payroll recipient", i)
+		}
+		normalized := normalizeEVMAddress(recipient.Address)
+		if _, exists := seen[normalized]; exists {
+			return fmt.Errorf("recipients[%d]: duplicate recipient address", i)
+		}
+		seen[normalized] = struct{}{}
+		if !canonicalPayrollToken(recipient.TokenOut) || samePayrollToken(p.TokenIn, recipient.TokenOut) {
+			return fmt.Errorf("recipients[%d].token_out must be the opposite canonical token", i)
+		}
+		if i == 0 {
+			tokenOut = recipient.TokenOut
+		} else if !samePayrollToken(tokenOut, recipient.TokenOut) {
+			return fmt.Errorf("cross-token payroll requires one identical token_out")
+		}
+		if !recipient.AmountIn.IsZero() || !recipient.Amount.IsZero() {
+			return fmt.Errorf("recipients[%d] cross-token input allocation is not allowed", i)
+		}
+		if !recipient.MinAmountOut.IsPositive() || recipient.MinAmountOut.Decimals != recipient.TokenOut.Decimals {
+			return fmt.Errorf("recipients[%d] output obligation must be positive in token_out units", i)
+		}
+		amount, _ := recipient.MinAmountOut.BaseInt()
+		if amount.BitLen() > 128 {
+			return fmt.Errorf("recipients[%d] output obligation exceeds uint128", i)
+		}
+		obligations.Add(obligations, amount)
+	}
+	if !p.Total.IsPositive() || p.Total.Decimals != tokenOut.Decimals || p.Total.BaseUnits != obligations.String() {
+		return fmt.Errorf("payroll total must equal exact output obligations")
+	}
+	gross, err := positivePayrollUint128("gross_input", crossToken.GrossInput, p.TokenIn.Decimals)
+	if err != nil {
+		return err
+	}
+	minimum, err := positivePayrollUint128("min_total_out", crossToken.MinTotalOut, tokenOut.Decimals)
+	if err != nil {
+		return err
+	}
+	if minimum.Cmp(obligations) < 0 {
+		return fmt.Errorf("min_total_out must cover exact output obligations")
+	}
+	price, ok := new(big.Int).SetString(crossToken.MinHopPriceX36, 10)
+	if !ok || price.Sign() <= 0 || price.BitLen() > 128 || (len(crossToken.MinHopPriceX36) > 1 && crossToken.MinHopPriceX36[0] == '0') {
+		return fmt.Errorf("min_hop_price_x36 must be a canonical positive uint128 integer")
+	}
+	if gross.Sign() <= 0 || crossToken.Deadline.IsZero() || crossToken.Deadline.UTC().Unix() <= 0 {
+		return fmt.Errorf("cross-token payroll deadline is required")
+	}
+	deadline := crossToken.Deadline.UTC()
+	if !createdAt.IsZero() {
+		createdAt = createdAt.UTC()
+		if !deadline.After(createdAt) {
+			return fmt.Errorf("cross-token payroll deadline has expired")
+		}
+		if deadline.After(createdAt.Add(20 * time.Minute)) {
+			return fmt.Errorf("cross-token payroll deadline exceeds 20 minute contract window")
+		}
+	}
+	if !constraintDeadline.IsZero() && deadline.After(constraintDeadline.UTC()) {
+		return fmt.Errorf("cross-token payroll deadline exceeds constraint deadline")
+	}
+	if !expiresAt.IsZero() && deadline.After(expiresAt.UTC()) {
+		return fmt.Errorf("cross-token payroll deadline exceeds intent expiry")
+	}
+	if !p.Token.IsZero() {
+		return fmt.Errorf("legacy token is not allowed for cross-token payroll")
+	}
+	return nil
+}
+
+func positivePayrollUint128(name string, amount Amount, decimals uint8) (*big.Int, error) {
+	if !amount.IsPositive() || amount.Decimals != decimals {
+		return nil, fmt.Errorf("%s must be positive with canonical token decimals", name)
+	}
+	value, _ := amount.BaseInt()
+	if value.BitLen() > 128 {
+		return nil, fmt.Errorf("%s exceeds uint128", name)
+	}
+	return value, nil
+}
+
 func (p PayrollParameters) SameTokenExecutable() bool { return p.ValidateSameToken() == nil }
 
 // SourceToken returns the source token for policy/spend views.
@@ -87,6 +217,9 @@ func (p PayrollParameters) SourceToken() Token {
 
 func (p PayrollParameters) validate() error {
 	if p.IsPhase12() {
+		if p.isCrossTokenShape() {
+			return p.ValidateCrossToken()
+		}
 		return p.validatePhase12()
 	}
 	return p.validateLegacy()

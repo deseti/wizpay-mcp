@@ -35,8 +35,8 @@ func EncodeSameTokenPayroll(registry *contracts.Registry, in SameTokenPayrollInp
 }
 
 // EncodeCrossTokenPayroll encodes only the reviewed Mainnet calldata shape.
-// Its output is not executable without later-track native-value or approval
-// handling selected from the fixed canonical token direction.
+// Native-value and user-allowance handling remain outside this encoder and are
+// selected from the fixed canonical token direction by the sealed plan.
 func EncodeCrossTokenPayroll(registry *contracts.Registry, in CrossTokenPayrollInput) (contracts.EncodedCall, error) {
 	deployment, err := ExpectedDeployment(registry)
 	if err != nil {

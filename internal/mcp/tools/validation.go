@@ -264,6 +264,23 @@ func (in PayrollDraftInput) Validate() error {
 	if in.Token != "USDC" && in.Token != "EURC" {
 		return fmt.Errorf("token must be USDC or EURC")
 	}
+	if in.OutputToken != "" {
+		if (in.OutputToken != "USDC" && in.OutputToken != "EURC") || in.OutputToken == in.Token {
+			return fmt.Errorf("output_token must be the opposite canonical token")
+		}
+		if !in.GrossInput.IsPositive() || !in.MinTotalOut.IsPositive() {
+			return fmt.Errorf("cross-token aggregate amounts must be positive")
+		}
+		price, ok := new(big.Int).SetString(in.MinHopPriceX36, 10)
+		if !ok || price.Sign() <= 0 {
+			return fmt.Errorf("min_hop_price_x36 must be positive")
+		}
+		if in.SwapDeadline.IsZero() {
+			return fmt.Errorf("swap_deadline is required for cross-token payroll")
+		}
+	} else if !in.GrossInput.IsZero() || !in.MinTotalOut.IsZero() || in.MinHopPriceX36 != "" || !in.SwapDeadline.IsZero() {
+		return fmt.Errorf("cross-token fields require output_token")
+	}
 	if len(in.Recipients) < 1 || len(in.Recipients) > 50 {
 		return fmt.Errorf("recipients must contain 1 to 50 entries")
 	}

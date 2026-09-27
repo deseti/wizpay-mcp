@@ -102,6 +102,25 @@ func TestSwapContractExecutionPlanBindsExactNativeFunding(t *testing.T) {
 	}
 }
 
+func TestCrossTokenPayrollPlanBindsExactNativeFunding(t *testing.T) {
+	for _, tc := range []struct{ name, in, out, want string }{{"USDC", contracts.AddressUSDCMainnet, contracts.AddressEURCMainnet, "1000000000000000000"}, {"EURC", contracts.AddressEURCMainnet, contracts.AddressUSDCMainnet, "0"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			call, err := payroll.EncodeCrossTokenPayroll(nil, payroll.CrossTokenPayrollInput{TokenIn: tc.in, TokenOut: tc.out, Recipients: []string{"0x3333333333333333333333333333333333333333"}, OutputAmounts: []*big.Int{big.NewInt(900_000)}, GrossInput: big.NewInt(1_000_000), MinTotalOut: big.NewInt(900_000), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(1), ReferenceID: "reference"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{WalletBindingID: "binding", WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet, Call: call, SubmitNotAfter: planTestNow.Add(time.Minute)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := plan.NativeValueBaseUnits()
+			if !ok || got != tc.want {
+				t.Fatalf("value=%q want=%q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewContractExecutionPlanRejectsMissingFreshness(t *testing.T) {
 	_, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
 		WalletBindingID: "binding-test", WalletID: "wallet-test",

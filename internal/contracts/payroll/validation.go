@@ -39,6 +39,17 @@ func validateCrossToken(in CrossTokenPayrollInput) error {
 	if err := validateBatch(in.Recipients, in.OutputAmounts, in.ReferenceID); err != nil {
 		return err
 	}
+	seen := make(map[string]struct{}, len(in.Recipients))
+	for i, recipient := range in.Recipients {
+		if contracts.AddressesEqual(recipient, contracts.AddressWizPayPayroll) {
+			return fmt.Errorf("recipients[%d] cannot be the payroll contract", i)
+		}
+		normalized := contracts.NormalizeAddress(recipient)
+		if _, exists := seen[normalized]; exists {
+			return fmt.Errorf("recipients[%d] is duplicated", i)
+		}
+		seen[normalized] = struct{}{}
+	}
 	for _, field := range []struct {
 		name  string
 		value *big.Int

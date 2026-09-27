@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
+	contractpayroll "github.com/deseti/wizpay-mcp/internal/contracts/payroll"
 	"github.com/deseti/wizpay-mcp/internal/execution"
 	"github.com/deseti/wizpay-mcp/internal/providers"
 	"github.com/deseti/wizpay-mcp/internal/providers/circuit"
@@ -376,6 +377,9 @@ func (a *Adapter) validateContractExecutionPlan(plan providers.Plan) error {
 	}
 	switch call.ContractID() {
 	case contracts.ContractWizPayPayroll:
+		if call.Function() == contractpayroll.SigExecuteCrossTokenPayroll {
+			return fmt.Errorf("Arc Mainnet cross-token payroll submission authority is unavailable")
+		}
 	case contracts.ContractWizPaySwapExecutor:
 		// Track D has no validated Mainnet user/delegated authority for the
 		// USDC native-value route or the user's prerequisite EURC approval.

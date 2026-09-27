@@ -115,6 +115,16 @@ func contractPlan(intent intents.Intent, planIntentID, planDigest string, call c
 			nativeValue = new(big.Int).Mul(amount, big.NewInt(1_000_000_000_000)).String()
 		}
 	}
+	if financial := intent.Financial().Payroll; financial != nil && financial.CrossTokenExecutable() {
+		deadlines = append(deadlines, financial.CrossToken.Deadline)
+		if contracts.AddressesEqual(financial.TokenIn.Address, contracts.AddressUSDCMainnet) {
+			gross, err := financial.CrossToken.GrossInput.BaseInt()
+			if err != nil {
+				return providers.Plan{}, fmt.Errorf("derive payroll native value: %w", err)
+			}
+			nativeValue = new(big.Int).Mul(gross, big.NewInt(1_000_000_000_000)).String()
+		}
+	}
 	plan, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
 		WalletBindingID:      owner.WalletBindingID,
 		WalletID:             owner.WalletID,

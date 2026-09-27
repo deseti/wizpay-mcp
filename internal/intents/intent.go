@@ -221,6 +221,14 @@ func validateParams(p Params) error {
 			return fmt.Errorf("payroll token chain does not match owning wallet chain")
 		}
 		if p.Financial.Payroll.IsPhase12() {
+			if (p.Financial.Payroll.SameTokenExecutable() || p.Financial.Payroll.CrossTokenExecutable()) && p.Ownership.Network != contracts.NetworkArcMainnet {
+				return fmt.Errorf("phase 12 payroll requires MAINNET ownership network")
+			}
+			if p.Financial.Payroll.isCrossTokenShape() {
+				if err := p.Financial.Payroll.validateCrossTokenTimeline(p.CreatedAt, p.Constraints.Deadline, p.ExpiresAt, p.Ownership.WalletAddress); err != nil {
+					return err
+				}
+			}
 			if err := validatePayrollRoute(p.Route); err != nil {
 				return err
 			}
@@ -315,6 +323,9 @@ func normalizeParams(p Params) Params {
 	p.ExpiresAt = p.ExpiresAt.UTC()
 	p.Constraints.Deadline = p.Constraints.Deadline.UTC()
 	p.Financial = cloneFinancial(p.Financial)
+	if p.Financial.Payroll != nil && p.Financial.Payroll.CrossToken != nil && !p.Financial.Payroll.CrossToken.Deadline.IsZero() {
+		p.Financial.Payroll.CrossToken.Deadline = p.Financial.Payroll.CrossToken.Deadline.UTC()
+	}
 	// Time representation only — no economic fields invented. Historical swap
 	// payloads have nil Quote and zero Deadline, so these branches are no-ops.
 	if p.Financial.Swap != nil {

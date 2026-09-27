@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/contracts"
+	contractpayroll "github.com/deseti/wizpay-mcp/internal/contracts/payroll"
 	contractswap "github.com/deseti/wizpay-mcp/internal/contracts/swap"
 	"github.com/deseti/wizpay-mcp/internal/execution"
 )
@@ -199,6 +200,15 @@ func NewContractExecutionPlan(params ContractExecutionParams) (Plan, error) {
 func nativeValueForCall(call contracts.EncodedCall) (string, error) {
 	switch call.ContractID() {
 	case contracts.ContractWizPayPayroll:
+		if call.Function() == contractpayroll.SigExecuteCrossTokenPayroll {
+			decoded, err := contractpayroll.DecodeCrossTokenPayrollCall(call.CallData())
+			if err != nil {
+				return "", fmt.Errorf("decode cross-token payroll native value: %w", err)
+			}
+			if contracts.AddressesEqual(decoded.TokenIn, contracts.AddressUSDCMainnet) {
+				return new(big.Int).Mul(decoded.GrossInput, big.NewInt(1_000_000_000_000)).String(), nil
+			}
+		}
 		return "0", nil
 	case contracts.ContractWizPaySwapExecutor:
 		decoded, err := contractswap.DecodeExecuteSwapCall(call.CallData())

@@ -29,6 +29,67 @@ type BatchExecutedEvent struct {
 	ReferenceID                                        string
 }
 
+type SwapExecutedEvent struct {
+	ReferenceHash                                              [32]byte
+	Employer, TokenIn, TokenOut                                string
+	GrossInput, FeeAmount, NetAmountIn, AmountOut, MinTotalOut *big.Int
+}
+
+type SurplusRefundedEvent struct {
+	ReferenceHash      [32]byte
+	Employer, TokenOut string
+	Amount             *big.Int
+}
+
+func DecodeSwapExecutedEvent(registry *contracts.Registry, log contracts.Log) (SwapExecutedEvent, error) {
+	if err := ValidateEventLog(registry, SigPayrollSwapExecuted, log); err != nil {
+		return SwapExecutedEvent{}, err
+	}
+	if len(log.Topics) != 4 {
+		return SwapExecutedEvent{}, fmt.Errorf("PayrollSwapExecuted requires four topics")
+	}
+	event, _ := EventBySignature(SigPayrollSwapExecuted)
+	v, err := event.Inputs.NonIndexed().Unpack(log.Data)
+	if err != nil || len(v) != 6 {
+		return SwapExecutedEvent{}, fmt.Errorf("decode PayrollSwapExecuted: %w", err)
+	}
+	tokenOut, a := v[0].(common.Address)
+	gross, b := v[1].(*big.Int)
+	fee, c := v[2].(*big.Int)
+	net, d := v[3].(*big.Int)
+	amountOut, e := v[4].(*big.Int)
+	minimum, f := v[5].(*big.Int)
+	if !a || !b || !c || !d || !e || !f {
+		return SwapExecutedEvent{}, fmt.Errorf("PayrollSwapExecuted has unexpected ABI types")
+	}
+	if packed, packErr := event.Inputs.NonIndexed().Pack(v...); packErr != nil || !bytes.Equal(packed, log.Data) {
+		return SwapExecutedEvent{}, fmt.Errorf("PayrollSwapExecuted data is not canonical")
+	}
+	return SwapExecutedEvent{ReferenceHash: topicHash(log.Topics[1]), Employer: topicAddress(log.Topics[2]), TokenIn: topicAddress(log.Topics[3]), TokenOut: tokenOut.Hex(), GrossInput: cloneInt(gross), FeeAmount: cloneInt(fee), NetAmountIn: cloneInt(net), AmountOut: cloneInt(amountOut), MinTotalOut: cloneInt(minimum)}, nil
+}
+
+func DecodeSurplusRefundedEvent(registry *contracts.Registry, log contracts.Log) (SurplusRefundedEvent, error) {
+	if err := ValidateEventLog(registry, SigPayrollSurplusRefunded, log); err != nil {
+		return SurplusRefundedEvent{}, err
+	}
+	if len(log.Topics) != 4 {
+		return SurplusRefundedEvent{}, fmt.Errorf("PayrollSurplusRefunded requires four topics")
+	}
+	event, _ := EventBySignature(SigPayrollSurplusRefunded)
+	v, err := event.Inputs.NonIndexed().Unpack(log.Data)
+	if err != nil || len(v) != 1 {
+		return SurplusRefundedEvent{}, fmt.Errorf("decode PayrollSurplusRefunded: %w", err)
+	}
+	amount, ok := v[0].(*big.Int)
+	if !ok {
+		return SurplusRefundedEvent{}, fmt.Errorf("PayrollSurplusRefunded has unexpected ABI types")
+	}
+	if packed, packErr := event.Inputs.NonIndexed().Pack(v...); packErr != nil || !bytes.Equal(packed, log.Data) {
+		return SurplusRefundedEvent{}, fmt.Errorf("PayrollSurplusRefunded data is not canonical")
+	}
+	return SurplusRefundedEvent{ReferenceHash: topicHash(log.Topics[1]), Employer: topicAddress(log.Topics[2]), TokenOut: topicAddress(log.Topics[3]), Amount: cloneInt(amount)}, nil
+}
+
 func DecodePaymentEvent(registry *contracts.Registry, log contracts.Log) (PaymentEvent, error) {
 	if err := ValidateEventLog(registry, SigPayrollPayment, log); err != nil {
 		return PaymentEvent{}, err

@@ -325,6 +325,22 @@ func TestExecuteSwapContractExecutionFailsClosedWithoutMainnetAuthority(t *testi
 	}
 }
 
+func TestExecuteCrossTokenPayrollFailsClosedWithoutMainnetAuthority(t *testing.T) {
+	call, err := payroll.EncodeCrossTokenPayroll(nil, payroll.CrossTokenPayrollInput{TokenIn: contracts.AddressEURCMainnet, TokenOut: contracts.AddressUSDCMainnet, Recipients: []string{"0x3333333333333333333333333333333333333333"}, OutputAmounts: []*big.Int{big.NewInt(900_000)}, GrossInput: big.NewInt(1_000_000), MinTotalOut: big.NewInt(900_000), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(contractExecNow.Add(time.Minute).Unix()), ReferenceID: "cross-reference"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := contractPlan(t, call, contractExecNow.Add(time.Minute))
+	transport := &scriptedTransport{}
+	adapter := contractAdapter(t, plan, stubAuthorization{auth: mustUserAuth(t), found: true}, stubReferences{}, transport, nil)
+	if _, err := adapter.Execute(context.Background(), validExecutionRequest(t)); err == nil {
+		t.Fatal("cross-token payroll submission must fail closed")
+	}
+	if transport.posts.Load() != 0 {
+		t.Fatal("fail-closed cross-token payroll must not POST")
+	}
+}
+
 func TestExecuteUnsupportedContractRejected(t *testing.T) {
 	// Kind CONTRACT_EXECUTION without sealed call is unsupported/invalid.
 	plan := providers.Plan{
