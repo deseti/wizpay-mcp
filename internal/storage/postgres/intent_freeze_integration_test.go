@@ -5,10 +5,80 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/auth"
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 	"github.com/deseti/wizpay-mcp/internal/storage"
+	"github.com/deseti/wizpay-mcp/internal/wallet"
 )
+
+func TestCreatedSendWithSubMicrosecondTimestampsRoundTrips(t *testing.T) {
+	ctx := context.Background()
+	tenantID := unique("tenant")
+	userID := unique("user")
+	scope, err := storage.NewScope(tenantID, userID, unique("request"), unique("trace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = integrationStore.CreateTenant(ctx, storage.Tenant{TenantID: tenantID, CreatedAt: fixtureNow}); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := auth.NewIdentity(userID, "test-provider", auth.IdentityStatusActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = integrationStore.CreateIdentity(ctx, scope, identity); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := wallet.NewBinding(wallet.BindingParams{
+		BindingID: unique("binding"), Version: 1, UserID: userID,
+		Provider: "test-provider", ProviderUserReference: unique("provider-user"), WalletID: unique("wallet"),
+		Address: "0x1111111111111111111111111111111111111111", ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
+		Status: wallet.BindingStatusActive, VerificationReference: unique("verification"), CreatedAt: fixtureNow.Add(-2 * time.Hour), VerifiedAt: fixtureNow.Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = integrationStore.CreateBinding(ctx, scope, binding); err != nil {
+		t.Fatal(err)
+	}
+
+	createdAt := fixtureNow.Add(123456789 * time.Nanosecond)
+	resource, _ := contracts.CanonicalToken("USDC")
+	draft, err := intents.NewDraft(intents.Params{
+		IntentID: unique("intent"), Version: 1, ClientRequestID: unique("client-request"), Nonce: unique("nonce"), Type: intents.TypeSend,
+		Ownership: intents.Ownership{UserID: userID, IdentityProvider: binding.Provider(), ProviderUserReference: binding.ProviderUserReference(), WalletBindingID: binding.BindingID(), WalletBindingVersion: binding.Version(), WalletID: binding.WalletID(), WalletAddress: binding.Address(), ChainID: binding.ChainID(), Network: binding.Network()},
+		Financial: intents.FinancialParameters{Send: &intents.SendParameters{Token: intents.Token{ChainID: resource.ChainID, Standard: "ERC20", Address: resource.Address, Symbol: resource.Symbol, Decimals: resource.Decimals}, Recipient: "0x2222222222222222222222222222222222222222", Amount: intents.Amount{Decimal: "1", BaseUnits: "1000000", Decimals: 6}}},
+		Route:     intents.Route{Type: intents.RouteDirectWallet, Reference: intents.RouteReferenceSend, Version: intents.RouteVersionSend}, Constraints: intents.Constraints{Deadline: createdAt.Add(30*time.Minute + 345678912*time.Nanosecond), PolicyReference: "policy:send"},
+		CreatedAt: createdAt, ExpiresAt: createdAt.Add(time.Hour + 234567891*time.Nanosecond),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := draft.Transition(intents.StatusCreated, draft.CreatedAt())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := integrationStore.CreateIntent(ctx, scope, created)
+	if err != nil {
+		t.Fatalf("persist CREATED send: %v", err)
+	}
+	if !result.Created || result.Intent.Digest() != created.Digest() {
+		t.Fatalf("persisted result = (created %t, digest %q), want (true, %q)", result.Created, result.Intent.Digest(), created.Digest())
+	}
+	if err := result.Intent.Validate(); err != nil {
+		t.Fatalf("restored CREATED send is invalid: %v", err)
+	}
+	loaded, err := integrationStore.FindIntentByID(ctx, scope, created.IntentID())
+	if err != nil {
+		t.Fatalf("load CREATED send: %v", err)
+	}
+	if loaded.Digest() != created.Digest() || loaded.Status() != intents.StatusCreated {
+		t.Fatalf("loaded status/digest = %s/%s, want %s/%s", loaded.Status(), loaded.Digest(), intents.StatusCreated, created.Digest())
+	}
+}
 
 func TestIntentDraftFreezeRoundTripAndDatabaseInvariants(t *testing.T) {
 	f := createBaseFixture(t, false)

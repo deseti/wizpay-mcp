@@ -122,6 +122,7 @@ type Intent struct {
 // invented. Phase 12 shapes must carry an explicit schema_version.
 func NewDraft(params Params) (Intent, error) {
 	params = normalizeParams(params)
+	normalizeCreationTimestamps(&params)
 	normalizeCreationAddresses(&params)
 	if err := validateParams(params); err != nil {
 		return Intent{}, apperrors.Wrap(apperrors.CodeValidationError, "Intent is invalid.", false, true, true, err)
@@ -137,6 +138,7 @@ func (i Intent) ReviseDraft(params Params) (Intent, error) {
 		return Intent{}, err
 	}
 	params = normalizeParams(params)
+	normalizeCreationTimestamps(&params)
 	normalizeCreationAddresses(&params)
 	if err := validateParams(params); err != nil {
 		return Intent{}, apperrors.Wrap(apperrors.CodeValidationError, "Intent is invalid.", false, true, true, err)
@@ -337,6 +339,35 @@ func normalizeParams(p Params) Params {
 		}
 	}
 	return p
+}
+
+// normalizeCreationTimestamps makes newly authored digest material stable
+// across PostgreSQL timestamptz persistence, which stores microsecond
+// precision. Restore deliberately does not call this helper: persisted
+// historical material must continue to be validated exactly as stored.
+func normalizeCreationTimestamps(p *Params) {
+	if p == nil {
+		return
+	}
+	p.CreatedAt = truncatePostgresTimestamp(p.CreatedAt)
+	p.ExpiresAt = truncatePostgresTimestamp(p.ExpiresAt)
+	p.Constraints.Deadline = truncatePostgresTimestamp(p.Constraints.Deadline)
+	if p.Financial.Payroll != nil && p.Financial.Payroll.CrossToken != nil {
+		p.Financial.Payroll.CrossToken.Deadline = truncatePostgresTimestamp(p.Financial.Payroll.CrossToken.Deadline)
+	}
+	if p.Financial.Swap != nil {
+		if p.Financial.Swap.Quote != nil {
+			p.Financial.Swap.Quote.ExpiresAt = truncatePostgresTimestamp(p.Financial.Swap.Quote.ExpiresAt)
+		}
+		p.Financial.Swap.Deadline = truncatePostgresTimestamp(p.Financial.Swap.Deadline)
+	}
+}
+
+func truncatePostgresTimestamp(value time.Time) time.Time {
+	if value.IsZero() {
+		return value
+	}
+	return value.Truncate(time.Microsecond)
 }
 
 // normalizeCreationAddresses lowercases valid EVM addresses for new drafts and
