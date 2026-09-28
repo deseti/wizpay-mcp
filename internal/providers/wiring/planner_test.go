@@ -165,6 +165,77 @@ func TestPlannerBuildsStableSendPlanAndIdempotencyIdentity(t *testing.T) {
 	}
 }
 
+func TestTrackFNoBroadcastDryRunPlansAllLockedCapabilities(t *testing.T) {
+	cases := []struct {
+		name      string
+		intent    intents.Intent
+		kind      providers.PlanKind
+		target    string
+		native    string
+		hasNative bool
+	}{
+		{name: "send", intent: frozenIntent(t, intents.TypeSend), kind: providers.PlanKindTokenTransfer},
+		{name: "same_token_payroll", intent: frozenIntent(t, intents.TypePayroll), kind: providers.PlanKindContractExecution, target: contracts.AddressWizPayPayroll, native: "0", hasNative: true},
+		{name: "swap", intent: frozenIntent(t, intents.TypeSwap), kind: providers.PlanKindContractExecution, target: contracts.AddressWizPaySwapExecutor, native: "10000000000000000000", hasNative: true},
+		{name: "cross_token_payroll", intent: frozenCrossTokenPayrollIntent(t), kind: providers.PlanKindContractExecution, target: contracts.AddressWizPayPayroll, native: "10000000000000000000", hasNative: true},
+	}
+	scope, _ := storage.NewScope("tenant", "actor", "request", "trace")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request, approved := executionRequest(t, tc.intent)
+			planner, err := NewPlanner(&intentRepositoryStub{intent: approved}, payroll.NewPlanner(nil), swap.NewPlanner(nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			first, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := planner.Plan(storage.WithScope(context.Background(), scope), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.EffectiveKind() != tc.kind || first.WalletAddress != approved.Ownership().WalletAddress {
+				t.Fatalf("plan kind/wallet mismatch: %#v", first)
+			}
+			value, hasValue := first.NativeValueBaseUnits()
+			if hasValue != tc.hasNative || value != tc.native {
+				t.Fatalf("native value = %q,%t want %q,%t", value, hasValue, tc.native, tc.hasNative)
+			}
+			if tc.kind == providers.PlanKindTokenTransfer {
+				if first.TokenAddress != contracts.AddressUSDCMainnet || first.DestinationAddress != "0x3333333333333333333333333333333333333333" || first.AmountBaseUnits != "1000000" {
+					t.Fatalf("SEND financial plan mismatch: %#v", first)
+				}
+				if _, ok := first.EncodedCall(); ok {
+					t.Fatal("SEND exposed contract calldata")
+				}
+			} else {
+				call, ok := first.EncodedCall()
+				secondCall, secondOK := second.EncodedCall()
+				if !ok || !secondOK || !contracts.AddressesEqual(call.To(), tc.target) || string(call.CallData()) != string(secondCall.CallData()) {
+					t.Fatal("sealed contract plan is missing, misdirected, or unstable")
+				}
+			}
+			firstKey, err := providers.IdempotencyKey(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondKey, err := providers.IdempotencyKey(request)
+			if err != nil || firstKey != secondKey {
+				t.Fatalf("idempotency changed: %q / %q (%v)", firstKey, secondKey, err)
+			}
+		})
+	}
+
+	plane, err := Build(Config{}, Dependencies{Now: fixedClock()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plane.Adapter != nil || plane.Verifier != nil || plane.DomainVerifier != nil || len(plane.ProviderFeatures(contracts.ChainIDArcMainnet, contracts.NetworkArcMainnet)) != 0 {
+		t.Fatal("dry-run provider plane unexpectedly acquired Mainnet execution authority")
+	}
+}
+
 func TestPlannerRejectsPersistedNonApprovedIntent(t *testing.T) {
 	request, approved := executionRequest(t, frozenIntent(t, intents.TypePayroll))
 	repository := &intentRepositoryStub{intent: frozenIntent(t, intents.TypePayroll)}
@@ -335,6 +406,31 @@ func frozenIntentVersion(t *testing.T, kind intents.Type, nonce string, version 
 		t.Fatal(err)
 	}
 	return intent
+}
+
+func frozenCrossTokenPayrollIntent(t *testing.T) intents.Intent {
+	t.Helper()
+	owner := intents.Ownership{UserID: "user", IdentityProvider: "circle", ProviderUserReference: "provider-user", WalletBindingID: "binding", WalletBindingVersion: 1, WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222", ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet}
+	usdc := intents.Token{ChainID: contracts.ChainIDArcMainnet, Standard: "ERC20", Address: contracts.AddressUSDCMainnet, Symbol: "USDC", Decimals: 6}
+	eurc := intents.Token{ChainID: contracts.ChainIDArcMainnet, Standard: "ERC20", Address: contracts.AddressEURCMainnet, Symbol: "EURC", Decimals: 6}
+	params := intents.Params{
+		IntentID: "intent-cross-token-payroll", Version: 1, ClientRequestID: "client-cross-token", Nonce: "nonce-cross-token", Type: intents.TypePayroll, Ownership: owner,
+		Financial: intents.FinancialParameters{Payroll: &intents.PayrollParameters{SchemaVersion: intents.FinancialSchemaPhase12, Variant: intents.PayrollVariantSingle, TokenIn: usdc, Recipients: []intents.Recipient{{Address: "0x3333333333333333333333333333333333333333", TokenOut: eurc, MinAmountOut: amount("9")}}, Total: amount("9"), ReferenceID: "cross-token-reference", CrossToken: &intents.CrossTokenPayrollParameters{GrossInput: amount("10"), MinTotalOut: amount("9"), MinHopPriceX36: "1", Deadline: plannerTestNow.Add(10 * time.Minute)}}},
+		Route:     intents.Route{Type: intents.RouteAllowlistedContract, Reference: intents.RouteReferencePayroll, Version: intents.RouteVersionPayroll}, Constraints: intents.Constraints{Deadline: plannerTestNow.Add(20 * time.Minute), PolicyReference: "policy:1"}, CreatedAt: plannerTestNow, ExpiresAt: plannerTestNow.Add(30 * time.Minute),
+	}
+	value, err := intents.NewDraft(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err = value.Transition(intents.StatusCreated, plannerTestNow.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err = value.Transition(intents.StatusApprovalRequired, plannerTestNow.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }
 
 func approveIntent(t *testing.T, intent intents.Intent) (intents.Intent, error) {

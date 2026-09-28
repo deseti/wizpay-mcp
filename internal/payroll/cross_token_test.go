@@ -141,3 +141,63 @@ func TestCrossTokenVerifierRejectsFundLossContradictions(t *testing.T) {
 		})
 	}
 }
+
+func TestTrackFCrossTokenReceiptEventMismatchMatrix(t *testing.T) {
+	intent := crossIntent(t, contracts.AddressEURCMainnet)
+	plan, err := NewPlanner(nil).Plan(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := intent.Financial().Payroll
+	gross, minimum := big.NewInt(11_000_000), big.NewInt(10_000_000)
+	fee, net, output := big.NewInt(25_000), big.NewInt(10_975_000), big.NewInt(10_500_000)
+	obligations := big.NewInt(10_000_000)
+	refHash, _ := contractpayroll.ReferenceHash(intent.Ownership().WalletAddress, f.ReferenceID)
+	tokenOut := f.Recipients[0].TokenOut.Address
+	employer := intent.Ownership().WalletAddress
+
+	cases := []struct {
+		name   string
+		mutate func(*providers.Receipt)
+	}{
+		{"wrong event emitter", func(r *providers.Receipt) { r.Logs[0].Address = contracts.AddressWizPaySwapExecutor }},
+		{"wrong recipient order", func(r *providers.Receipt) { r.Logs[1], r.Logs[2] = r.Logs[2], r.Logs[1] }},
+		{"wrong obligations", func(r *providers.Receipt) {
+			var digest [32]byte
+			r.Logs[3] = payrollEvent(t, contractpayroll.SigPayrollReferenceConsumed, [][]byte{refHash[:], contracts.TopicAddress(employer), contracts.TopicAddress(f.TokenIn.Address)}, common.HexToAddress(tokenOut), digest, gross, big.NewInt(9_999_999), fee, big.NewInt(2), f.ReferenceID)
+		}},
+		{"wrong gross input", func(r *providers.Receipt) {
+			r.Logs[0] = payrollEvent(t, contractpayroll.SigPayrollSwapExecuted, [][]byte{refHash[:], contracts.TopicAddress(employer), contracts.TopicAddress(f.TokenIn.Address)}, common.HexToAddress(tokenOut), big.NewInt(10_999_999), fee, net, output, minimum)
+		}},
+		{"fee net inconsistency", func(r *providers.Receipt) {
+			r.Logs[0] = payrollEvent(t, contractpayroll.SigPayrollSwapExecuted, [][]byte{refHash[:], contracts.TopicAddress(employer), contracts.TopicAddress(f.TokenIn.Address)}, common.HexToAddress(tokenOut), gross, fee, big.NewInt(10_974_999), output, minimum)
+		}},
+		{"wrong minimum", func(r *providers.Receipt) {
+			r.Logs[0] = payrollEvent(t, contractpayroll.SigPayrollSwapExecuted, [][]byte{refHash[:], contracts.TopicAddress(employer), contracts.TopicAddress(f.TokenIn.Address)}, common.HexToAddress(tokenOut), gross, fee, net, output, big.NewInt(10_000_001))
+		}},
+		{"wrong reference", func(r *providers.Receipt) {
+			var digest [32]byte
+			r.Logs[3] = payrollEvent(t, contractpayroll.SigPayrollReferenceConsumed, [][]byte{refHash[:], contracts.TopicAddress(employer), contracts.TopicAddress(f.TokenIn.Address)}, common.HexToAddress(tokenOut), digest, gross, obligations, fee, big.NewInt(2), "replacement-reference")
+		}},
+		{"wrong batch aggregate", func(r *providers.Receipt) {
+			r.Logs[4] = payrollEvent(t, contractpayroll.SigPayrollBatchExecuted, [][]byte{contracts.TopicAddress(employer), contracts.TopicAddress(f.TokenIn.Address), contracts.TopicAddress(tokenOut)}, big.NewInt(10_999_999), obligations, fee, big.NewInt(2), f.ReferenceID)
+		}},
+		{"wrong surplus refund", func(r *providers.Receipt) {
+			r.Logs[5] = payrollEvent(t, contractpayroll.SigPayrollSurplusRefunded, [][]byte{refHash[:], contracts.TopicAddress(employer), contracts.TopicAddress(tokenOut)}, big.NewInt(499_999))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			receipt := crossReceipt(t, intent, plan, output)
+			receipt.Logs = providers.CloneLogs(receipt.Logs)
+			tc.mutate(&receipt)
+			result, verifyErr := NewVerifier(nil).Verify(intent, plan, receipt)
+			if verifyErr != nil {
+				t.Fatal(verifyErr)
+			}
+			if result.FinancialComplete() || !result.DefinitiveFailure() {
+				t.Fatalf("result=%#v", result)
+			}
+		})
+	}
+}

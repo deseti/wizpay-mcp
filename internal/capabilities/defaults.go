@@ -19,11 +19,20 @@ func DefaultRegistry() *Registry {
 func DefaultDescriptors() []Descriptor {
 	return []Descriptor{
 		defaultSendDescriptor(),
-		defaultDescriptor(CapabilityPayroll, intents.TypePayroll, "Payroll supports typed allowlisted contract execution; production availability remains disabled by default and depends on complete provider and runtime authorization configuration.", []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution}),
-		defaultDescriptor(CapabilitySwap, intents.TypeSwap, "Swap supports typed allowlisted contract execution; production availability remains disabled by default and depends on complete provider and runtime authorization configuration.", []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution, FeatureSwapExecution}),
+		defaultMainnetFinancialDescriptor(CapabilityPayroll, intents.TypePayroll, "Payroll supports typed allowlisted contract execution; production availability remains disabled by default and depends on complete provider and runtime authorization configuration.", []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution}),
+		defaultMainnetFinancialDescriptor(CapabilitySwap, intents.TypeSwap, "Swap supports typed allowlisted contract execution; production availability remains disabled by default and depends on complete provider and runtime authorization configuration.", []ProviderFeature{FeatureUserControlledWallet, FeatureContractExecution, FeatureSwapExecution}),
 		defaultDescriptor(CapabilityBridge, intents.TypeBridge, "Bridge capability metadata; execution is not implemented.", []ProviderFeature{FeatureUserControlledWallet, FeatureBridgeExecution}),
 		defaultDescriptor(CapabilityANS, intents.TypeANSRegistration, "ANS registration capability metadata; execution is not implemented.", []ProviderFeature{FeatureUserControlledWallet, FeatureANSRegistration}),
 	}
+}
+
+func defaultMainnetFinancialDescriptor(id CapabilityID, intentType intents.Type, description string, features []ProviderFeature) Descriptor {
+	descriptor := defaultDescriptor(id, intentType, description, features)
+	descriptor.SupportedChains = []string{contracts.ChainIDArcMainnet}
+	descriptor.SupportedNetworks = []string{contracts.NetworkArcMainnet}
+	descriptor.SupportedTokens = []TokenClass{"USDC", "EURC"}
+	descriptor.SupportedRoutes = []RouteType{RouteDirect}
+	return descriptor
 }
 
 func defaultSendDescriptor() Descriptor {

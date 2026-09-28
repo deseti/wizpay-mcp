@@ -105,10 +105,12 @@ func TestMainnetSwapVerifierRejectsEventAndOutputContradictions(t *testing.T) {
 		mutate func(*providers.Receipt)
 	}{
 		{"missing_event", func(r *providers.Receipt) { r.Logs = r.Logs[1:] }},
+		{"wrong_event_emitter", func(r *providers.Receipt) { r.Logs[0].Address = contracts.AddressWizPayPayroll }},
 		{"wrong_caller", func(r *providers.Receipt) {
 			r.Logs[0].Topics[1] = contracts.TopicAddress("0x9999999999999999999999999999999999999999")
 		}},
 		{"wrong_token", func(r *providers.Receipt) { r.Logs[0].Topics[2] = contracts.TopicAddress(contracts.AddressUSDCMainnet) }},
+		{"wrong_pair", func(r *providers.Receipt) { r.Logs[0].Topics[3] = contracts.TopicAddress(contracts.AddressEURCMainnet) }},
 		{"wrong_amount", func(r *providers.Receipt) {
 			r.Logs[0] = swapEventLog(t, r.From, contracts.AddressEURCMainnet, contracts.AddressUSDCMainnet, big.NewInt(10_000_001), big.NewInt(25_000), big.NewInt(9_975_001), big.NewInt(9_100_000), big.NewInt(9_000_000))
 		}},

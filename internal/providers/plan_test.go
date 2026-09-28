@@ -121,6 +121,78 @@ func TestCrossTokenPayrollPlanBindsExactNativeFunding(t *testing.T) {
 	}
 }
 
+func TestTrackFNativeValueFundingMatrix(t *testing.T) {
+	const exact = "1000000000000000000"
+	const oneLow = "999999999999999999"
+	const oneHigh = "1000000000000000001"
+
+	sameToken := mustPayrollCall(t)
+	usdcSwap, err := swap.EncodeExecuteSwap(nil, swap.ExecuteSwapInput{TokenIn: contracts.AddressUSDCMainnet, TokenOut: contracts.AddressEURCMainnet, AmountIn: big.NewInt(1_000_000), MinAmountOut: big.NewInt(900_000), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eurcSwap, err := swap.EncodeExecuteSwap(nil, swap.ExecuteSwapInput{TokenIn: contracts.AddressEURCMainnet, TokenOut: contracts.AddressUSDCMainnet, AmountIn: big.NewInt(1_000_000), MinAmountOut: big.NewInt(900_000), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usdcPayroll := mustCrossTokenPayrollCall(t, contracts.AddressUSDCMainnet, contracts.AddressEURCMainnet)
+	eurcPayroll := mustCrossTokenPayrollCall(t, contracts.AddressEURCMainnet, contracts.AddressUSDCMainnet)
+
+	for _, tc := range []struct {
+		name string
+		call contracts.EncodedCall
+		want string
+	}{
+		{"same_token_payroll", sameToken, "0"},
+		{"swap_USDC_to_EURC", usdcSwap, exact},
+		{"swap_EURC_to_USDC", eurcSwap, "0"},
+		{"cross_token_payroll_USDC_to_EURC", usdcPayroll, exact},
+		{"cross_token_payroll_EURC_to_USDC", eurcPayroll, "0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			build := func(value string) (providers.Plan, error) {
+				return providers.NewContractExecutionPlan(providers.ContractExecutionParams{
+					WalletBindingID: "binding", WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222",
+					ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
+					Call: tc.call, SubmitNotAfter: planTestNow.Add(time.Minute), NativeValueBaseUnits: value,
+				})
+			}
+			plan, err := build(tc.want)
+			if err != nil {
+				t.Fatalf("exact funding rejected: %v", err)
+			}
+			if got, ok := plan.NativeValueBaseUnits(); !ok || got != tc.want {
+				t.Fatalf("native value = %q,%t want %q,true", got, ok, tc.want)
+			}
+
+			wrong := []string{"-1", "01", "not-a-number", new(big.Int).Lsh(big.NewInt(1), 257).String()}
+			if tc.want == exact {
+				wrong = append(wrong, "0", oneLow, oneHigh)
+			} else {
+				wrong = append(wrong, "1")
+			}
+			for _, value := range wrong {
+				if _, err := build(value); err == nil {
+					t.Errorf("wrong native value %q accepted", value)
+				}
+			}
+		})
+	}
+
+	sendPlan, err := providers.NewTokenTransferPlan(providers.TokenTransferParams{
+		WalletBindingID: "binding", WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222",
+		ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
+		Destination: "0x3333333333333333333333333333333333333333", TokenID: "USDC",
+		TokenAddress: contracts.AddressUSDCMainnet, TokenDecimals: 6, Amount: "1", AmountBaseUnits: "1000000",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := sendPlan.NativeValueBaseUnits(); ok {
+		t.Fatal("SEND introduced native value")
+	}
+}
+
 func TestNewContractExecutionPlanRejectsMissingFreshness(t *testing.T) {
 	_, err := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
 		WalletBindingID: "binding-test", WalletID: "wallet-test",
@@ -210,4 +282,55 @@ func mustSwapCall(t *testing.T) contracts.EncodedCall {
 		t.Fatal(err)
 	}
 	return call
+}
+
+func mustCrossTokenPayrollCall(t *testing.T, tokenIn, tokenOut string) contracts.EncodedCall {
+	t.Helper()
+	call, err := payroll.EncodeCrossTokenPayroll(nil, payroll.CrossTokenPayrollInput{
+		TokenIn: tokenIn, TokenOut: tokenOut,
+		Recipients: []string{"0x3333333333333333333333333333333333333333"}, OutputAmounts: []*big.Int{big.NewInt(900_000)},
+		GrossInput: big.NewInt(1_000_000), MinTotalOut: big.NewInt(900_000), MinHopPriceX36: big.NewInt(1),
+		Deadline: big.NewInt(1), ReferenceID: "track-f-reference",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return call
+}
+
+func FuzzTrackFNativeValueDerivationIsDeterministic(f *testing.F) {
+	for _, seed := range []uint64{1, 1_000_000, 10_000_000, ^uint64(0)} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, amount uint64) {
+		if amount == 0 {
+			t.Skip()
+		}
+		input := new(big.Int).SetUint64(amount)
+		call, err := swap.EncodeExecuteSwap(nil, swap.ExecuteSwapInput{
+			TokenIn: contracts.AddressUSDCMainnet, TokenOut: contracts.AddressEURCMainnet,
+			AmountIn: input, MinAmountOut: big.NewInt(1), MinHopPriceX36: big.NewInt(1), Deadline: big.NewInt(1),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		build := func() providers.Plan {
+			plan, buildErr := providers.NewContractExecutionPlan(providers.ContractExecutionParams{
+				WalletBindingID: "binding", WalletID: "wallet", WalletAddress: "0x2222222222222222222222222222222222222222",
+				ChainID: contracts.ChainIDArcMainnet, Network: contracts.NetworkArcMainnet,
+				Call: call, SubmitNotAfter: planTestNow.Add(time.Minute),
+			})
+			if buildErr != nil {
+				t.Fatal(buildErr)
+			}
+			return plan
+		}
+		first, second := build(), build()
+		firstValue, firstOK := first.NativeValueBaseUnits()
+		secondValue, secondOK := second.NativeValueBaseUnits()
+		want := new(big.Int).Mul(new(big.Int).Set(input), big.NewInt(1_000_000_000_000)).String()
+		if !firstOK || !secondOK || firstValue != want || secondValue != want || firstValue != secondValue {
+			t.Fatalf("native value is not deterministic: first=%q second=%q want=%q", firstValue, secondValue, want)
+		}
+	})
 }

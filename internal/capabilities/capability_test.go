@@ -2,11 +2,13 @@ package capabilities
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/deseti/wizpay-mcp/internal/auth"
+	"github.com/deseti/wizpay-mcp/internal/contracts"
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 	"github.com/deseti/wizpay-mcp/internal/intents"
 )
@@ -193,8 +195,18 @@ func TestTypedDefaultRequirementsAndDescriptions(t *testing.T) {
 		if !strings.Contains(descriptor.Description, "typed allowlisted contract execution") || strings.Contains(descriptor.Description, "not implemented") {
 			t.Fatalf("%s has stale description: %q", check.id, descriptor.Description)
 		}
+		if !sameStrings(descriptor.SupportedChains, []string{contracts.ChainIDArcMainnet}) ||
+			!sameStrings(descriptor.SupportedNetworks, []string{contracts.NetworkArcMainnet}) ||
+			!sameTokens(descriptor.SupportedTokens, []TokenClass{"EURC", "USDC"}) ||
+			!sameRoutes(descriptor.SupportedRoutes, []RouteType{RouteDirect}) {
+			t.Fatalf("%s Mainnet allowlist is not closed: %#v", check.id, descriptor)
+		}
 	}
 }
+
+func sameStrings(got, want []string) bool    { return reflect.DeepEqual(got, want) }
+func sameTokens(got, want []TokenClass) bool { return reflect.DeepEqual(got, want) }
+func sameRoutes(got, want []RouteType) bool  { return reflect.DeepEqual(got, want) }
 
 func sameFeatures(got, want []ProviderFeature) bool {
 	if len(got) != len(want) {

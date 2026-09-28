@@ -67,11 +67,13 @@ func TestMainnetPayrollVerifierRejectsCriticalMismatches(t *testing.T) {
 		name   string
 		mutate func(*providers.Receipt)
 	}{
+		{"wrong chain", func(r *providers.Receipt) { r.ChainID = "5042002" }},
 		{"wrong sender", func(r *providers.Receipt) { r.From = "0x9999999999999999999999999999999999999999" }},
 		{"wrong contract", func(r *providers.Receipt) { r.To = contracts.AddressUSDCMainnet }},
 		{"native value", func(r *providers.Receipt) { r.Value = "0x1" }},
 		{"wrong selector", func(r *providers.Receipt) { r.Input[0] ^= 1 }},
 		{"missing payment", func(r *providers.Receipt) { r.Logs = r.Logs[1:] }},
+		{"wrong event emitter", func(r *providers.Receipt) { r.Logs[0].Address = contracts.AddressWizPaySwapExecutor }},
 		{"wrong payment", func(r *providers.Receipt) { r.Logs[0].Data[len(r.Logs[0].Data)-1] ^= 1 }},
 		{"missing aggregate", func(r *providers.Receipt) { r.Logs = r.Logs[:2] }},
 		{"failed receipt", func(r *providers.Receipt) { r.Status = providers.ReceiptReverted }},
