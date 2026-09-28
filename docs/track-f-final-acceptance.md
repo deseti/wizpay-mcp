@@ -1,8 +1,8 @@
 # Track F — final Arc Mainnet migration acceptance
 
-Status: **PASS for code, security, recovery, protocol, and no-broadcast client acceptance**  
-Baseline: `672a28e` (`feat: add Arc mainnet cross-token payroll track`)  
-Validation date: 2026-09-28  
+Status: **PASS for code, security, recovery, protocol, and no-broadcast client acceptance**
+Baseline: `672a28e` (`feat: add Arc mainnet cross-token payroll track`)
+Validation date: 2026-09-28
 Live Mainnet activation: **NOT AUTHORIZED / DISABLED**
 
 Track F is the final migration track. It creates neither Track G nor Phase 14 and adds no financial capability. No deployment, wallet funding, contract unpause, Mainnet transaction broadcast, capability enablement, commit, or push occurred.
