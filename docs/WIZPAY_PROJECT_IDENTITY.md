@@ -60,6 +60,32 @@ Treat as the separate MCP/AI integration layer. Its migration, execution-authori
 
 A status from one repository must never be presented as the status of the other.
 
-## 6. Short canonical rule
+## 6. X / social posting rules for WizPay
+
+When asked to draft an X post for **WizPay**, use these rules unless the user explicitly overrides them:
+
+1. **WizPay means WizPay Core**, not WizPay MCP.
+2. Write the post in **natural native US English**.
+3. The post must sound like a real founder/product builder writing casually on X, **not like AI-generated marketing copy**.
+4. Avoid overly formal language, corporate wording, rigid list structures, slogan-heavy phrasing, and generic AI-style patterns.
+5. Do **not** default to themes like `WizPay is live`, `we just launched`, or similar launch framing; WizPay has already been live for some time.
+6. Use **varied themes** based on the real product and what is already working, rather than repeating the same stablecoin/payroll positioning every time.
+7. Keep the post product-focused and human-readable. Do not force technical implementation details unless the user explicitly asks for a technical post.
+8. When Arc is relevant, **mention the official X account `@Arc`**, not only the word `Arc` or a hashtag.
+9. Do not introduce WizPay MCP, ChatGPT, Claude, Grok, execution-authority work, or experimental architecture into a normal WizPay Core product post unless explicitly requested.
+10. If the user asks for the meaning/translation, provide the English post first and then a clear Indonesian translation separately.
+11. Before drafting, prefer current real WizPay Core product context over imagined roadmap claims. Do not present unfinished or experimental work as shipped product.
+
+### Preferred tone example
+
+Natural founder-style writing is preferred, for example:
+
+> Been thinking a lot about how stablecoin payments should actually feel for normal users. With WizPay on @Arc, we're trying to make payroll and everyday payments feel simple without making people deal with all the crypto stuff underneath.
+
+This example defines the **tone**, not a template to repeat verbatim.
+
+## 7. Short canonical rule
 
 > **WizPay = WizPay Core. WizPay MCP = the separate AI/MCP integration layer. Never conflate them.**
+
+> **For WizPay X posts: native US English, casual human founder tone, varied product themes, no launch framing by default, mention `@Arc` when relevant, and never inject MCP unless explicitly requested.**
