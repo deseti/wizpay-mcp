@@ -84,8 +84,24 @@ Natural founder-style writing is preferred, for example:
 
 This example defines the **tone**, not a template to repeat verbatim.
 
-## 7. Short canonical rule
+## 7. Accuracy-first rule — "jangan pernah salah"
+
+The user's standing instruction is **"jangan pernah salah"**. Operationally, this means:
+
+1. **Never guess when a claim can be verified.** Check the relevant repository, source, current state, screenshot, or official documentation first.
+2. **Never present an assumption as a fact.** If something cannot be verified, say that it is uncertain or unverified.
+3. **Verify repository identity before acting.** In particular, never confuse `wizpay-core` with `wizpay-mcp`.
+4. **Verify current product state before writing public-facing copy.** Do not claim a launch, feature, integration, deployment, partner, network status, or capability that is not actually confirmed.
+5. **For forms, events, applications, and public posts, prioritize correctness over speed.** Check the context before producing final wording.
+6. **If prior context conflicts with current repository/source evidence, use the current verified source and call out the discrepancy instead of silently guessing.**
+7. **If there is material ambiguity, stop and verify before giving an answer that could cause a wrong submission, wrong command, wrong deployment, or wrong public statement.**
+
+The practical rule is: **verify first, then answer; if verification is unavailable, state uncertainty rather than inventing certainty.**
+
+## 8. Short canonical rule
 
 > **WizPay = WizPay Core. WizPay MCP = the separate AI/MCP integration layer. Never conflate them.**
 
 > **For WizPay X posts: native US English, casual human founder tone, varied product themes, no launch framing by default, mention `@Arc` when relevant, and never inject MCP unless explicitly requested.**
+
+> **Accuracy first: never guess; verify before asserting. If something cannot be verified, say so instead of presenting it as fact.**
