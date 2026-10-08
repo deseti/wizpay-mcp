@@ -5,6 +5,8 @@
 package dbsqlc
 
 import (
+	"time"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -268,6 +270,109 @@ type Intent struct {
 	OperationVersion      *int64             `json:"operation_version"`
 	LifecycleVersion      int64              `json:"lifecycle_version"`
 	WalletProvider        string             `json:"wallet_provider"`
+}
+
+type OauthAccessToken struct {
+	TokenDigest    string             `json:"token_digest"`
+	Issuer         string             `json:"issuer"`
+	Resource       string             `json:"resource"`
+	TenantID       string             `json:"tenant_id"`
+	UserID         string             `json:"user_id"`
+	ClientID       string             `json:"client_id"`
+	ConsentID      string             `json:"consent_id"`
+	SessionID      string             `json:"session_id"`
+	Scope          string             `json:"scope"`
+	IdentityIssuer string             `json:"identity_issuer"`
+	Subject        string             `json:"subject"`
+	IssuedAt       time.Time          `json:"issued_at"`
+	ExpiresAt      time.Time          `json:"expires_at"`
+	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type OauthAudit struct {
+	EventID    int64     `json:"event_id"`
+	EventType  string    `json:"event_type"`
+	TenantID   string    `json:"tenant_id"`
+	UserID     string    `json:"user_id"`
+	ClientID   string    `json:"client_id"`
+	ConsentID  string    `json:"consent_id"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+type OauthClient struct {
+	ClientID     string    `json:"client_id"`
+	Name         string    `json:"name"`
+	ClientType   string    `json:"client_type"`
+	AuthMethod   string    `json:"auth_method"`
+	Status       string    `json:"status"`
+	RedirectUris []string  `json:"redirect_uris"`
+	Scopes       []string  `json:"scopes"`
+	Resources    []string  `json:"resources"`
+	RegisteredAt time.Time `json:"registered_at"`
+}
+
+type OauthCode struct {
+	CodeDigest    string             `json:"code_digest"`
+	TransactionID string             `json:"transaction_id"`
+	TenantID      string             `json:"tenant_id"`
+	UserID        string             `json:"user_id"`
+	ConsentID     string             `json:"consent_id"`
+	SessionID     string             `json:"session_id"`
+	ClientID      string             `json:"client_id"`
+	RedirectUri   string             `json:"redirect_uri"`
+	Resource      string             `json:"resource"`
+	Scope         string             `json:"scope"`
+	Challenge     string             `json:"challenge"`
+	IssuedAt      time.Time          `json:"issued_at"`
+	ExpiresAt     time.Time          `json:"expires_at"`
+	ConsumedAt    pgtype.Timestamptz `json:"consumed_at"`
+}
+
+type OauthConsent struct {
+	TenantID       string             `json:"tenant_id"`
+	UserID         string             `json:"user_id"`
+	ConsentID      string             `json:"consent_id"`
+	ClientID       string             `json:"client_id"`
+	Resource       string             `json:"resource"`
+	Scope          string             `json:"scope"`
+	SessionID      string             `json:"session_id"`
+	IdentityIssuer string             `json:"identity_issuer"`
+	Subject        string             `json:"subject"`
+	CreatedAt      time.Time          `json:"created_at"`
+	ExpiresAt      time.Time          `json:"expires_at"`
+	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type OauthConsentWallet struct {
+	TenantID             string `json:"tenant_id"`
+	UserID               string `json:"user_id"`
+	ConsentID            string `json:"consent_id"`
+	WalletBindingID      string `json:"wallet_binding_id"`
+	WalletBindingVersion int64  `json:"wallet_binding_version"`
+	WalletID             string `json:"wallet_id"`
+	WalletAddress        string `json:"wallet_address"`
+	ChainID              string `json:"chain_id"`
+}
+
+type OauthSession struct {
+	TenantID  string             `json:"tenant_id"`
+	UserID    string             `json:"user_id"`
+	SessionID string             `json:"session_id"`
+	ExpiresAt time.Time          `json:"expires_at"`
+	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type OauthTransaction struct {
+	TransactionID string             `json:"transaction_id"`
+	ClientID      string             `json:"client_id"`
+	RedirectUri   string             `json:"redirect_uri"`
+	Resource      string             `json:"resource"`
+	Scope         string             `json:"scope"`
+	Challenge     string             `json:"challenge"`
+	State         string             `json:"state"`
+	CreatedAt     time.Time          `json:"created_at"`
+	ExpiresAt     time.Time          `json:"expires_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
 }
 
 type Policy struct {

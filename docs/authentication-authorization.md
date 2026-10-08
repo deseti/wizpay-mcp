@@ -32,3 +32,12 @@ Human approval decisions and execution confirmation require a separately validat
 human authentication context and distinct permissions. MCP bearer permissions
 alone cannot establish that context. No production human authenticator is wired.
 See [WP1 security and compatibility](wp1-identity-approval-security.md).
+
+## WP2 OAuth foundation
+
+`OAUTH_ENABLED=true` selects digest-only opaque access tokens validated through
+live PostgreSQL client/consent/session/identity relationships. It preserves the
+existing principal and permission interfaces; no legacy JWT fallback is accepted
+in OAuth mode. Only `mcp:read` is issued. Real-user authorization remains unavailable
+until reviewed browser authentication and consent exist. See
+[WP2 OAuth architecture and limitations](wp2-oauth-foundation.md).

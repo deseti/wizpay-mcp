@@ -14,6 +14,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/config"
 	"github.com/deseti/wizpay-mcp/internal/logging"
 	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
+	"github.com/deseti/wizpay-mcp/internal/oauth"
 	"github.com/deseti/wizpay-mcp/internal/requestauth"
 	"github.com/deseti/wizpay-mcp/internal/services"
 	"github.com/deseti/wizpay-mcp/internal/storage"
@@ -66,22 +67,33 @@ func run() error {
 
 	var server *app.Server
 	if cfg.Auth.Required {
-		publicKeyPEM, readErr := os.ReadFile(cfg.Auth.PublicKeyFile)
-		if readErr != nil {
-			return readErr
+		var middleware requestauth.Middleware
+		var oauthService *oauth.Service
+		if cfg.OAuthEnabled {
+			oauthService, err = oauth.NewService(database, time.Now)
+			if err != nil {
+				return err
+			}
+			middleware, err = requestauth.NewOAuthMiddleware(oauthService, requestauth.RepositoryResolver{Repository: database})
+		} else {
+			publicKeyPEM, readErr := os.ReadFile(cfg.Auth.PublicKeyFile)
+			if readErr != nil {
+				return readErr
+			}
+			publicKey, parseErr := authjwt.ParseRSAPublicKey(publicKeyPEM)
+			if parseErr != nil {
+				return parseErr
+			}
+			verifier, verifierErr := authjwt.NewVerifier(authjwt.Config{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, PublicKey: publicKey, AllowedAlgorithms: []string{"RS256"}, ClockSkew: cfg.Auth.ClockSkew}, time.Now)
+			if verifierErr != nil {
+				return verifierErr
+			}
+			middleware, err = requestauth.NewMiddleware(verifier, requestauth.RepositoryResolver{Repository: database})
 		}
-		publicKey, parseErr := authjwt.ParseRSAPublicKey(publicKeyPEM)
-		if parseErr != nil {
-			return parseErr
+		if err != nil {
+			return err
 		}
-		verifier, verifierErr := authjwt.NewVerifier(authjwt.Config{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, PublicKey: publicKey, AllowedAlgorithms: []string{"RS256"}, ClockSkew: cfg.Auth.ClockSkew}, time.Now)
-		if verifierErr != nil {
-			return verifierErr
-		}
-		middleware, middlewareErr := requestauth.NewMiddleware(verifier, requestauth.RepositoryResolver{Repository: database})
-		if middlewareErr != nil {
-			return middlewareErr
-		}
+
 		authorizer := auth.NewPermissionAuthorizer()
 		foundationBundle := newFoundationBundle(database, authorizer, time.Now)
 		foundationRegistry, registryErr := tools.NewFoundationRegistry(foundationBundle)
@@ -117,7 +129,11 @@ func run() error {
 		registrations = append(registrations, payrollRegistry.Tools()...)
 		registrations = append(registrations, swapRegistry.Tools()...)
 		registrations = append(registrations, autonomyRegistry.Tools()...)
-		server, err = app.NewAuthenticatedServerWithApproval(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, registrations...)
+		if cfg.OAuthEnabled {
+			server, err = app.NewOAuthServerWithApproval(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, oauthService, registrations...)
+		} else {
+			server, err = app.NewAuthenticatedServerWithApproval(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, registrations...)
+		}
 	} else {
 		server, err = app.NewServerWithReadiness(cfg, logger, database)
 	}

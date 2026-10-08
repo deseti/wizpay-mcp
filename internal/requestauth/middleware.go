@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/deseti/wizpay-mcp/internal/auth"
+	"github.com/deseti/wizpay-mcp/internal/oauth"
 )
 
 // IdentityResolver loads the already persisted WizPay identity. It must not
@@ -29,6 +30,7 @@ func (f ResolveIdentityFunc) ResolveIdentity(ctx context.Context, principal auth
 type Middleware struct {
 	verifier auth.TokenVerifier
 	resolver IdentityResolver
+	oauth    bool
 }
 
 func NewMiddleware(verifier auth.TokenVerifier, resolver IdentityResolver) (Middleware, error) {
@@ -38,33 +40,63 @@ func NewMiddleware(verifier auth.TokenVerifier, resolver IdentityResolver) (Midd
 	return Middleware{verifier: verifier, resolver: resolver}, nil
 }
 
+// NewOAuthMiddleware rejects legacy JWT/browser credentials through the supplied
+// OAuth verifier and supplies protected-resource discovery in bearer challenges.
+func NewOAuthMiddleware(verifier auth.TokenVerifier, resolver IdentityResolver) (Middleware, error) {
+	m, e := NewMiddleware(verifier, resolver)
+	m.oauth = true
+	return m, e
+}
+func (m Middleware) unauthorized(w http.ResponseWriter, invalid bool) {
+	if !m.oauth {
+		writeUnauthorized(w)
+		return
+	}
+	value := `Bearer resource_metadata="` + oauth.MetadataURL + `", scope="` + oauth.ReadScope + `"`
+	if invalid {
+		value += `, error="invalid_token"`
+	}
+	w.Header().Set("WWW-Authenticate", value)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusUnauthorized)
+}
 func (m Middleware) Wrap(next http.Handler) http.Handler { return m.Handler(next) }
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if len(request.Header.Values("Authorization")) > 1 || (m.oauth && (request.Header.Get("Cookie") != "" || len(request.Header.Get("Authorization")) > 256)) {
+			m.unauthorized(response, true)
+			return
+		}
 		credential, ok := bearerCredential(request.Header.Get("Authorization"))
 		if !ok {
-			writeUnauthorized(response)
+			m.unauthorized(response, request.Header.Get("Authorization") != "")
 			return
 		}
 		principal, err := m.verifier.Verify(request.Context(), credential)
 		if err != nil {
-			writeUnauthorized(response)
+			m.unauthorized(response, true)
+			return
+		}
+		if m.oauth && (!principal.HasPermission(auth.PermissionReadIntent) || !principal.HasPermission(auth.PermissionReadApproval)) {
+			response.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+oauth.MetadataURL+`", error="insufficient_scope", scope="`+oauth.ReadScope+`"`)
+			response.Header().Set("Cache-Control", "no-store")
+			response.WriteHeader(http.StatusForbidden)
 			return
 		}
 		identity, err := m.resolver.ResolveIdentity(request.Context(), principal)
 		if err != nil {
-			writeUnauthorized(response)
+			m.unauthorized(response, true)
 			return
 		}
 		metadata, err := serverMetadata(request)
 		if err != nil {
-			writeUnauthorized(response)
+			m.unauthorized(response, true)
 			return
 		}
 		trusted, err := auth.NewTrustedRequest(principal, identity, metadata)
 		if err != nil {
-			writeUnauthorized(response)
+			m.unauthorized(response, true)
 			return
 		}
 		downstream := request.Clone(auth.WithTrustedRequest(request.Context(), trusted))

@@ -264,3 +264,14 @@ Batch `BatchPaymentRouted` proves aggregates (sender, tokenIn, totals, recipient
 Phase 8 protects the control-plane boundary with provider-neutral verified principals, persisted ACTIVE identity resolution, typed capability permissions, private typed context keys, and one canonical trusted-context-to-`storage.Scope` mapping. Authentication, capability authorization, financial approval, policy evaluation, and execution permission remain separate gates. The RSA JWT adapter is a narrow local-key verifier behind `auth.TokenVerifier`; it performs no discovery, provisioning, refresh, session storage, or provider execution. `/mcp` can be protected while `/health` and `/readiness` remain unauthenticated. The bootstrap continues to register zero live tools until authenticated application services exist. See [Phase 8 authentication and authorization](authentication-authorization.md).
 
 Phase 8 added no execution runtime or provider behavior. Phase 9 now supplies only the provider-neutral runtime described above; Phase 10 adds only the control-plane capability registry. Provider/chain integration, Redis, River, wallet creation, signing, broadcasting, real receipt polling, approval UI, and domain-specific financial execution remain absent.
+
+## WP2 OAuth foundation
+
+`internal/oauth` owns the constrained Authorization Code/S256 protocol and trusted
+browser-consent ports; `internal/http/oauth` owns metadata, protocol routing and
+public-origin boundaries. PostgreSQL implements digest-only code/token persistence,
+atomic redemption, consent and revocation. OAuth verification feeds the existing
+`auth.TokenVerifier` and `requestauth` principal/identity pipeline. Only read authority
+is supported; no production browser port or financial authority is wired. See
+[WP2 OAuth foundation](wp2-oauth-foundation.md) for endpoints, pre-registration,
+compatibility limits and deployment prerequisites.

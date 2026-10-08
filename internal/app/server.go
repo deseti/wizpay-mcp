@@ -13,8 +13,10 @@ import (
 
 	"github.com/deseti/wizpay-mcp/internal/config"
 	approvalhttp "github.com/deseti/wizpay-mcp/internal/http/approval"
+	oauthhttp "github.com/deseti/wizpay-mcp/internal/http/oauth"
 	internalmcp "github.com/deseti/wizpay-mcp/internal/mcp"
 	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
+	"github.com/deseti/wizpay-mcp/internal/oauth"
 	"github.com/deseti/wizpay-mcp/internal/services"
 )
 
@@ -66,6 +68,20 @@ func NewAuthenticatedServerWithApproval(cfg config.Config, logger *slog.Logger, 
 		return nil, err
 	}
 	return newServerWithApproval(cfg, logger, readiness, authentication, approvalHandler, registrations...)
+}
+
+// NewOAuthServerWithApproval keeps AS/resource origins disjoint and preserves
+// WP1's human-only approval checks. It never wires a browser authenticator.
+func NewOAuthServerWithApproval(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, authentication func(http.Handler) http.Handler, approvalService services.ApprovalService, service *oauth.Service, registrations ...tools.Tool) (*Server, error) {
+	if !cfg.OAuthEnabled || service == nil {
+		return nil, fmt.Errorf("OAuth service configuration is required")
+	}
+	server, e := NewAuthenticatedServerWithApproval(cfg, logger, readiness, authentication, approvalService, registrations...)
+	if e != nil {
+		return nil, e
+	}
+	server.httpServer.Handler = oauthhttp.Routes(oauthhttp.NewHandler(service), server.httpServer.Handler)
+	return server, nil
 }
 
 func newServer(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, authentication func(http.Handler) http.Handler, registrations ...tools.Tool) (*Server, error) {

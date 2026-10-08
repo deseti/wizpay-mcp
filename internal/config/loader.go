@@ -20,6 +20,10 @@ func LoadWithLookup(lookup LookupEnv) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	oauthEnabled, err := boolValue(lookup, "OAUTH_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
 	autonomousEnabled, err := boolValue(lookup, "WIZPAY_AUTONOMY_ENABLED", false)
 	if err != nil {
 		return Config{}, err
@@ -28,6 +32,7 @@ func LoadWithLookup(lookup LookupEnv) (Config, error) {
 		AppEnv: stringValue(lookup, "APP_ENV", DefaultAppEnv), ServerPort: DefaultServerPort,
 		LogLevel:          strings.ToLower(stringValue(lookup, "LOG_LEVEL", DefaultLogLevel)),
 		AutonomousEnabled: autonomousEnabled,
+		OAuthEnabled:      oauthEnabled,
 		Auth:              AuthConfig{Required: authRequired, Issuer: stringValue(lookup, "AUTH_ISSUER", ""), Audience: stringValue(lookup, "AUTH_AUDIENCE", ""), PublicKeyFile: stringValue(lookup, "AUTH_PUBLIC_KEY_FILE", ""), ClockSkew: durationValue(lookup, "AUTH_CLOCK_SKEW", 30*time.Second)},
 	}
 	if value, ok := lookup("SERVER_PORT"); ok {

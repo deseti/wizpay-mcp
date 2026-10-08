@@ -59,3 +59,15 @@ func TestValidateAddress(t *testing.T) {
 		t.Fatalf("Address() = %q", got)
 	}
 }
+
+func TestOAuthModeRequiresAuthenticationAndNoLegacyKey(t *testing.T) {
+	values := map[string]string{"APP_ENV": "production", "AUTH_REQUIRED": "true", "OAUTH_ENABLED": "true"}
+	cfg, e := LoadWithLookup(func(k string) (string, bool) { v, ok := values[k]; return v, ok })
+	if e != nil || !cfg.OAuthEnabled {
+		t.Fatal("OAuth opaque-token configuration rejected")
+	}
+	values["AUTH_REQUIRED"] = "false"
+	if _, e = LoadWithLookup(func(k string) (string, bool) { v, ok := values[k]; return v, ok }); e == nil {
+		t.Fatal("OAuth without authentication")
+	}
+}

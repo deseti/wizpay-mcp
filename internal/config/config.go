@@ -29,6 +29,7 @@ type Config struct {
 	// AutonomousEnabled is an explicit rollout control. It defaults false and
 	// does not assemble a provider or grant signing authority.
 	AutonomousEnabled bool
+	OAuthEnabled      bool
 	Auth              AuthConfig
 }
 
@@ -48,7 +49,10 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("LOG_LEVEL must be one of debug, info, warn, or error")
 	}
-	if c.Auth.Required {
+	if c.OAuthEnabled && !c.Auth.Required {
+		return fmt.Errorf("OAUTH_ENABLED requires AUTH_REQUIRED")
+	}
+	if c.Auth.Required && !c.OAuthEnabled {
 		for key, value := range map[string]string{"AUTH_ISSUER": c.Auth.Issuer, "AUTH_AUDIENCE": c.Auth.Audience, "AUTH_PUBLIC_KEY_FILE": c.Auth.PublicKeyFile} {
 			if strings.TrimSpace(value) == "" {
 				return fmt.Errorf("%s is required when authentication is enabled", key)

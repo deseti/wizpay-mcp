@@ -18,6 +18,8 @@ type Querier interface {
 	CreateExecutionRequest(ctx context.Context, arg CreateExecutionRequestParams) (ExecutionRequest, error)
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) (Identity, error)
 	CreateIntent(ctx context.Context, arg CreateIntentParams) (Intent, error)
+	CreateOAuthClient(ctx context.Context, arg CreateOAuthClientParams) error
+	CreateOAuthTransaction(ctx context.Context, arg CreateOAuthTransactionParams) error
 	CreatePolicy(ctx context.Context, arg CreatePolicyParams) (Policy, error)
 	CreatePolicyEvaluation(ctx context.Context, arg CreatePolicyEvaluationParams) (PolicyEvaluation, error)
 	CreatePolicyFinding(ctx context.Context, arg CreatePolicyFindingParams) error
@@ -35,6 +37,8 @@ type Querier interface {
 	FindIntentByClientRequestID(ctx context.Context, arg FindIntentByClientRequestIDParams) (Intent, error)
 	FindIntentByID(ctx context.Context, arg FindIntentByIDParams) (Intent, error)
 	FindIntentByOperationKey(ctx context.Context, arg FindIntentByOperationKeyParams) (Intent, error)
+	FindOAuthClient(ctx context.Context, clientID string) (OauthClient, error)
+	FindOAuthTransaction(ctx context.Context, transactionID string) (OauthTransaction, error)
 	FindPolicyByID(ctx context.Context, arg FindPolicyByIDParams) (Policy, error)
 	FindPolicyEvaluation(ctx context.Context, arg FindPolicyEvaluationParams) (PolicyEvaluation, error)
 	FindPolicyFindings(ctx context.Context, arg FindPolicyFindingsParams) ([]PolicyEvaluationFinding, error)
@@ -52,6 +56,7 @@ type Querier interface {
 	UpdatePolicy(ctx context.Context, arg UpdatePolicyParams) (Policy, error)
 	UpdateWalletBinding(ctx context.Context, arg UpdateWalletBindingParams) (WalletBinding, error)
 	ValidateExecutionClaim(ctx context.Context, arg ValidateExecutionClaimParams) (int64, error)
+	ValidateOAuthAccessToken(ctx context.Context, arg ValidateOAuthAccessTokenParams) (OauthAccessToken, error)
 }
 
 var _ Querier = (*Queries)(nil)
