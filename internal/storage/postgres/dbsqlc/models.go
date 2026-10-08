@@ -267,6 +267,7 @@ type Intent struct {
 	OperationKey          *string            `json:"operation_key"`
 	OperationVersion      *int64             `json:"operation_version"`
 	LifecycleVersion      int64              `json:"lifecycle_version"`
+	WalletProvider        string             `json:"wallet_provider"`
 }
 
 type Policy struct {

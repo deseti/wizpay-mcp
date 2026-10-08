@@ -10,6 +10,8 @@ const (
 	PermissionCreateIntent     Permission = "intent:create"
 	PermissionReadIntent       Permission = "intent:read"
 	PermissionRequestApproval  Permission = "approval:request"
+	PermissionDecideApproval   Permission = "approval:decide:human"
+	PermissionConfirmExecution Permission = "execution:confirm:human"
 	PermissionReadApproval     Permission = "approval:read"
 	PermissionEvaluatePolicy   Permission = "policy:evaluate"
 	PermissionPrepareExecution Permission = "execution:prepare"
@@ -19,7 +21,7 @@ const (
 
 func (p Permission) Valid() bool {
 	switch p {
-	case PermissionCreateIntent, PermissionReadIntent, PermissionRequestApproval,
+	case PermissionDecideApproval, PermissionConfirmExecution, PermissionCreateIntent, PermissionReadIntent, PermissionRequestApproval,
 		PermissionReadApproval, PermissionEvaluatePolicy, PermissionPrepareExecution,
 		PermissionAutonomyRead, PermissionAutonomyControl:
 		return true

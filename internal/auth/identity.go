@@ -119,7 +119,9 @@ func (i Identity) EnsureAuthorizable() error {
 	}
 }
 
-func (i Identity) UserID() string          { return i.userID }
+func (i Identity) UserID() string { return i.userID }
+
+// Provider returns the authentication issuer, independently of any wallet provider.
 func (i Identity) Provider() string        { return i.provider }
 func (i Identity) ProviderSubject() string { return i.providerSubject }
 func (i Identity) Status() IdentityStatus  { return i.status }

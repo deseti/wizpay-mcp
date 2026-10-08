@@ -46,6 +46,8 @@ func WithTrustedRequest(ctx context.Context, request TrustedRequest) context.Con
 	if ctx == nil || request.Validate() != nil {
 		return ctx
 	}
+	// Replacing bearer/request authority must discard any previous human attestation.
+	ctx = context.WithValue(ctx, humanContextKey{}, nil)
 	return context.WithValue(ctx, trustedRequestKey{}, request)
 }
 

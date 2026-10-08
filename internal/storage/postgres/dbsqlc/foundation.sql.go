@@ -466,9 +466,9 @@ func (q *Queries) CreateIdentity(ctx context.Context, arg CreateIdentityParams) 
 }
 
 const createIntent = `-- name: CreateIntent :one
-INSERT INTO intents (tenant_id,intent_id,intent_version,client_request_id,nonce,intent_type,user_id,identity_provider,provider_user_reference,wallet_binding_id,wallet_binding_version,wallet_id,wallet_address,chain_id,network,financial,route_type,route_reference,route_version,constraint_deadline,policy_reference,created_at,expires_at,status,intent_digest,operation_key,operation_version,lifecycle_version)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
-RETURNING tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version
+INSERT INTO intents (tenant_id,intent_id,intent_version,client_request_id,nonce,intent_type,user_id,identity_provider,provider_user_reference,wallet_binding_id,wallet_binding_version,wallet_id,wallet_address,chain_id,network,financial,route_type,route_reference,route_version,constraint_deadline,policy_reference,created_at,expires_at,status,intent_digest,operation_key,operation_version,lifecycle_version,wallet_provider)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+RETURNING tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version, wallet_provider
 `
 
 type CreateIntentParams struct {
@@ -500,6 +500,7 @@ type CreateIntentParams struct {
 	OperationKey          *string            `json:"operation_key"`
 	OperationVersion      *int64             `json:"operation_version"`
 	LifecycleVersion      int64              `json:"lifecycle_version"`
+	WalletProvider        string             `json:"wallet_provider"`
 }
 
 func (q *Queries) CreateIntent(ctx context.Context, arg CreateIntentParams) (Intent, error) {
@@ -532,6 +533,7 @@ func (q *Queries) CreateIntent(ctx context.Context, arg CreateIntentParams) (Int
 		arg.OperationKey,
 		arg.OperationVersion,
 		arg.LifecycleVersion,
+		arg.WalletProvider,
 	)
 	var i Intent
 	err := row.Scan(
@@ -563,6 +565,7 @@ func (q *Queries) CreateIntent(ctx context.Context, arg CreateIntentParams) (Int
 		&i.OperationKey,
 		&i.OperationVersion,
 		&i.LifecycleVersion,
+		&i.WalletProvider,
 	)
 	return i, err
 }
@@ -1317,7 +1320,7 @@ func (q *Queries) FindIdentityByID(ctx context.Context, arg FindIdentityByIDPara
 }
 
 const findIntentByClientRequestID = `-- name: FindIntentByClientRequestID :one
-SELECT tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version FROM intents WHERE tenant_id=$1 AND client_request_id=$2 AND user_id=$3
+SELECT tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version, wallet_provider FROM intents WHERE tenant_id=$1 AND client_request_id=$2 AND user_id=$3
 `
 
 type FindIntentByClientRequestIDParams struct {
@@ -1358,12 +1361,13 @@ func (q *Queries) FindIntentByClientRequestID(ctx context.Context, arg FindInten
 		&i.OperationKey,
 		&i.OperationVersion,
 		&i.LifecycleVersion,
+		&i.WalletProvider,
 	)
 	return i, err
 }
 
 const findIntentByID = `-- name: FindIntentByID :one
-SELECT tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version FROM intents WHERE tenant_id=$1 AND intent_id=$2 AND user_id=$3
+SELECT tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version, wallet_provider FROM intents WHERE tenant_id=$1 AND intent_id=$2 AND user_id=$3
 `
 
 type FindIntentByIDParams struct {
@@ -1404,12 +1408,13 @@ func (q *Queries) FindIntentByID(ctx context.Context, arg FindIntentByIDParams) 
 		&i.OperationKey,
 		&i.OperationVersion,
 		&i.LifecycleVersion,
+		&i.WalletProvider,
 	)
 	return i, err
 }
 
 const findIntentByOperationKey = `-- name: FindIntentByOperationKey :one
-SELECT tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version FROM intents WHERE tenant_id=$1 AND operation_key=$2 AND operation_version=$3 AND user_id=$4
+SELECT tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version, wallet_provider FROM intents WHERE tenant_id=$1 AND operation_key=$2 AND operation_version=$3 AND user_id=$4
 `
 
 type FindIntentByOperationKeyParams struct {
@@ -1456,6 +1461,7 @@ func (q *Queries) FindIntentByOperationKey(ctx context.Context, arg FindIntentBy
 		&i.OperationKey,
 		&i.OperationVersion,
 		&i.LifecycleVersion,
+		&i.WalletProvider,
 	)
 	return i, err
 }
@@ -1682,7 +1688,7 @@ func (q *Queries) FindWalletBindingByWallet(ctx context.Context, arg FindWalletB
 
 const freezeIntent = `-- name: FreezeIntent :one
 UPDATE intents SET status='CREATED', intent_digest=$3, operation_key=$4, operation_version=$5, lifecycle_version=$6
-WHERE tenant_id=$1 AND intent_id=$2 AND status='DRAFT' AND lifecycle_version=$7 AND $6=$7+1 AND user_id=$8 RETURNING tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version
+WHERE tenant_id=$1 AND intent_id=$2 AND status='DRAFT' AND lifecycle_version=$7 AND $6=$7+1 AND user_id=$8 RETURNING tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version, wallet_provider
 `
 
 type FreezeIntentParams struct {
@@ -1737,6 +1743,7 @@ func (q *Queries) FreezeIntent(ctx context.Context, arg FreezeIntentParams) (Int
 		&i.OperationKey,
 		&i.OperationVersion,
 		&i.LifecycleVersion,
+		&i.WalletProvider,
 	)
 	return i, err
 }
@@ -2021,7 +2028,7 @@ func (q *Queries) UpdateExecution(ctx context.Context, arg UpdateExecutionParams
 
 const updateIntent = `-- name: UpdateIntent :one
 UPDATE intents SET status=$3, lifecycle_version=$4
-WHERE tenant_id=$1 AND intent_id=$2 AND status <> 'DRAFT' AND lifecycle_version=$5 AND $4=$5+1 AND user_id=$6 RETURNING tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version
+WHERE tenant_id=$1 AND intent_id=$2 AND status <> 'DRAFT' AND lifecycle_version=$5 AND $4=$5+1 AND user_id=$6 RETURNING tenant_id, intent_id, intent_version, client_request_id, nonce, intent_type, user_id, identity_provider, provider_user_reference, wallet_binding_id, wallet_binding_version, wallet_id, wallet_address, chain_id, network, financial, route_type, route_reference, route_version, constraint_deadline, policy_reference, created_at, expires_at, status, intent_digest, operation_key, operation_version, lifecycle_version, wallet_provider
 `
 
 type UpdateIntentParams struct {
@@ -2072,6 +2079,7 @@ func (q *Queries) UpdateIntent(ctx context.Context, arg UpdateIntentParams) (Int
 		&i.OperationKey,
 		&i.OperationVersion,
 		&i.LifecycleVersion,
+		&i.WalletProvider,
 	)
 	return i, err
 }

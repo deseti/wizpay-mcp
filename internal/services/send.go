@@ -90,7 +90,7 @@ func (s *PersistedSendService) PreviewSend(ctx context.Context, draft SendDraft)
 		now = s.Intents.Now().UTC()
 	}
 	_, err = intents.NewDraft(intents.Params{IntentID: "preview", Version: 1, ClientRequestID: draft.ClientRequestID, Nonce: draft.Nonce, Type: intents.TypeSend,
-		Ownership: intents.Ownership{UserID: scope.ActorID(), IdentityProvider: request.Principal().IdentityProvider(), ProviderUserReference: binding.ProviderUserReference(), WalletBindingID: binding.BindingID(), WalletBindingVersion: binding.Version(), WalletID: binding.WalletID(), WalletAddress: binding.Address(), ChainID: binding.ChainID(), Network: binding.Network()},
+		Ownership: intents.Ownership{UserID: scope.ActorID(), IdentityProvider: request.Principal().IdentityProvider(), WalletProvider: binding.Provider(), ProviderUserReference: binding.ProviderUserReference(), WalletBindingID: binding.BindingID(), WalletBindingVersion: binding.Version(), WalletID: binding.WalletID(), WalletAddress: binding.Address(), ChainID: binding.ChainID(), Network: binding.Network()},
 		Financial: intents.FinancialParameters{Send: &params}, Route: intents.Route{Type: intents.RouteDirectWallet, Reference: intents.RouteReferenceSend, Version: intents.RouteVersionSend},
 		Constraints: intents.Constraints{Deadline: draft.Deadline, PolicyReference: draft.PolicyReference}, CreatedAt: now, ExpiresAt: draft.Deadline})
 	if err != nil {

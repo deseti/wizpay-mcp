@@ -36,6 +36,15 @@ func (PermissionAuthorizer) Authorize(ctx context.Context, input AuthorizationIn
 	if ctx == nil || input.Request.Validate() != nil || !input.Permission.Valid() {
 		return authorizationDenied()
 	}
+	if input.Permission == PermissionDecideApproval || input.Permission == PermissionConfirmExecution {
+		if err := RequireHuman(ctx, input.Permission); err != nil {
+			return err
+		}
+		trusted, err := TrustedRequestFromContext(ctx)
+		if err != nil || !sameAuthority(trusted, input.Request) {
+			return authorizationDenied()
+		}
+	}
 	principal := input.Request.Principal()
 	if !principal.HasPermission(input.Permission) {
 		return authorizationDenied()

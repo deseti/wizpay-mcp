@@ -120,7 +120,7 @@ func (s *PersistedSwapService) PreviewSwap(ctx context.Context, draft SwapDraft)
 		now = s.Intents.Now().UTC()
 	}
 	_, err = intents.NewDraft(intents.Params{IntentID: "preview", Version: 1, ClientRequestID: draft.ClientRequestID, Nonce: draft.Nonce, Type: intents.TypeSwap,
-		Ownership: intents.Ownership{UserID: scope.ActorID(), IdentityProvider: request.Principal().IdentityProvider(), ProviderUserReference: binding.ProviderUserReference(), WalletBindingID: binding.BindingID(), WalletBindingVersion: binding.Version(), WalletID: binding.WalletID(), WalletAddress: binding.Address(), ChainID: binding.ChainID(), Network: binding.Network()},
+		Ownership: intents.Ownership{UserID: scope.ActorID(), IdentityProvider: request.Principal().IdentityProvider(), WalletProvider: binding.Provider(), ProviderUserReference: binding.ProviderUserReference(), WalletBindingID: binding.BindingID(), WalletBindingVersion: binding.Version(), WalletID: binding.WalletID(), WalletAddress: binding.Address(), ChainID: binding.ChainID(), Network: binding.Network()},
 		Financial: intents.FinancialParameters{Swap: &params}, Route: intents.Route{Type: intents.RouteAllowlistedContract, Reference: intents.RouteReferenceSwap, Version: intents.RouteVersionSwap}, Constraints: intents.Constraints{Deadline: draft.Deadline, PolicyReference: draft.PolicyReference}, CreatedAt: now, ExpiresAt: draft.Deadline})
 	if err != nil {
 		return SwapPreview{}, err

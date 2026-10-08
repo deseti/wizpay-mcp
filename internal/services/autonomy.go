@@ -59,9 +59,14 @@ func (s *PersistedAutonomyService) CreateSchedule(ctx context.Context, value aut
 	request, _ := auth.TrustedRequestFromContext(ctx)
 	value.Principal.TenantID = scope.TenantID()
 	value.Principal.UserID = request.Principal().ActorID()
-	if value.Principal.AgentID == "" {
-		return autonomy.Schedule{}, fmt.Errorf("acting agent is required")
+	agentID, err := auth.VerifiedAgentID(request)
+	if err != nil {
+		return autonomy.Schedule{}, err
 	}
+	if value.Principal.AgentID != "" && value.Principal.AgentID != agentID {
+		return autonomy.Schedule{}, fmt.Errorf("acting agent does not match verified client")
+	}
+	value.Principal.AgentID = agentID
 	if err := value.Validate(); err != nil {
 		return autonomy.Schedule{}, err
 	}
@@ -108,6 +113,11 @@ func (s *PersistedAutonomyService) SetScheduleStatus(ctx context.Context, id str
 	value, err := s.Repository.LoadAutonomySchedule(ctx, scope, id, v)
 	if err != nil {
 		return autonomy.Schedule{}, err
+	}
+	request, _ := auth.TrustedRequestFromContext(ctx)
+	agentID, err := auth.VerifiedAgentID(request)
+	if err != nil || value.Principal.AgentID != agentID {
+		return autonomy.Schedule{}, fmt.Errorf("schedule agent does not match verified client")
 	}
 	if status != autonomy.ScheduleActive && status != autonomy.SchedulePaused && status != autonomy.ScheduleRevoked {
 		return autonomy.Schedule{}, fmt.Errorf("invalid schedule status")

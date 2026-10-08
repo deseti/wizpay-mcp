@@ -59,7 +59,7 @@ func evaluate(policy Policy, intent intents.Intent, identity auth.IdentityContex
 	owner := intent.Ownership()
 	if resolved.UserID() != owner.UserID || resolved.Provider() != owner.IdentityProvider ||
 		binding.BindingID() != owner.WalletBindingID || binding.Version() != owner.WalletBindingVersion ||
-		binding.Provider() != owner.IdentityProvider || binding.ProviderUserReference() != owner.ProviderUserReference ||
+		binding.Provider() != owner.EffectiveWalletProvider() || binding.ProviderUserReference() != owner.ProviderUserReference ||
 		binding.WalletID() != owner.WalletID || binding.Address() != owner.WalletAddress ||
 		binding.ChainID() != owner.ChainID || binding.Network() != owner.Network {
 		return Result{}, apperrors.New(apperrors.CodeWalletMismatch, "Identity and wallet context do not match the approved intent.", false, true, true)

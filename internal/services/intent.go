@@ -57,7 +57,7 @@ func (s *PersistedIntentService) CreateIntent(ctx context.Context, command Creat
 	if err := binding.EnsureAuthorizable(scope.ActorID()); err != nil {
 		return intents.Intent{}, err
 	}
-	owner := intents.Ownership{UserID: scope.ActorID(), IdentityProvider: request.Principal().IdentityProvider(), ProviderUserReference: binding.ProviderUserReference(), WalletBindingID: binding.BindingID(), WalletBindingVersion: binding.Version(), WalletID: binding.WalletID(), WalletAddress: binding.Address(), ChainID: binding.ChainID(), Network: binding.Network()}
+	owner := intents.Ownership{UserID: scope.ActorID(), IdentityProvider: request.Principal().IdentityProvider(), WalletProvider: binding.Provider(), ProviderUserReference: binding.ProviderUserReference(), WalletBindingID: binding.BindingID(), WalletBindingVersion: binding.Version(), WalletID: binding.WalletID(), WalletAddress: binding.Address(), ChainID: binding.ChainID(), Network: binding.Network()}
 	now := s.Now().UTC()
 	params := intents.Params{IntentID: intentID(scope, command.ClientRequestID), Version: 1, ClientRequestID: command.ClientRequestID, Nonce: command.Nonce, Type: command.Type, Ownership: owner, Financial: command.Financial, Route: command.Route, Constraints: intents.Constraints{Deadline: command.Deadline, PolicyReference: command.PolicyReference}, CreatedAt: now, ExpiresAt: command.Deadline}
 	value, err := intents.NewDraft(params)

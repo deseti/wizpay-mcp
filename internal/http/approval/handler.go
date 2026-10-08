@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/approvals"
+	"github.com/deseti/wizpay-mcp/internal/auth"
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 	"github.com/deseti/wizpay-mcp/internal/services"
 )
@@ -47,6 +48,10 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	if path == "decision" {
+		if err := auth.RequireHuman(request.Context(), auth.PermissionDecideApproval); err != nil {
+			writeError(response, statusFor(err), err)
+			return
+		}
 		if request.Method != http.MethodPost {
 			response.Header().Set("Allow", http.MethodPost)
 			writeError(response, http.StatusMethodNotAllowed, nil)
@@ -56,6 +61,10 @@ func (h *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	if path == "authorize-execution" {
+		if err := auth.RequireHuman(request.Context(), auth.PermissionConfirmExecution); err != nil {
+			writeError(response, statusFor(err), err)
+			return
+		}
 		if request.Method != http.MethodPost {
 			response.Header().Set("Allow", http.MethodPost)
 			writeError(response, http.StatusMethodNotAllowed, nil)

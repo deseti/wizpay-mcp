@@ -10,7 +10,6 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/auth"
 	apperrors "github.com/deseti/wizpay-mcp/internal/errors"
 	"github.com/deseti/wizpay-mcp/internal/intents"
-	"github.com/deseti/wizpay-mcp/internal/wallet"
 )
 
 // ExecutionAuthorization is a non-secret handoff record. It is deliberately
@@ -30,7 +29,7 @@ type ExecutionAuthorization struct {
 }
 
 func (s *PersistedApprovalService) AuthorizeExecution(ctx context.Context, approvalID, intentID, walletBindingID string, walletBindingVersion uint64) (ExecutionAuthorization, error) {
-	scope, err := s.scope(ctx, auth.PermissionPrepareExecution)
+	scope, err := s.humanScope(ctx, auth.PermissionConfirmExecution)
 	if err != nil {
 		return ExecutionAuthorization{}, err
 	}
@@ -54,21 +53,11 @@ func (s *PersistedApprovalService) AuthorizeExecution(ctx context.Context, appro
 	if walletBindingID != current.WalletBindingID() || walletBindingVersion != current.WalletBindingVersion() {
 		return ExecutionAuthorization{}, apperrors.New(apperrors.CodeWalletMismatch, "Wallet binding does not match the approval.", false, true, true)
 	}
-	binding, err := s.Wallets.FindBindingByID(ctx, scope, walletBindingID)
-	if err != nil {
-		return ExecutionAuthorization{}, err
-	}
-	if binding.Version() != current.WalletBindingVersion() {
-		return ExecutionAuthorization{}, apperrors.New(apperrors.CodeWalletMismatch, "Wallet binding version has changed.", false, true, true)
-	}
-	if err := binding.EnsureMatches(wallet.Reference{UserID: current.UserID(), WalletID: current.WalletID(), Address: current.WalletAddress(), ChainID: current.ChainID()}); err != nil {
-		return ExecutionAuthorization{}, err
-	}
-	if err := binding.EnsureAuthorizable(current.UserID()); err != nil {
+	if err := s.validateApprovalBinding(ctx, scope, current, intent); err != nil {
 		return ExecutionAuthorization{}, err
 	}
 	now := s.Now().UTC()
-	if err := current.EnsureAuthorizes(intent, now); err != nil && current.Status() != approvals.StatusReadyForExecutionConfirmation {
+	if err := current.EnsureAuthorizes(intent, now); err != nil {
 		return ExecutionAuthorization{}, err
 	}
 	next, err := current.ReadyForExecutionConfirmation(now)

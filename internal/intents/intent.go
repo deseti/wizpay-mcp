@@ -33,8 +33,10 @@ func (r RouteType) Valid() bool {
 // Ownership freezes the exact application identity and wallet binding used to
 // authorize an intent. It contains references only, never credentials or keys.
 type Ownership struct {
-	UserID                string `json:"user_id"`
-	IdentityProvider      string `json:"identity_provider"`
+	UserID           string `json:"user_id"`
+	IdentityProvider string `json:"identity_provider"`
+	// WalletProvider is explicit for new records; empty preserves the legacy coupled snapshot.
+	WalletProvider        string `json:"wallet_provider,omitempty"`
 	ProviderUserReference string `json:"provider_user_reference"`
 	WalletBindingID       string `json:"wallet_binding_id"`
 	WalletBindingVersion  uint64 `json:"wallet_binding_version"`
@@ -44,7 +46,20 @@ type Ownership struct {
 	Network               string `json:"network"`
 }
 
+// EffectiveWalletProvider interprets only the legacy representation, never upgrades it.
+func (o Ownership) EffectiveWalletProvider() string {
+	if o.WalletProvider != "" {
+		return o.WalletProvider
+	}
+	return o.IdentityProvider
+}
+
 func (o Ownership) validate() error {
+	if o.WalletProvider != "" {
+		if err := validateText("wallet provider", o.WalletProvider); err != nil {
+			return err
+		}
+	}
 	for _, field := range []struct{ name, value string }{
 		{"user ID", o.UserID}, {"identity provider", o.IdentityProvider},
 		{"provider user reference", o.ProviderUserReference}, {"wallet binding ID", o.WalletBindingID},
@@ -313,6 +328,7 @@ func normalizeParams(p Params) Params {
 	p.Nonce = strings.TrimSpace(p.Nonce)
 	p.Ownership.UserID = strings.TrimSpace(p.Ownership.UserID)
 	p.Ownership.IdentityProvider = strings.TrimSpace(p.Ownership.IdentityProvider)
+	p.Ownership.WalletProvider = strings.TrimSpace(p.Ownership.WalletProvider)
 	p.Ownership.ProviderUserReference = strings.TrimSpace(p.Ownership.ProviderUserReference)
 	p.Ownership.WalletBindingID = strings.TrimSpace(p.Ownership.WalletBindingID)
 	p.Ownership.WalletID = strings.TrimSpace(p.Ownership.WalletID)
@@ -400,7 +416,7 @@ type materialEnvelope struct {
 	ClientRequestID string              `json:"client_request_id"`
 	Nonce           string              `json:"nonce"`
 	Type            Type                `json:"intent_type"`
-	Ownership       Ownership           `json:"ownership"`
+	Ownership       canonicalOwnership  `json:"ownership"`
 	Financial       FinancialParameters `json:"financial_parameters"`
 	Route           Route               `json:"route"`
 	Constraints     Constraints         `json:"constraints"`
@@ -409,7 +425,7 @@ type materialEnvelope struct {
 }
 
 func canonicalMaterial(p Params) ([]byte, error) {
-	return canonicalJSON(materialEnvelope{p.IntentID, p.Version, p.ClientRequestID, p.Nonce, p.Type, p.Ownership, p.Financial, p.Route, p.Constraints, p.CreatedAt, p.ExpiresAt})
+	return canonicalJSON(materialEnvelope{p.IntentID, p.Version, p.ClientRequestID, p.Nonce, p.Type, ownershipMaterial(p.Ownership), p.Financial, p.Route, p.Constraints, p.CreatedAt, p.ExpiresAt})
 }
 
 func digestBytes(material []byte) string {

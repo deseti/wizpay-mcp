@@ -23,3 +23,12 @@ Permissions are a closed typed set for the current foundation capabilities: inte
 The canonical storage mapping uses only trusted principal tenant/actor values and server-generated request metadata. MCP input cannot construct or replace a principal, permission set, identity, or storage.Scope. Raw bearer tokens never enter domain values, logs, audit metadata, or persistent records.
 
 Authentication remains separate from the provider-neutral Phase 9 execution runtime. No provider, chain, signing, broadcasting, or real financial execution functionality is implemented.
+
+## WP1 authority separation
+
+Authentication issuer and wallet provider are independent. New intent ownership
+snapshots record both; historical coupled snapshots retain their exact digest.
+Human approval decisions and execution confirmation require a separately validated
+human authentication context and distinct permissions. MCP bearer permissions
+alone cannot establish that context. No production human authenticator is wired.
+See [WP1 security and compatibility](wp1-identity-approval-security.md).

@@ -25,7 +25,7 @@ func ValidateSignedTransaction(intent intents.Intent, binding wallet.Binding, ra
 		return err
 	}
 	if binding.BindingID() != owner.WalletBindingID || binding.Version() != owner.WalletBindingVersion ||
-		binding.Provider() != owner.IdentityProvider || binding.ProviderUserReference() != owner.ProviderUserReference ||
+		binding.Provider() != owner.EffectiveWalletProvider() || binding.ProviderUserReference() != owner.ProviderUserReference ||
 		binding.WalletID() != owner.WalletID || binding.Address() != owner.WalletAddress ||
 		binding.ChainID() != owner.ChainID || binding.Network() != owner.Network {
 		return fmt.Errorf("signed SEND wallet binding mismatch")

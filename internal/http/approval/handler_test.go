@@ -65,7 +65,7 @@ func TestApprovalDecisionApproveAndReject(t *testing.T) {
 			}
 			body := strings.NewReader(`{"decision":"` + string(want) + `"}`)
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/approval/apr_1/decision", body))
+			handler.ServeHTTP(response, humanHTTPRequest(t, httptest.NewRequest(http.MethodPost, "/approval/apr_1/decision", body)))
 			if response.Code != http.StatusOK || service.decision != want {
 				t.Fatalf("status=%d decision=%q", response.Code, service.decision)
 			}
@@ -80,7 +80,7 @@ func TestApprovalDecisionRejectsInvalidInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/approval/apr_1/decision", strings.NewReader(`{"decision":"MAYBE"}`)))
+	handler.ServeHTTP(response, humanHTTPRequest(t, httptest.NewRequest(http.MethodPost, "/approval/apr_1/decision", strings.NewReader(`{"decision":"MAYBE"}`))))
 	if response.Code != http.StatusBadRequest || service.decision != "" {
 		t.Fatalf("status=%d decision=%q", response.Code, service.decision)
 	}
@@ -109,7 +109,7 @@ func TestAuthorizeExecutionReturnsSafeHandoff(t *testing.T) {
 	}
 	response := httptest.NewRecorder()
 	body := strings.NewReader(`{"intent_id":"int_1","wallet_binding_id":"binding_1","wallet_binding_version":2}`)
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/approval/apr_1/authorize-execution", body))
+	handler.ServeHTTP(response, humanHTTPRequest(t, httptest.NewRequest(http.MethodPost, "/approval/apr_1/authorize-execution", body)))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"execution_authorization_id":"eauth_1"`) || strings.Contains(response.Body.String(), "private") {
 		t.Fatalf("response=%d %q", response.Code, response.Body.String())
 	}
@@ -122,7 +122,7 @@ func TestAuthorizeExecutionFailureIsReturned(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/approval/apr_1/authorize-execution", strings.NewReader(`{"intent_id":"int_1","wallet_binding_id":"binding_1","wallet_binding_version":1}`)))
+	handler.ServeHTTP(response, humanHTTPRequest(t, httptest.NewRequest(http.MethodPost, "/approval/apr_1/authorize-execution", strings.NewReader(`{"intent_id":"int_1","wallet_binding_id":"binding_1","wallet_binding_version":1}`))))
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d", response.Code)
 	}

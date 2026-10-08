@@ -127,7 +127,7 @@ func approvalServiceFixture(t *testing.T, intentStatus intents.Status) (*Persist
 		t.Fatal(err)
 	}
 	service := &PersistedApprovalService{Approvals: approvalsRepo, Intents: approvalIntentRepository{intent: intent}, Wallets: approvalWalletRepository{binding: binding}, Authorizer: auth.NewPermissionAuthorizer(), Now: func() time.Time { return approvalServiceNow }}
-	principal, err := auth.NewAuthenticatedPrincipal(auth.PrincipalParams{TenantID: "tenant_1", ActorID: "user_1", IdentityProvider: "issuer", ProviderSubject: "subject_1", ExpiresAt: approvalServiceNow.Add(time.Hour), Permissions: []auth.Permission{auth.PermissionRequestApproval, auth.PermissionReadApproval, auth.PermissionPrepareExecution}})
+	principal, err := auth.NewAuthenticatedPrincipal(auth.PrincipalParams{TenantID: "tenant_1", ActorID: "user_1", IdentityProvider: "issuer", ProviderSubject: "subject_1", ExpiresAt: approvalServiceNow.Add(time.Hour), Permissions: []auth.Permission{auth.PermissionRequestApproval, auth.PermissionReadApproval, auth.PermissionPrepareExecution, auth.PermissionDecideApproval, auth.PermissionConfirmExecution}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +155,7 @@ func TestPersistedApprovalServiceRequestCreatesApproval(t *testing.T) {
 
 func TestPersistedApprovalServiceAuthorizeExecutionRequiresApprovalAndBinding(t *testing.T) {
 	service, repository, ctx, intent := approvalServiceFixture(t, intents.StatusApprovalRequired)
+	ctx = trustedHumanFixture(t, ctx)
 	approval, err := service.RequestApproval(ctx, intent.IntentID())
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +178,7 @@ func TestPersistedApprovalServiceAuthorizeExecutionRequiresApprovalAndBinding(t 
 
 func TestPersistedApprovalServiceAuthorizeExecutionRejectsUnauthorizedAndExpired(t *testing.T) {
 	service, _, ctx, intent := approvalServiceFixture(t, intents.StatusApprovalRequired)
+	ctx = trustedHumanFixture(t, ctx)
 	approval, err := service.RequestApproval(ctx, intent.IntentID())
 	if err != nil {
 		t.Fatal(err)
@@ -271,6 +273,7 @@ func TestPersistedApprovalServiceApproveAndReject(t *testing.T) {
 	for _, decision := range []approvals.Decision{approvals.DecisionApproved, approvals.DecisionRejected} {
 		t.Run(string(decision), func(t *testing.T) {
 			service, _, ctx, intent := approvalServiceFixture(t, intents.StatusApprovalRequired)
+			ctx = trustedHumanFixture(t, ctx)
 			pending, err := service.RequestApproval(ctx, intent.IntentID())
 			if err != nil {
 				t.Fatal(err)

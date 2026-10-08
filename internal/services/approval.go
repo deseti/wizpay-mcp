@@ -165,11 +165,11 @@ func (s *PersistedApprovalService) GetApproval(ctx context.Context, approvalID s
 // pending approval. It only changes the approval lifecycle artifact; it does
 // not approve the intent, create execution authority, or invoke providers.
 func (s *PersistedApprovalService) DecideApproval(ctx context.Context, approvalID string, decision approvals.Decision) (approvals.Approval, error) {
-	scope, err := s.scope(ctx, auth.PermissionRequestApproval)
+	scope, err := s.humanScope(ctx, auth.PermissionDecideApproval)
 	if err != nil {
 		return approvals.Approval{}, err
 	}
-	if s.Approvals == nil || s.Now == nil {
+	if s.Approvals == nil || s.Now == nil || s.Intents == nil || s.Wallets == nil {
 		return approvals.Approval{}, fmt.Errorf("approval service is not configured")
 	}
 	current, err := s.Approvals.FindApprovalByID(ctx, scope, approvalID)
@@ -178,6 +178,16 @@ func (s *PersistedApprovalService) DecideApproval(ctx context.Context, approvalI
 	}
 	if current.UserID() != scope.ActorID() {
 		return approvals.Approval{}, apperrors.New(apperrors.CodeAuthorizationRequired, "Approval is not accessible.", false, true, true)
+	}
+	intent, err := s.Intents.FindIntentByID(ctx, scope, current.IntentID())
+	if err != nil {
+		return approvals.Approval{}, err
+	}
+	if err := s.validateApprovalBinding(ctx, scope, current, intent); err != nil {
+		return approvals.Approval{}, err
+	}
+	if !s.Now().UTC().Before(current.ExpiresAt()) {
+		return approvals.Approval{}, apperrors.New(apperrors.CodeApprovalExpired, "Approval has expired.", false, true, true)
 	}
 	if decision != approvals.DecisionApproved && decision != approvals.DecisionRejected {
 		return approvals.Approval{}, fmt.Errorf("invalid approval decision")

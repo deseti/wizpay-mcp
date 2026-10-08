@@ -27,8 +27,8 @@ UPDATE wallet_bindings SET version=$3, status=$4, verification_reference=$5, ver
 WHERE tenant_id=$1 AND binding_id=$2 AND version=$8 AND $3=$8+1 AND user_id=sqlc.arg(actor_id) RETURNING *;
 
 -- name: CreateIntent :one
-INSERT INTO intents (tenant_id,intent_id,intent_version,client_request_id,nonce,intent_type,user_id,identity_provider,provider_user_reference,wallet_binding_id,wallet_binding_version,wallet_id,wallet_address,chain_id,network,financial,route_type,route_reference,route_version,constraint_deadline,policy_reference,created_at,expires_at,status,intent_digest,operation_key,operation_version,lifecycle_version)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+INSERT INTO intents (tenant_id,intent_id,intent_version,client_request_id,nonce,intent_type,user_id,identity_provider,provider_user_reference,wallet_binding_id,wallet_binding_version,wallet_id,wallet_address,chain_id,network,financial,route_type,route_reference,route_version,constraint_deadline,policy_reference,created_at,expires_at,status,intent_digest,operation_key,operation_version,lifecycle_version,wallet_provider)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
 RETURNING *;
 
 -- name: FindIntentByID :one
