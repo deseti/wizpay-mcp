@@ -11,6 +11,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/app"
 	"github.com/deseti/wizpay-mcp/internal/auth"
 	authjwt "github.com/deseti/wizpay-mcp/internal/auth/jwt"
+	"github.com/deseti/wizpay-mcp/internal/browser"
 	"github.com/deseti/wizpay-mcp/internal/config"
 	"github.com/deseti/wizpay-mcp/internal/logging"
 	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
@@ -130,7 +131,11 @@ func run() error {
 		registrations = append(registrations, swapRegistry.Tools()...)
 		registrations = append(registrations, autonomyRegistry.Tools()...)
 		if cfg.OAuthEnabled {
-			server, err = app.NewOAuthServerWithApproval(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, oauthService, registrations...)
+			sessions, sessionErr := browser.NewService(database, database, oauthService, nil, time.Now)
+			if sessionErr != nil {
+				return sessionErr
+			}
+			server, err = app.NewOAuthServerWithBrowserFoundation(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, oauthService, sessions, registrations...)
 		} else {
 			server, err = app.NewAuthenticatedServerWithApproval(cfg, logger, database, middleware.Wrap, foundationBundle.Approvals, registrations...)
 		}

@@ -11,8 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/browser"
 	"github.com/deseti/wizpay-mcp/internal/config"
 	approvalhttp "github.com/deseti/wizpay-mcp/internal/http/approval"
+	browserhttp "github.com/deseti/wizpay-mcp/internal/http/browser"
 	oauthhttp "github.com/deseti/wizpay-mcp/internal/http/oauth"
 	internalmcp "github.com/deseti/wizpay-mcp/internal/mcp"
 	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
@@ -81,6 +83,20 @@ func NewOAuthServerWithApproval(cfg config.Config, logger *slog.Logger, readines
 		return nil, e
 	}
 	server.httpServer.Handler = oauthhttp.Routes(oauthhttp.NewHandler(service), server.httpServer.Handler)
+	return server, nil
+}
+
+// NewOAuthServerWithBrowserFoundation wires pending onboarding only. The caller
+// must supply the browser service with no identity verifier in WP3A.
+func NewOAuthServerWithBrowserFoundation(cfg config.Config, logger *slog.Logger, readiness ReadinessChecker, authentication func(http.Handler) http.Handler, approvalService services.ApprovalService, service *oauth.Service, sessions *browser.Service, registrations ...tools.Tool) (*Server, error) {
+	server, e := NewAuthenticatedServerWithApproval(cfg, logger, readiness, authentication, approvalService, registrations...)
+	if e != nil {
+		return nil, e
+	}
+	if !cfg.OAuthEnabled || service == nil || sessions == nil {
+		return nil, fmt.Errorf("OAuth/browser foundation required")
+	}
+	server.httpServer.Handler = oauthhttp.Routes(oauthhttp.NewHandlerWithBrowser(service, browserhttp.NewHandler(sessions)), server.httpServer.Handler)
 	return server, nil
 }
 

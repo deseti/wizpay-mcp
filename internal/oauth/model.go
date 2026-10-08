@@ -63,6 +63,7 @@ type Transaction struct {
 // non-secret record reference. The future adapter must verify origin/CSRF, human
 // session freshness/revocation and explicit consent for this exact transaction.
 type BrowserDecision struct {
+	BrowserSessionReference                  string
 	Principal                                auth.AuthenticatedPrincipal
 	SessionID                                string
 	SessionExpiresAt                         time.Time

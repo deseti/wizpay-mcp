@@ -172,6 +172,23 @@ type AutonomySpendReservation struct {
 	State           string             `json:"state"`
 }
 
+type BrowserSession struct {
+	SessionDigest     string             `json:"session_digest"`
+	CsrfDigest        string             `json:"csrf_digest"`
+	SessionReference  string             `json:"session_reference"`
+	TransactionID     string             `json:"transaction_id"`
+	State             string             `json:"state"`
+	Decision          string             `json:"decision"`
+	TenantID          *string            `json:"tenant_id"`
+	UserID            *string            `json:"user_id"`
+	IdentityIssuer    *string            `json:"identity_issuer"`
+	Subject           *string            `json:"subject"`
+	EvidenceReference *string            `json:"evidence_reference"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt         pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type Execution struct {
 	TenantID              string             `json:"tenant_id"`
 	ExecutionID           string             `json:"execution_id"`

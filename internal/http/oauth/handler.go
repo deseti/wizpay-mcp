@@ -18,7 +18,17 @@ import (
 // TokenBodyReadTimeout bounds only token body reads; MCP streams are unaffected.
 const TokenBodyReadTimeout = 5 * time.Second
 
+type BrowserPreparation interface {
+	http.Handler
+	Prepare(http.ResponseWriter, *http.Request, domain.Transaction)
+}
+
+func NewHandlerWithBrowser(s *domain.Service, b BrowserPreparation) *Handler {
+	return &Handler{service: s, browser: b}
+}
+
 type Handler struct {
+	browser BrowserPreparation
 	service *domain.Service
 	mu      sync.Mutex
 	window  time.Time
@@ -49,6 +59,10 @@ func (h *Handler) allowed() bool {
 	return h.count <= 120
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/browser/") && h.browser != nil {
+		h.browser.ServeHTTP(w, r)
+		return
+	}
 	// Host is the original public authority. Forwarded headers are never trusted.
 	// An edge must terminate HTTPS, preserve Host and isolate the upstream listener.
 	host := r.Host
@@ -151,9 +165,13 @@ func (h *Handler) authorize(w http.ResponseWriter, r *http.Request) {
 		protocolError(w, 400, "invalid_scope")
 		return
 	}
-	_, e = h.service.Begin(r.Context(), domain.AuthorizationRequest{ClientID: one(q, "client_id"), RedirectURI: one(q, "redirect_uri"), Resource: one(q, "resource"), Scope: one(q, "scope"), ResponseType: one(q, "response_type"), Challenge: one(q, "code_challenge"), ChallengeMethod: one(q, "code_challenge_method"), State: q.Get("state")})
+	transaction, e := h.service.Begin(r.Context(), domain.AuthorizationRequest{ClientID: one(q, "client_id"), RedirectURI: one(q, "redirect_uri"), Resource: one(q, "resource"), Scope: one(q, "scope"), ResponseType: one(q, "response_type"), Challenge: one(q, "code_challenge"), ChallengeMethod: one(q, "code_challenge_method"), State: q.Get("state")})
 	if e != nil {
 		protocolError(w, 400, "invalid_request")
+		return
+	}
+	if h.browser != nil {
+		h.browser.Prepare(w, r, transaction)
 		return
 	}
 	// No redirect or transaction handle is disclosed before WP3 establishes a
@@ -234,7 +252,7 @@ func ProtectOrigin(next http.Handler) http.Handler {
 // upstream-private; connect never exposes MCP or approval bearer endpoints.
 func Routes(protocol *Handler, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/.well-known/") || strings.HasPrefix(r.URL.Path, "/oauth/") {
+		if strings.HasPrefix(r.URL.Path, "/.well-known/") || strings.HasPrefix(r.URL.Path, "/oauth/") || strings.HasPrefix(r.URL.Path, "/browser/") {
 			protocol.ServeHTTP(w, r)
 			return
 		}

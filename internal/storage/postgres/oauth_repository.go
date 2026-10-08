@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/deseti/wizpay-mcp/internal/browser"
 	"github.com/deseti/wizpay-mcp/internal/oauth"
 	"github.com/deseti/wizpay-mcp/internal/storage/postgres/dbsqlc"
 	"github.com/jackc/pgx/v5"
@@ -68,6 +69,14 @@ func (s *Store) oauthTx(ctx context.Context, f func(context.Context, pgx.Tx) err
 }
 func (s *Store) CompleteOAuthAuthorization(ctx context.Context, t oauth.Transaction, d oauth.BrowserDecision, k oauth.Code) error {
 	return s.oauthTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		var bs browser.Session
+		if d.BrowserSessionReference != "" {
+			var err error
+			bs, err = s.lockBrowser(ctx, tx, "session_reference", d.BrowserSessionReference)
+			if err != nil || bs.State != "AUTHENTICATED" || bs.Decision != "OPEN" || bs.TransactionID != t.ID || bs.Reference != k.SessionID || bs.TenantID != k.TenantID || bs.UserID != k.UserID || bs.Issuer != d.Principal.IdentityProvider() || bs.Subject != d.Principal.ProviderSubject() {
+				return oauth.ErrDenied
+			}
+		}
 		// Recheck the persisted transaction and registered client inside the lock.
 		var client, redirect, resource, scope, challenge, state string
 		var expires time.Time
@@ -89,6 +98,12 @@ func (s *Store) CompleteOAuthAuthorization(ctx context.Context, t oauth.Transact
 		if e != nil {
 			return oauth.ErrDenied
 		}
+		if d.BrowserSessionReference != "" {
+			now := s.now().UTC()
+			if !now.Before(bs.ExpiresAt) || !now.Before(expires) || !now.Before(sessionExpires) || !now.Before(k.ExpiresAt) || !now.Before(d.Principal.ExpiresAt()) {
+				return oauth.ErrDenied
+			}
+		}
 		consentExpires := d.SessionExpiresAt
 		if sessionExpires.Before(consentExpires) {
 			consentExpires = sessionExpires
@@ -107,6 +122,11 @@ func (s *Store) CompleteOAuthAuthorization(ctx context.Context, t oauth.Transact
 		_, e = tx.Exec(ctx, `UPDATE oauth_transactions SET completed_at=$2 WHERE transaction_id=$1`, t.ID, k.IssuedAt)
 		if e != nil {
 			return e
+		}
+		if d.BrowserSessionReference != "" {
+			if _, e = tx.Exec(ctx, `UPDATE browser_sessions SET decision='GRANTED' WHERE session_reference=$1`, d.BrowserSessionReference); e != nil {
+				return e
+			}
 		}
 		return oauthAudit(ctx, tx, "AUTHORIZED", k.TenantID, k.UserID, client, k.ConsentID, k.IssuedAt)
 	})
