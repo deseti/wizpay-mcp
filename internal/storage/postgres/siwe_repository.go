@@ -193,3 +193,39 @@ func checkSIWESession(ctx context.Context, tx pgx.Tx, reference, tenant, user st
 	}
 	return nil
 }
+
+// FindBrowserAuthentication reads immutable proof links under current authority
+// locks. Public references correlate a flow; they are not bearer credentials.
+func (s *Store) FindBrowserAuthentication(ctx context.Context, expected browser.Session) (string, error) {
+	var challenge string
+	err := s.oauthTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		v, err := s.lockBrowser(ctx, tx, "session_digest", expected.Digest)
+		if err != nil || v.Revoked || v.State != "AUTHENTICATED" || v.Decision != "OPEN" || v.Reference != expected.Reference || v.TransactionID != expected.TransactionID {
+			return siwe.ErrDenied
+		}
+		expiry, err := s.lockBrowserTransaction(ctx, tx, v.TransactionID)
+		if err != nil {
+			return siwe.ErrDenied
+		}
+		var user string
+		if err = tx.QueryRow(ctx, `SELECT user_id FROM identities WHERE tenant_id=$1 AND user_id=$2 AND provider=$3 AND provider_subject=$4 AND status='ACTIVE' FOR SHARE`, v.TenantID, v.UserID, v.Issuer, v.Subject).Scan(&user); err != nil {
+			return siwe.ErrDenied
+		}
+		if err = checkSIWESession(ctx, tx, v.Reference, v.TenantID, v.UserID); err != nil {
+			return err
+		}
+		err = tx.QueryRow(ctx, `SELECT a.challenge_id FROM siwe_authentications a JOIN siwe_challenges c ON c.challenge_id=a.challenge_id JOIN browser_sessions p ON p.session_reference=c.session_reference JOIN oauth_transactions t ON t.transaction_id=c.transaction_id WHERE a.session_reference=$1 AND a.tenant_id=$2 AND a.user_id=$3 AND c.transaction_id=$4 AND p.transaction_id=c.transaction_id AND c.client_id=t.client_id AND c.tenant_id=a.tenant_id AND c.consumed_at IS NOT NULL AND $5='siwe:'||a.challenge_id`, v.Reference, v.TenantID, v.UserID, v.TransactionID, v.Evidence).Scan(&challenge)
+		if err != nil {
+			return siwe.ErrDenied
+		}
+		now, err := dbWallTime(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if !now.Before(v.ExpiresAt) || !now.Before(expiry) {
+			return siwe.ErrDenied
+		}
+		return nil
+	})
+	return challenge, err
+}

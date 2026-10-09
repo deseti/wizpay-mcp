@@ -112,11 +112,22 @@ func (s *Service) View(ctx context.Context, raw string) (View, error) {
 	if e != nil {
 		return View{}, e
 	}
+	challenge := ""
+	if v.State == "AUTHENTICATED" && s.wallet != nil {
+		evidence, ok := s.repo.(AuthenticationCorrelation)
+		if !ok {
+			return View{}, ErrUnavailable
+		}
+		challenge, e = evidence.FindBrowserAuthentication(ctx, v)
+		if e != nil || challenge == "" {
+			return View{}, ErrDenied
+		}
+	}
 	user := ""
 	if v.State == "AUTHENTICATED" {
 		user = v.UserID
 	}
-	return View{State: v.State, ClientID: c.ID, ClientName: c.Name, Scope: t.Request.Scope, Resource: t.Request.Resource, UserID: user, CSRF: csrf(raw), AuthenticationAvailable: s.verifier != nil || s.wallet != nil}, nil
+	return View{TransactionID: v.TransactionID, ChallengeID: challenge, State: v.State, ClientID: c.ID, ClientName: c.Name, Scope: t.Request.Scope, Resource: t.Request.Resource, UserID: user, CSRF: csrf(raw), AuthenticationAvailable: s.verifier != nil || s.wallet != nil}, nil
 }
 
 // Authenticate is an internal seam only; no WP3A HTTP endpoint invokes it.

@@ -49,7 +49,14 @@ type Catalog interface {
 	FindOAuthTransaction(context.Context, string) (oauth.Transaction, error)
 	FindOAuthClient(context.Context, string) (oauth.Client, error)
 }
+
+// AuthenticationCorrelation exposes references, never credentials.
+type AuthenticationCorrelation interface {
+	FindBrowserAuthentication(context.Context, Session) (string, error)
+}
 type View struct {
+	TransactionID           string `json:"transaction_id,omitempty"`
+	ChallengeID             string `json:"challenge_id,omitempty"`
 	State                   string `json:"state"`
 	ClientID                string `json:"client_id"`
 	ClientName              string `json:"client_name"`

@@ -2,56 +2,26 @@
 
 import { useEffect, useState } from "react";
 
-type ConsentView = {
-  state: "PENDING" | "AUTHENTICATED" | "DENIED";
-  client_id?: string;
-  client_name?: string;
-  resource?: string;
-  scope?: string;
-  user_id?: string;
-  csrf: string;
-  authentication_available?: boolean;
-};
+import { browserAPI } from "../lib/onboarding-api";
+import { Flow, type State } from "../lib/onboarding-flow";
+import { discover, type Wallet } from "../lib/wallet/provider";
 
 export function OnboardingUI() {
-  const [view, setView] = useState<ConsentView | null>(null);
-  const [message, setMessage] = useState("Connecting to WizPay…");
-  const [busy, setBusy] = useState(false);
+  const [flow, setFlow] = useState<Flow | null>(null);
+  const [state, setState] = useState<State>({ phase: "initializing", message: "Initializing authorization…", busy: false, restart: false, accounts: [] });
+  const [wallets, setWallets] = useState<Wallet[]>([]);
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/browser/session", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
-      .then(async response => {
-        if (!response.ok) throw new Error("Your connection request is unavailable or has expired. Restart from your AI client.");
-        const data: ConsentView = await response.json();
-        setView(data);
-        setMessage(data.state === "DENIED" ? "Authorization denied. No MCP access was granted." : "");
-      })
-      .catch(error => { if (error.name !== "AbortError") setMessage("Your connection request is unavailable or has expired. Restart from your AI client."); });
-    return () => controller.abort();
+    const controller = new Flow(browserAPI(), setState, url => window.location.assign(url));
+    setFlow(controller);
+    const cleanup = discover(window, setWallets);
+    void controller.initialize();
+    return () => { cleanup(); controller.dispose(); };
   }, []);
-  async function decide(decision: "grant" | "deny") {
-    if (!view || busy) return;
-    setBusy(true);
-    try {
-      const response = await fetch("/browser/consent", {
-        method: "POST", credentials: "same-origin", cache: "no-store",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": view.csrf },
-        body: JSON.stringify({ decision }),
-      });
-      if (!response.ok) throw new Error();
-      // Only an explicit grant by an authenticated server session can return
-      // a registered callback. Authentication is never inferred in this UI.
-      if (decision === "deny") { setView({ ...view, state: "DENIED" }); setMessage("Authorization denied. No MCP access was granted."); }
-      else {
-        const result: { redirect?: string } = await response.json();
-        if (!result.redirect) throw new Error();
-        const target = new URL(result.redirect);
-        if (target.protocol !== "https:" || target.username || target.password) throw new Error();
-        window.location.assign(target.href);
-      }
-    } catch { setMessage("The request could not be completed. Restart from your AI client if it has expired."); }
-    finally { setBusy(false); }
-  }
+  const view = state.view;
+  const busy = state.busy;
+  const message = state.message;
+  const disabled = busy || state.restart;
+  const buttonStyle = "rounded-xl border border-slate-300 px-5 py-3 font-semibold disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600";
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-5 py-12">
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-10">
@@ -67,10 +37,35 @@ export function OnboardingUI() {
             {view.user_id && <div><dt className="text-sm text-slate-500">Authenticated user</dt><dd className="break-all">{view.user_id}</dd></div>}
           </dl>
           <p className="mt-5 text-sm text-slate-600">This access does not authorize fund transfers, wallet signing, or financial approvals.</p>
-          {view.state === "PENDING" && <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">Wallet connection is not available in this frontend. Your request remains unauthenticated. Authentication requires an existing reviewed external wallet binding; connecting a wallet alone never grants access.</div>}
+          {view.state === "PENDING" && <section aria-label="Wallet authentication" className="mt-5 grid gap-4">
+            <p className="text-sm text-slate-600">Only existing reviewed external wallet bindings can authenticate. No account is created. QR pairing and contract-wallet signatures are unsupported.</p>
+            {!view.authentication_available && <p role="status">Wallet authentication is unavailable in this environment.</p>}
+            {wallets.length === 0 && <p>No supported injected wallet found. Use a compatible extension or wallet browser.</p>}
+            <label className="grid gap-2">Wallet
+              <select className="rounded-lg border p-3" disabled={disabled || !view.authentication_available} value={state.wallet?.id ?? ""} onChange={e => { const wallet = wallets.find(w => w.id === e.target.value); if (wallet) flow?.select(wallet); }}>
+                <option value="" disabled>Select a wallet</option>
+                {wallets.map(wallet => <option key={wallet.id} value={wallet.id}>{wallet.name}</option>)}
+              </select>
+            </label>
+            <button className={buttonStyle} disabled={disabled || !state.wallet || !view.authentication_available} onClick={() => void flow?.connect()}>Connect wallet</button>
+            {state.accounts.length > 0 && <label className="grid gap-2">Authentication account
+              <select className="rounded-lg border p-3" disabled={disabled} value={state.account ?? ""} onChange={e => flow?.chooseAccount(e.target.value)}>
+                <option value="" disabled>Select an account</option>
+                {state.accounts.map(account => <option key={account} value={account}>{account}</option>)}
+              </select>
+            </label>}
+            {state.account && <p className="break-all text-sm">Selected wallet: {state.account}. Required network: Arc Mainnet (5042). Connected does not mean authenticated.</p>}
+            <button className={buttonStyle} disabled={disabled || !state.account || !view.authentication_available} onClick={() => void flow?.requestChallenge()}>Request authentication message</button>
+            {state.challenge && <>
+              <p>Review the exact authentication message. This does not authorize transactions.</p>
+              <pre className="overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-4 text-sm">{state.challenge.message}</pre>
+              <p className="text-sm">Expires: {state.challenge.expires_at}</p>
+              <button className={buttonStyle} disabled={disabled} onClick={() => void flow?.authenticate()}>Sign message to authenticate</button>
+            </>}
+          </section>}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button disabled={busy || view.state !== "AUTHENTICATED" || !view.authentication_available} onClick={() => decide("grant")} aria-describedby="grant-note" className="rounded-xl bg-slate-200 px-5 py-3 font-semibold text-slate-500">Grant read-only access</button>
-            <button disabled={busy} onClick={() => decide("deny")} className="rounded-xl border border-slate-300 px-5 py-3 font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600">{busy ? "Cancelling…" : "Deny access"}</button>
+            <button disabled={!flow?.canGrant} onClick={() => void flow?.decide("grant")} aria-describedby="grant-note" className={buttonStyle + " bg-blue-700 text-white"}>Grant read-only access</button>
+            <button disabled={disabled} onClick={() => void flow?.decide("deny")} className="rounded-xl border border-slate-300 px-5 py-3 font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600">{busy ? "Please wait…" : "Deny access"}</button>
           </div>
           <p id="grant-note" className="mt-3 text-sm text-slate-500">Grant requires verified server-side wallet authentication and a separate explicit consent decision.</p>
         </>}

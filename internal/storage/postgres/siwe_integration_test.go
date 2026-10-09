@@ -13,6 +13,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/browser"
 	"github.com/deseti/wizpay-mcp/internal/oauth"
 	"github.com/deseti/wizpay-mcp/internal/siwe"
+	"github.com/deseti/wizpay-mcp/internal/storage"
 	"github.com/deseti/wizpay-mcp/internal/wallet"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -385,4 +386,118 @@ func TestSIWEAmbiguousWalletRejected(t *testing.T) {
 		t.Fatal("ambiguous wallet accepted")
 	}
 	assertSIWERollback(t, f)
+}
+
+func TestSIWESessionCorrelation(t *testing.T) {
+	ctx := context.Background()
+	f := newSIWEFixture(t, false)
+	pending, err := f.service.View(ctx, f.raw)
+	if err != nil || pending.TransactionID != f.c.TransactionID || pending.ChallengeID != "" {
+		t.Fatalf("pending correlation: %+v %v", pending, err)
+	}
+	next, err := f.service.VerifyWallet(ctx, f.raw, f.proof, f.c.ID, siweSignature(t, f.c.Message))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := f.service.View(ctx, next)
+	if err != nil || first.ChallengeID != f.c.ID || first.TransactionID != pending.TransactionID {
+		t.Fatalf("authenticated correlation: %+v %v", first, err)
+	}
+	if _, err = f.service.View(ctx, f.raw); err == nil {
+		t.Fatal("rotated credential accepted")
+	}
+	// A second transaction for the SAME client and existing wallet must retain
+	// distinct evidence. Selecting its cookie cannot masquerade as challenge A.
+	original, err := f.store.FindOAuthTransaction(ctx, f.c.TransactionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow, err := oauth.NewService(f.store, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, err := flow.Begin(ctx, original.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := f.service.Start(ctx, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := f.service.View(ctx, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A distinct reviewed wallet for the same owner exercises same-client wallet
+	// replacement without provisioning a new identity or changing tenant policy.
+	oldSession, err := f.store.FindBrowserSession(ctx, oauth.Digest(next))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := storage.NewScope(f.tenant, oldSession.UserID, "test-correlation", "test-correlation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondKey, err := crypto.HexToECDSA(strings.Repeat("0", 63) + "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now()
+	binding, err := wallet.NewBinding(wallet.BindingParams{BindingID: unique("correlation-binding"), Version: 1, UserID: oldSession.UserID, Provider: "EXTERNAL_EVM", ProviderUserReference: "test-existing-identity", WalletID: unique("correlation-wallet"), Address: crypto.PubkeyToAddress(secondKey.PublicKey).Hex(), ChainID: "5042", Network: "MAINNET", Status: wallet.BindingStatusActive, VerificationReference: "test-reviewed-binding", CreatedAt: at.Add(-time.Minute), VerifiedAt: at.Add(-time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.CreateBinding(ctx, scope, binding); err != nil {
+		t.Fatal(err)
+	}
+	c, err := f.service.Challenge(ctx, raw, v.CSRF, binding.Address())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := crypto.Keccak256([]byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len([]byte(c.Message)))), []byte(c.Message))
+	sig, err := crypto.Sign(hash, secondKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRaw, err := f.service.VerifyWallet(ctx, raw, v.CSRF, c.ID, "0x"+hex.EncodeToString(sig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := f.service.View(ctx, secondRaw)
+	if err != nil || second.ClientID != first.ClientID || second.ChallengeID == first.ChallengeID || second.TransactionID == first.TransactionID {
+		t.Fatalf("substituted correlation: %+v %v", second, err)
+	}
+	if err = f.service.Logout(ctx, secondRaw, second.CSRF); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.service.View(ctx, secondRaw); err == nil {
+		t.Fatal("revoked correlation exposed")
+	}
+	if _, err = f.service.View(ctx, next); err != nil {
+		t.Fatal("other session was revoked", err)
+	}
+}
+
+func TestSIWECorrelationRequiresPersistentEvidence(t *testing.T) {
+	ctx := context.Background()
+	f := newSIWEFixture(t, false)
+	pending, err := f.store.FindBrowserSession(ctx, oauth.Digest(f.raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.FindBrowserAuthentication(ctx, pending); err == nil {
+		t.Fatal("pending session accepted as evidence")
+	}
+	// Direct internal fixture row has no immutable authentication proof. It must
+	// never yield correlation, even though its state/owner metadata look valid.
+	missing := browser.Session{Digest: oauth.Digest("test-only-missing-evidence"), CSRFHash: oauth.Digest("test-only-csrf"), Reference: unique("missing-proof"), TransactionID: pending.TransactionID, State: "AUTHENTICATED", Decision: "OPEN", TenantID: f.tenant, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute)}
+	if err = integrationPool.QueryRow(ctx, `SELECT user_id,provider,provider_subject FROM identities WHERE tenant_id=$1`, f.tenant).Scan(&missing.UserID, &missing.Issuer, &missing.Subject); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = integrationPool.Exec(ctx, `INSERT INTO browser_sessions(session_digest,csrf_digest,session_reference,transaction_id,state,decision,tenant_id,user_id,identity_issuer,subject,evidence_reference,created_at,expires_at) VALUES($1,$2,$3,$4,'AUTHENTICATED','OPEN',$5,$6,$7,$8,'test-missing-proof',$9,$10)`, missing.Digest, missing.CSRFHash, missing.Reference, missing.TransactionID, missing.TenantID, missing.UserID, missing.Issuer, missing.Subject, missing.CreatedAt, missing.ExpiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.FindBrowserAuthentication(ctx, missing); err == nil {
+		t.Fatal("missing immutable evidence accepted")
+	}
 }
