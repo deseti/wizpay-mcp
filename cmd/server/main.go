@@ -132,6 +132,12 @@ func run() error {
 		registrations = append(registrations, swapRegistry.Tools()...)
 		registrations = append(registrations, autonomyRegistry.Tools()...)
 		if cfg.OAuthEnabled {
+			readRegistry, registryErr := tools.NewOAuthReadOnlyRegistry(foundationBundle.Intents, foundationBundle.Approvals)
+			if registryErr != nil {
+				return registryErr
+			}
+			// OAuth's mcp:read profile has a separate registration allowlist.
+			registrations = readRegistry.Tools()
 			sessions, sessionErr := browser.NewService(database, database, oauthService, nil, time.Now)
 			if sessionErr == nil && cfg.SIWEEnabled {
 				wallet, walletErr := siwe.NewService(database, cfg.OnboardingTenantID, cfg.SIWEOrigin)
