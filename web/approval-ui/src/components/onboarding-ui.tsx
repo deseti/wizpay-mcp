@@ -39,10 +39,16 @@ export function OnboardingUI() {
         body: JSON.stringify({ decision }),
       });
       if (!response.ok) throw new Error();
-      // WP3A has no verified authentication provider. Grant stays unavailable;
-      // only cancellation is operational. Never manufacture a success state.
+      // Only an explicit grant by an authenticated server session can return
+      // a registered callback. Authentication is never inferred in this UI.
       if (decision === "deny") { setView({ ...view, state: "DENIED" }); setMessage("Authorization denied. No MCP access was granted."); }
-      else setMessage("Authorization completion is unavailable. Restart from your AI client.");
+      else {
+        const result: { redirect?: string } = await response.json();
+        if (!result.redirect) throw new Error();
+        const target = new URL(result.redirect);
+        if (target.protocol !== "https:" || target.username || target.password) throw new Error();
+        window.location.assign(target.href);
+      }
     } catch { setMessage("The request could not be completed. Restart from your AI client if it has expired."); }
     finally { setBusy(false); }
   }
@@ -61,12 +67,12 @@ export function OnboardingUI() {
             {view.user_id && <div><dt className="text-sm text-slate-500">Authenticated user</dt><dd className="break-all">{view.user_id}</dd></div>}
           </dl>
           <p className="mt-5 text-sm text-slate-600">This access does not authorize fund transfers, wallet signing, or financial approvals.</p>
-          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">Wallet authentication is not available yet. This request remains unauthenticated and cannot grant MCP access.</div>
+          {view.state === "PENDING" && <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">Wallet connection is not available in this frontend. Your request remains unauthenticated. Authentication requires an existing reviewed external wallet binding; connecting a wallet alone never grants access.</div>}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button disabled aria-describedby="grant-note" className="rounded-xl bg-slate-200 px-5 py-3 font-semibold text-slate-500">Grant read-only access</button>
+            <button disabled={busy || view.state !== "AUTHENTICATED" || !view.authentication_available} onClick={() => decide("grant")} aria-describedby="grant-note" className="rounded-xl bg-slate-200 px-5 py-3 font-semibold text-slate-500">Grant read-only access</button>
             <button disabled={busy} onClick={() => decide("deny")} className="rounded-xl border border-slate-300 px-5 py-3 font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600">{busy ? "Cancelling…" : "Deny access"}</button>
           </div>
-          <p id="grant-note" className="mt-3 text-sm text-slate-500">Grant becomes available only after verified wallet authentication is implemented.</p>
+          <p id="grant-note" className="mt-3 text-sm text-slate-500">Grant requires verified server-side wallet authentication and a separate explicit consent decision.</p>
         </>}
       </div>
     </main>

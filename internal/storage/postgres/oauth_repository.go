@@ -89,6 +89,9 @@ func (s *Store) CompleteOAuthAuthorization(ctx context.Context, t oauth.Transact
 		if e != nil {
 			return oauth.ErrDenied
 		}
+		if e = checkSIWESession(ctx, tx, k.SessionID, k.TenantID, k.UserID); e != nil {
+			return e
+		}
 		_, e = tx.Exec(ctx, `INSERT INTO oauth_sessions(tenant_id,user_id,session_id,expires_at) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, k.TenantID, k.UserID, k.SessionID, d.SessionExpiresAt)
 		if e != nil {
 			return e
@@ -144,6 +147,9 @@ func (s *Store) RedeemOAuthCode(ctx context.Context, r oauth.Redemption) (oauth.
 		if e != nil || challenge != r.Challenge || redirect != r.RedirectURI || out.ClientID != r.ClientID || out.Resource != r.Resource || out.Scope != oauth.ReadScope {
 			return oauth.ErrDenied
 		}
+		if e = checkSIWESession(ctx, tx, out.SessionID, out.TenantID, out.UserID); e != nil {
+			return e
+		}
 		// Sample the server-owned wall clock only after all authority row locks
 		// are held. PostgreSQL now()/CURRENT_TIMESTAMP would retain transaction
 		// start time, and the service timestamp predates any lock wait.
@@ -179,6 +185,13 @@ func (s *Store) ValidateOAuthToken(ctx context.Context, digest string, now time.
 	}
 	defer cancel()
 	t, e := s.queries.ValidateOAuthAccessToken(bounded, dbsqlc.ValidateOAuthAccessTokenParams{TokenDigest: digest, IssuedAt: now})
+	if e == nil {
+		var invalid bool
+		e = s.pool.QueryRow(bounded, `SELECT EXISTS(SELECT 1 FROM siwe_authentications a LEFT JOIN tenants n ON n.tenant_id=a.tenant_id LEFT JOIN wallet_bindings w ON w.tenant_id=a.tenant_id AND w.binding_id=a.binding_id WHERE a.session_reference=$1 AND (a.tenant_id<>$2 OR a.user_id<>$3 OR n.status IS DISTINCT FROM 'ACTIVE' OR w.status IS DISTINCT FROM 'ACTIVE' OR w.version IS DISTINCT FROM a.binding_version OR w.user_id IS DISTINCT FROM a.user_id OR w.revoked_at IS NOT NULL OR w.verified_at IS NULL OR w.verification_reference=''))`, t.SessionID, t.TenantID, t.UserID).Scan(&invalid)
+		if invalid {
+			e = oauth.ErrDenied
+		}
+	}
 	return oauth.Token{Digest: t.TokenDigest, Issuer: t.Issuer, Resource: t.Resource, ClientID: t.ClientID, TenantID: t.TenantID, UserID: t.UserID, IdentityIssuer: t.IdentityIssuer, Subject: t.Subject, Scope: t.Scope, ConsentID: t.ConsentID, SessionID: t.SessionID, IssuedAt: t.IssuedAt, ExpiresAt: t.ExpiresAt}, e
 }
 func (s *Store) RevokeOAuthAuthority(ctx context.Context, r oauth.Revocation) error {

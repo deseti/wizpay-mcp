@@ -67,7 +67,9 @@ func TestWP1MigrationPreservesPreWP1Intent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.CreateTenant(ctx, storage.Tenant{TenantID: f.scope.TenantID(), CreatedAt: fixtureNow}); err != nil {
+	// Seed the historical schema explicitly. Current sqlc tenant queries return
+	// migration-010 status, which does not exist in this pre-WP1 database.
+	if _, err = pool.Exec(ctx, `INSERT INTO tenants(tenant_id,created_at) VALUES($1,$2)`, f.scope.TenantID(), fixtureNow); err != nil {
 		t.Fatal(err)
 	}
 	identity, err := auth.NewIdentityWithSubject(f.scope.ActorID(), f.identity.Provider(), f.identity.ProviderSubject(), auth.IdentityStatusActive)
@@ -97,6 +99,26 @@ func TestWP1MigrationPreservesPreWP1Intent(t *testing.T) {
 	}
 	if err = Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
+	}
+	// Migration must preserve the legacy tenant and never approve SIWE access.
+	var tenantStatus string
+	var tenantCreated time.Time
+	if err = pool.QueryRow(ctx, `SELECT status,created_at FROM tenants WHERE tenant_id=$1`, f.scope.TenantID()).Scan(&tenantStatus, &tenantCreated); err != nil {
+		t.Fatal(err)
+	}
+	if tenantStatus != "INACTIVE" || !tenantCreated.Equal(fixtureNow) {
+		t.Fatal("migration changed historical tenant or activated onboarding")
+	}
+	// The current repository now operates against its intended, migrated schema.
+	// An idempotent tenant write must also leave onboarding authority inactive.
+	if _, err = store.CreateTenant(ctx, storage.Tenant{TenantID: f.scope.TenantID(), CreatedAt: fixtureNow.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT status,created_at FROM tenants WHERE tenant_id=$1`, f.scope.TenantID()).Scan(&tenantStatus, &tenantCreated); err != nil {
+		t.Fatal(err)
+	}
+	if tenantStatus != "INACTIVE" || !tenantCreated.Equal(fixtureNow) {
+		t.Fatal("tenant persistence changed lifecycle or historical creation time")
 	}
 	restored, err := store.FindIntentByID(ctx, f.scope, f.intent.IntentID())
 	if err != nil {

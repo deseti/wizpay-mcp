@@ -87,7 +87,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, v)
 		return
 	}
-	if (r.URL.Path != "/browser/consent" && r.URL.Path != "/browser/logout") || r.Method != "POST" {
+	if (r.URL.Path != "/browser/consent" && r.URL.Path != "/browser/logout" && r.URL.Path != "/browser/siwe/challenge" && r.URL.Path != "/browser/siwe/verify") || r.Method != "POST" {
 		reply(w, 404, map[string]string{"error": "invalid_request"})
 		return
 	}
@@ -104,6 +104,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 	defer r.Body.Close()
 	proof := r.Header.Get("X-CSRF-Token")
+	if r.URL.Path == "/browser/siwe/challenge" || r.URL.Path == "/browser/siwe/verify" {
+		h.walletAction(w, r, raw, proof, ctl)
+		return
+	}
 	var err error
 	if r.URL.Path == "/browser/logout" {
 		// Logout carries no identity or decision input.

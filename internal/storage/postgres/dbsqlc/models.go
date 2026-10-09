@@ -437,9 +437,37 @@ type SchemaMigration struct {
 	AppliedAt pgtype.Timestamptz `json:"applied_at"`
 }
 
+type SiweAuthentication struct {
+	SessionReference string             `json:"session_reference"`
+	ChallengeID      string             `json:"challenge_id"`
+	TenantID         string             `json:"tenant_id"`
+	UserID           string             `json:"user_id"`
+	BindingID        string             `json:"binding_id"`
+	BindingVersion   int64              `json:"binding_version"`
+	AuthenticatedAt  pgtype.Timestamptz `json:"authenticated_at"`
+}
+
+type SiweChallenge struct {
+	ChallengeID      string             `json:"challenge_id"`
+	Nonce            string             `json:"nonce"`
+	Message          string             `json:"message"`
+	Address          string             `json:"address"`
+	TenantID         string             `json:"tenant_id"`
+	SessionReference string             `json:"session_reference"`
+	TransactionID    string             `json:"transaction_id"`
+	ClientID         string             `json:"client_id"`
+	Domain           string             `json:"domain"`
+	Uri              string             `json:"uri"`
+	ChainID          string             `json:"chain_id"`
+	IssuedAt         pgtype.Timestamptz `json:"issued_at"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	ConsumedAt       pgtype.Timestamptz `json:"consumed_at"`
+}
+
 type Tenant struct {
 	TenantID  string             `json:"tenant_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Status    string             `json:"status"`
 }
 
 type VerificationEvidence struct {

@@ -709,7 +709,7 @@ func (q *Queries) CreatePolicyFinding(ctx context.Context, arg CreatePolicyFindi
 const createTenant = `-- name: CreateTenant :one
 INSERT INTO tenants (tenant_id, created_at) VALUES ($1, $2)
 ON CONFLICT (tenant_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id
-RETURNING tenant_id, created_at
+RETURNING tenant_id, created_at, status
 `
 
 type CreateTenantParams struct {
@@ -720,7 +720,7 @@ type CreateTenantParams struct {
 func (q *Queries) CreateTenant(ctx context.Context, arg CreateTenantParams) (Tenant, error) {
 	row := q.db.QueryRow(ctx, createTenant, arg.TenantID, arg.CreatedAt)
 	var i Tenant
-	err := row.Scan(&i.TenantID, &i.CreatedAt)
+	err := row.Scan(&i.TenantID, &i.CreatedAt, &i.Status)
 	return i, err
 }
 

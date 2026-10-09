@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"github.com/deseti/wizpay-mcp/internal/auth"
 	"github.com/deseti/wizpay-mcp/internal/oauth"
+	"github.com/deseti/wizpay-mcp/internal/siwe"
 	"strings"
 	"time"
 )
@@ -16,6 +17,7 @@ type Service struct {
 	catalog  Catalog
 	oauth    OAuth
 	verifier IdentityVerifier
+	wallet   *siwe.Service
 	now      func() time.Time
 }
 
@@ -23,7 +25,7 @@ func NewService(repo Repository, catalog Catalog, flow OAuth, verifier IdentityV
 	if repo == nil || catalog == nil || flow == nil || now == nil {
 		return nil, ErrDenied
 	}
-	return &Service{repo, catalog, flow, verifier, now}, nil
+	return &Service{repo: repo, catalog: catalog, oauth: flow, verifier: verifier, now: now}, nil
 }
 func random(prefix string) (string, error) {
 	var b [32]byte
@@ -114,7 +116,7 @@ func (s *Service) View(ctx context.Context, raw string) (View, error) {
 	if v.State == "AUTHENTICATED" {
 		user = v.UserID
 	}
-	return View{State: v.State, ClientID: c.ID, ClientName: c.Name, Scope: t.Request.Scope, Resource: t.Request.Resource, UserID: user, CSRF: csrf(raw), AuthenticationAvailable: s.verifier != nil}, nil
+	return View{State: v.State, ClientID: c.ID, ClientName: c.Name, Scope: t.Request.Scope, Resource: t.Request.Resource, UserID: user, CSRF: csrf(raw), AuthenticationAvailable: s.verifier != nil || s.wallet != nil}, nil
 }
 
 // Authenticate is an internal seam only; no WP3A HTTP endpoint invokes it.
@@ -179,7 +181,7 @@ func (s *Service) Grant(ctx context.Context, raw, token string) (string, error) 
 	if e != nil {
 		return "", e
 	}
-	if s.verifier == nil {
+	if s.verifier == nil && s.wallet == nil {
 		return "", ErrUnavailable
 	}
 	if v.State != "AUTHENTICATED" || v.Decision != "OPEN" {

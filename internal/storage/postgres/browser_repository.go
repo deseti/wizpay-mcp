@@ -136,7 +136,7 @@ func (s *Store) CleanupBrowserSessions(ctx context.Context) error {
 		return e
 	}
 	defer c()
-	_, e = s.pool.Exec(b, `DELETE FROM browser_sessions WHERE state='PENDING' AND expires_at<clock_timestamp()-interval '24 hours'`)
+	_, e = s.pool.Exec(b, `DELETE FROM browser_sessions WHERE state='PENDING' AND expires_at<clock_timestamp()-interval '24 hours' AND NOT EXISTS(SELECT 1 FROM siwe_challenges c WHERE c.session_reference=browser_sessions.session_reference)`)
 	return e
 }
 

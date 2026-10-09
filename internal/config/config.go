@@ -28,9 +28,12 @@ type Config struct {
 	LogLevel   string
 	// AutonomousEnabled is an explicit rollout control. It defaults false and
 	// does not assemble a provider or grant signing authority.
-	AutonomousEnabled bool
-	OAuthEnabled      bool
-	Auth              AuthConfig
+	AutonomousEnabled  bool
+	OAuthEnabled       bool
+	SIWEEnabled        bool
+	OnboardingTenantID string
+	SIWEOrigin         string
+	Auth               AuthConfig
 }
 
 func (c Config) Address() string { return ":" + strconv.Itoa(c.ServerPort) }
@@ -48,6 +51,17 @@ func (c Config) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("LOG_LEVEL must be one of debug, info, warn, or error")
+	}
+	if c.SIWEEnabled {
+		if c.AppEnv != "development" && c.AppEnv != "test" {
+			return fmt.Errorf("SIWE authentication is not approved for staging or production")
+		}
+		if !c.OAuthEnabled || !c.Auth.Required || c.AutonomousEnabled {
+			return fmt.Errorf("SIWE requires authenticated read-only OAuth and disabled autonomy")
+		}
+		if c.SIWEOrigin != "https://connect.wizpay.xyz" || c.OnboardingTenantID == "" || strings.TrimSpace(c.OnboardingTenantID) != c.OnboardingTenantID || len(c.OnboardingTenantID) > 256 {
+			return fmt.Errorf("SIWE requires the canonical origin and an explicit onboarding tenant")
+		}
 	}
 	if c.OAuthEnabled && !c.Auth.Required {
 		return fmt.Errorf("OAUTH_ENABLED requires AUTH_REQUIRED")

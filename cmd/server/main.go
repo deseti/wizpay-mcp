@@ -18,6 +18,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/oauth"
 	"github.com/deseti/wizpay-mcp/internal/requestauth"
 	"github.com/deseti/wizpay-mcp/internal/services"
+	"github.com/deseti/wizpay-mcp/internal/siwe"
 	"github.com/deseti/wizpay-mcp/internal/storage"
 	storagepostgres "github.com/deseti/wizpay-mcp/internal/storage/postgres"
 )
@@ -132,6 +133,13 @@ func run() error {
 		registrations = append(registrations, autonomyRegistry.Tools()...)
 		if cfg.OAuthEnabled {
 			sessions, sessionErr := browser.NewService(database, database, oauthService, nil, time.Now)
+			if sessionErr == nil && cfg.SIWEEnabled {
+				wallet, walletErr := siwe.NewService(database, cfg.OnboardingTenantID, cfg.SIWEOrigin)
+				if walletErr != nil {
+					return walletErr
+				}
+				sessions, sessionErr = browser.NewWalletService(database, database, oauthService, wallet, time.Now)
+			}
 			if sessionErr != nil {
 				return sessionErr
 			}

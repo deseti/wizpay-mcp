@@ -71,3 +71,36 @@ func TestOAuthModeRequiresAuthenticationAndNoLegacyKey(t *testing.T) {
 		t.Fatal("OAuth without authentication")
 	}
 }
+
+func TestSIWEActivationIsLocalExplicitAndFailClosed(t *testing.T) {
+	for _, kind := range []string{"valid", "default-off", "production", "staging", "tenant", "origin", "oauth", "autonomy"} {
+		t.Run(kind, func(t *testing.T) {
+			values := map[string]string{"APP_ENV": "test", "AUTH_REQUIRED": "true", "OAUTH_ENABLED": "true", "WIZPAY_SIWE_ENABLED": "true", "WIZPAY_ONBOARDING_TENANT_ID": "reviewed-test-tenant", "WIZPAY_SIWE_ORIGIN": "https://connect.wizpay.xyz"}
+			switch kind {
+			case "default-off":
+				delete(values, "WIZPAY_SIWE_ENABLED")
+			case "production", "staging":
+				values["APP_ENV"] = kind
+			case "tenant":
+				delete(values, "WIZPAY_ONBOARDING_TENANT_ID")
+			case "origin":
+				values["WIZPAY_SIWE_ORIGIN"] = "https://evil.example"
+			case "oauth":
+				values["OAUTH_ENABLED"] = "false"
+			case "autonomy":
+				values["WIZPAY_AUTONOMY_ENABLED"] = "true"
+			}
+			cfg, e := LoadWithLookup(func(k string) (string, bool) { v, ok := values[k]; return v, ok })
+			if kind == "valid" || kind == "default-off" {
+				if e != nil {
+					t.Fatal(e)
+				}
+				if kind == "default-off" && cfg.SIWEEnabled {
+					t.Fatal("default activation")
+				}
+			} else if e == nil {
+				t.Fatal("unsafe activation accepted")
+			}
+		})
+	}
+}
