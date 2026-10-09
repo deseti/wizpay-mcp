@@ -34,6 +34,7 @@ func LoadWithLookup(lookup LookupEnv) (Config, error) {
 	}
 	cfg := Config{
 		AppEnv: stringValue(lookup, "APP_ENV", DefaultAppEnv), ServerPort: DefaultServerPort,
+		ServerHost:        stringValue(lookup, "SERVER_HOST", ""),
 		LogLevel:          strings.ToLower(stringValue(lookup, "LOG_LEVEL", DefaultLogLevel)),
 		AutonomousEnabled: autonomousEnabled,
 		OAuthEnabled:      oauthEnabled,

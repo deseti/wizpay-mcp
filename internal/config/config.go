@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,8 @@ type AuthConfig struct {
 type Config struct {
 	AppEnv     string
 	ServerPort int
+	// ServerHost optionally restricts the listener to a loopback IP. Empty preserves existing deployment wiring.
+	ServerHost string
 	LogLevel   string
 	// AutonomousEnabled is an explicit rollout control. It defaults false and
 	// does not assemble a provider or grant signing authority.
@@ -36,9 +39,15 @@ type Config struct {
 	Auth               AuthConfig
 }
 
-func (c Config) Address() string { return ":" + strconv.Itoa(c.ServerPort) }
+func (c Config) Address() string { return net.JoinHostPort(c.ServerHost, strconv.Itoa(c.ServerPort)) }
 
 func (c Config) Validate() error {
+	if c.ServerHost != "" {
+		ip := net.ParseIP(c.ServerHost)
+		if ip == nil || !ip.IsLoopback() {
+			return fmt.Errorf("SERVER_HOST must be a loopback IP when specified")
+		}
+	}
 	switch c.AppEnv {
 	case "development", "test", "staging", "production":
 	default:

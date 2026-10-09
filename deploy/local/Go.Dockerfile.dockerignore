@@ -1,0 +1,5 @@
+**
+!deploy/
+!deploy/local/
+!deploy/local/runtime/
+!deploy/local/runtime/wizpay-mcp-server

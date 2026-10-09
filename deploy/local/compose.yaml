@@ -1,0 +1,76 @@
+# LOCAL ONLY: upstreams private; nginx alone joins project-scoped edge bridge.
+name: wizpay-mcp-wp3d-local
+services:
+  nginx:
+    image: nginx:stable-alpine
+    pull_policy: never
+    user: "${WP3D_LOCAL_UID:?set id -u}:${WP3D_LOCAL_GID:?set id -g}"
+    entrypoint: ["nginx"]
+    command: ["-p", "/work/", "-c", "nginx.conf", "-g", "daemon off;"]
+    ports:
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - ./nginx.conf:/work/nginx.conf:ro
+      - ./proxy-common.conf:/work/proxy-common.conf:ro
+      - ./runtime/tls.crt:/work/runtime/tls.crt:ro
+      - ./runtime/tls.key:/work/runtime/tls.key:ro
+    tmpfs: [/tmp]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on: [go, frontend]
+    networks: [private, edge]
+  go:
+    image: wizpay-mcp-wp3d-go:local
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/local/Go.Dockerfile
+      network: none
+    env_file: app.env.example
+    environment:
+      DATABASE_URL: ${WP3D_TEST_DATABASE_URL:?set local-only postgres URL with host postgres and database wizpay_mcp_wp3d_test}
+      DATABASE_MIGRATION_URL: ${WP3D_TEST_DATABASE_URL:?set local-only postgres URL}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [private]
+  frontend:
+    image: wizpay-mcp-wp3d-frontend:local
+    pull_policy: never
+    build:
+      context: ../../web/approval-ui
+      dockerfile: ../../deploy/local/Frontend.Dockerfile
+      network: none
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [private]
+  postgres:
+    image: postgres:16-alpine
+    pull_policy: never
+    environment:
+      POSTGRES_DB: wizpay_mcp_wp3d_test
+      POSTGRES_USER: wizpay_mcp_wp3d_test
+      POSTGRES_PASSWORD: ${WP3D_TEST_DB_PASSWORD:?set a disposable local-only password}
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wizpay_mcp_wp3d_test -d wizpay_mcp_wp3d_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+networks:
+  private:
+    internal: true
+  edge:
+    driver: bridge

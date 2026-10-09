@@ -20,6 +20,7 @@ Thumbs.db
 # Approval UI (future)
 web/approval-ui/node_modules/
 web/approval-ui/dist/
+web/approval-ui/.next/
 
 # Claude Code local settings
 .claude/settings.local.json
