@@ -16,6 +16,7 @@ import (
 	approvalhttp "github.com/deseti/wizpay-mcp/internal/http/approval"
 	browserhttp "github.com/deseti/wizpay-mcp/internal/http/browser"
 	oauthhttp "github.com/deseti/wizpay-mcp/internal/http/oauth"
+	"github.com/deseti/wizpay-mcp/internal/http/security"
 	internalmcp "github.com/deseti/wizpay-mcp/internal/mcp"
 	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
 	"github.com/deseti/wizpay-mcp/internal/oauth"
@@ -89,6 +90,7 @@ func NewOAuthServerWithApproval(cfg config.Config, logger *slog.Logger, readines
 		return nil, e
 	}
 	server.httpServer.Handler = oauthhttp.Routes(oauthhttp.NewHandler(service), server.httpServer.Handler)
+	if cfg.AppEnv == "production" { server.httpServer.Handler = security.New(time.Now).Wrap(server.httpServer.Handler) }
 	return server, nil
 }
 
@@ -103,6 +105,7 @@ func NewOAuthServerWithBrowserFoundation(cfg config.Config, logger *slog.Logger,
 		return nil, fmt.Errorf("OAuth/browser foundation required")
 	}
 	server.httpServer.Handler = oauthhttp.Routes(oauthhttp.NewHandlerWithBrowser(service, browserhttp.NewHandler(sessions)), server.httpServer.Handler)
+	if cfg.AppEnv == "production" { server.httpServer.Handler = security.New(time.Now).Wrap(server.httpServer.Handler) }
 	return server, nil
 }
 

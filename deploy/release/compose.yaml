@@ -1,0 +1,101 @@
+# PRIVATE release-candidate profile. Public ingress remains a separate NO-GO gate.
+name: wizpay-mcp-rc
+services:
+  go:
+    image: ${GO_IMAGE:?reviewed digest required}
+    pull_policy: never
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    stop_grace_period: 30s
+    environment:
+      APP_ENV: production
+      SERVER_PORT: "8080"
+      AUTH_REQUIRED: "true"
+      OAUTH_ENABLED: "true"
+      WIZPAY_SIWE_ENABLED: "false"
+      WIZPAY_AUTONOMY_ENABLED: "false"
+      DATABASE_MIGRATIONS_ON_START: "false"
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets: [database_url]
+    healthcheck:
+      test: [CMD, /usr/local/bin/healthcheck]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
+    networks: [private]
+    depends_on: {postgres: {condition: service_healthy}}
+  frontend:
+    image: ${FRONTEND_IMAGE:?reviewed digest required}
+    pull_policy: never
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    environment: {NODE_ENV: production, NEXT_TELEMETRY_DISABLED: "1"}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/onboarding').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks: [private]
+    logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
+  postgres:
+    image: ${POSTGRES_IMAGE:?reviewed digest required}
+    pull_policy: never
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 0.5
+    pids_limit: 128
+    environment: {POSTGRES_DB: wizpay_mcp, POSTGRES_USER: wizpay_migrator, POSTGRES_PASSWORD_FILE: /run/secrets/database_owner_password}
+    secrets: [database_owner_password]
+    volumes: [data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U wizpay_migrator -d wizpay_mcp]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [private]
+    logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
+  nginx:
+    image: ${NGINX_IMAGE:?reviewed digest required}
+    pull_policy: never
+    user: "${RELEASE_UID:?nonroot certificate owner}:${RELEASE_GID:?nonroot certificate group}"
+    entrypoint: [nginx]
+    command: [-p, /work/, -c, nginx.conf, -g, "daemon off;"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    ports: ["127.0.0.1:8443:8443"]
+    volumes:
+      - ../local/nginx.conf:/work/nginx.conf:ro
+      - ../local/proxy-common.conf:/work/proxy-common.conf:ro
+      - ./runtime/tls.crt:/work/runtime/tls.crt:ro
+      - ./runtime/tls.key:/work/runtime/tls.key:ro
+    depends_on: {go: {condition: service_healthy}, frontend: {condition: service_healthy}}
+    networks: [private, edge]
+    logging: {driver: json-file, options: {max-size: 5m, max-file: "2"}}
+networks:
+  private: {internal: true}
+  edge: {driver: bridge}
+volumes:
+  data:
+secrets:
+  database_url: {file: ./runtime/database_url}
+  database_owner_password: {file: ./runtime/database_owner_password}

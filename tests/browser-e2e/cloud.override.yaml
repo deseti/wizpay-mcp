@@ -1,0 +1,6 @@
+# Add AFTER compose.override.yaml, in the existing approved cloud sandbox only.
+services:
+  nginx:
+    volumes:
+      - ./runtime/browser-tls/tls.crt:/work/runtime/tls.crt:ro
+      - ./runtime/browser-tls/tls.key:/work/runtime/tls.key:ro

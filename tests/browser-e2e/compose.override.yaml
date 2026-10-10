@@ -1,0 +1,23 @@
+# OWNER-APPROVED NEW PROJECT ONLY. Never apply to the running WP3D-1 project.
+# Requires Compose support for !override; reject merging the original port list.
+services:
+  nginx:
+    ports: !override
+      - "127.0.0.1:9443:8443"
+  go:
+    image: wizpay-mcp-wp3d-browser-go:local
+    environment:
+      APP_ENV: test
+      WIZPAY_SIWE_ENABLED: "true"
+      WIZPAY_ONBOARDING_TENANT_ID: ${WP3D_BROWSER_TENANT_ID:?set generated synthetic tenant}
+      WIZPAY_SIWE_ORIGIN: https://connect.wizpay.xyz
+      AUTH_REQUIRED: "true"
+      OAUTH_ENABLED: "true"
+      WIZPAY_AUTONOMY_ENABLED: "false"
+  frontend:
+    image: wizpay-mcp-wp3d-browser-frontend:local
+  postgres:
+    environment:
+      POSTGRES_DB: wizpay_mcp_browser_e2e
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wizpay_mcp_wp3d_test -d wizpay_mcp_browser_e2e"]

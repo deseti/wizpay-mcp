@@ -27,8 +27,9 @@ type Config struct {
 	AppEnv     string
 	ServerPort int
 	// ServerHost optionally restricts the listener to a loopback IP. Empty preserves existing deployment wiring.
-	ServerHost string
-	LogLevel   string
+	ServerHost     string
+	LogLevel       string
+	MigrateOnStart bool
 	// AutonomousEnabled is an explicit rollout control. It defaults false and
 	// does not assemble a provider or grant signing authority.
 	AutonomousEnabled  bool
@@ -42,6 +43,9 @@ type Config struct {
 func (c Config) Address() string { return net.JoinHostPort(c.ServerHost, strconv.Itoa(c.ServerPort)) }
 
 func (c Config) Validate() error {
+	if c.AppEnv == "production" && (!c.Auth.Required || !c.OAuthEnabled || c.AutonomousEnabled || c.MigrateOnStart) {
+		return fmt.Errorf("production requires read-only authenticated OAuth, disabled autonomy and separate migrations")
+	}
 	if c.ServerHost != "" {
 		ip := net.ParseIP(c.ServerHost)
 		if ip == nil || !ip.IsLoopback() {

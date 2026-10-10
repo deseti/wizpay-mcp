@@ -32,8 +32,14 @@ func LoadWithLookup(lookup LookupEnv) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	appEnv := stringValue(lookup, "APP_ENV", DefaultAppEnv)
+	migrateOnStart, err := boolValue(lookup, "DATABASE_MIGRATIONS_ON_START", appEnv != "production")
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
-		AppEnv: stringValue(lookup, "APP_ENV", DefaultAppEnv), ServerPort: DefaultServerPort,
+		MigrateOnStart: migrateOnStart,
+		AppEnv:         appEnv, ServerPort: DefaultServerPort,
 		ServerHost:        stringValue(lookup, "SERVER_HOST", ""),
 		LogLevel:          strings.ToLower(stringValue(lookup, "LOG_LEVEL", DefaultLogLevel)),
 		AutonomousEnabled: autonomousEnabled,

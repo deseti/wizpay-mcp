@@ -16,7 +16,7 @@ func TestLoadWithLookupDefaults(t *testing.T) {
 }
 
 func TestLoadWithLookupOverrides(t *testing.T) {
-	values := map[string]string{"APP_ENV": "production", "SERVER_PORT": "9090", "LOG_LEVEL": "WARN", "AUTH_REQUIRED": "true", "AUTH_ISSUER": "https://issuer.example", "AUTH_AUDIENCE": "wizpay-mcp", "AUTH_PUBLIC_KEY_FILE": "/run/secrets/auth-public.pem"}
+	values := map[string]string{"APP_ENV": "production", "SERVER_PORT": "9090", "LOG_LEVEL": "WARN", "AUTH_REQUIRED": "true", "OAUTH_ENABLED": "true", "AUTH_ISSUER": "https://issuer.example", "AUTH_AUDIENCE": "wizpay-mcp", "AUTH_PUBLIC_KEY_FILE": "/run/secrets/auth-public.pem"}
 	cfg, err := LoadWithLookup(func(key string) (string, bool) { value, ok := values[key]; return value, ok })
 	if err != nil {
 		t.Fatalf("LoadWithLookup() error = %v", err)

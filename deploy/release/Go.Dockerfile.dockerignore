@@ -1,0 +1,6 @@
+**
+!deploy/
+!deploy/release/
+!deploy/release/runtime/
+!deploy/release/runtime/server
+!deploy/release/runtime/healthcheck

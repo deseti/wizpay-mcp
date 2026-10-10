@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -40,24 +41,37 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if cfg.AppEnv == "production" {
+		for _, name := range []string{"DATABASE_MIGRATION_URL", "DATABASE_MIGRATION_URL_FILE"} {
+			if _, exists := os.LookupEnv(name); exists {
+				return fmt.Errorf("migration credentials must not be supplied to production runtime")
+			}
+		}
+	}
 
-	databaseConfig, err := storagepostgres.LoadConfig(os.LookupEnv)
+	secretLookup, err := config.SecretLookup(os.LookupEnv, os.ReadFile)
 	if err != nil {
 		return err
 	}
-	migrationContext, cancelMigration := context.WithTimeout(context.Background(), databaseConfig.ConnectTimeout)
-	migrator, err := storagepostgres.Open(migrationContext, databaseConfig.MigrationConfig(), logger)
+	databaseConfig, err := storagepostgres.LoadConfig(storagepostgres.LookupEnv(secretLookup))
 	if err != nil {
-		cancelMigration()
 		return err
 	}
-	if err := storagepostgres.Migrate(migrationContext, migrator.Pool()); err != nil {
+	if cfg.MigrateOnStart {
+		migrationContext, cancelMigration := context.WithTimeout(context.Background(), time.Minute)
+		migrator, err := storagepostgres.Open(migrationContext, databaseConfig.MigrationConfig(), logger)
+		if err != nil {
+			cancelMigration()
+			return err
+		}
+		if err := storagepostgres.Migrate(migrationContext, migrator.Pool()); err != nil {
+			migrator.Close()
+			cancelMigration()
+			return err
+		}
 		migrator.Close()
 		cancelMigration()
-		return err
 	}
-	migrator.Close()
-	cancelMigration()
 
 	databaseContext, cancelDatabase := context.WithTimeout(context.Background(), databaseConfig.ConnectTimeout)
 	defer cancelDatabase()
@@ -66,6 +80,11 @@ func run() error {
 		return err
 	}
 	defer database.Close()
+	if !cfg.MigrateOnStart {
+		if err := storagepostgres.CheckSchema(databaseContext, database.Pool()); err != nil {
+			return err
+		}
+	}
 
 	var server *app.Server
 	if cfg.Auth.Required {
