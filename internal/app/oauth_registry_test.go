@@ -115,13 +115,17 @@ func TestOAuthReadOnlyMCPTransport(t *testing.T) {
 			r.Header.Set("Authorization", "Bearer "+token)
 		}
 		w := httptest.NewRecorder()
-		server.httpServer.Handler.ServeHTTP(w, r)
+		server.ServeHTTP(w, r)
 		return w
 	}
 	for _, token := range []string{"", "invalid", unsupported} {
 		w := request(token, "tools/list", map[string]any{})
-		if w.Code != 401 && w.Code != 403 {
-			t.Fatalf("invalid authority accepted: %d %s", w.Code, w.Body.String())
+		challenge := `Bearer resource_metadata="` + oauth.MetadataURL + `", scope="` + oauth.ReadScope + `"`
+		if token != "" {
+			challenge += `, error="invalid_token"`
+		}
+		if w.Code != 401 || w.Header().Get("WWW-Authenticate") != challenge || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("invalid authority response: status=%d", w.Code)
 		}
 	}
 	w := request(valid, "initialize", map[string]any{"protocolVersion": "2025-11-25", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "read-only-test", "version": "1"}})
@@ -206,7 +210,8 @@ func TestOAuthReadOnlyMCPTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	w = request(valid, "tools/list", map[string]any{})
-	if w.Code != 403 || !strings.Contains(w.Header().Get("WWW-Authenticate"), "insufficient_scope") || repo.reads != 4 {
+	challenge := `Bearer resource_metadata="` + oauth.MetadataURL + `", error="insufficient_scope", scope="` + oauth.ReadScope + `"`
+	if w.Code != 403 || w.Header().Get("WWW-Authenticate") != challenge || w.Header().Get("Cache-Control") != "no-store" || repo.reads != 4 {
 		t.Fatal("insufficient scope reached MCP transport")
 	}
 }

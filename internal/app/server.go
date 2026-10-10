@@ -40,6 +40,12 @@ type Server struct {
 
 type ReadinessChecker interface{ Ping(context.Context) error }
 
+// ServeHTTP delegates to the same fully assembled handler used by Run. This
+// permits in-process integration without a listener or alternate auth wiring.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.httpServer.Handler.ServeHTTP(w, r)
+}
+
 // NewServer initializes dependencies in configuration, MCP, transport, then
 // HTTP routing order. It does not open a network listener.
 func NewServer(cfg config.Config, logger *slog.Logger, registrations ...tools.Tool) (*Server, error) {
