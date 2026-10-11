@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	domain "github.com/deseti/wizpay-mcp/internal/browser"
+	oauthhttp "github.com/deseti/wizpay-mcp/internal/http/oauth"
 	"github.com/deseti/wizpay-mcp/internal/oauth"
 	"io"
 	"mime"
@@ -30,7 +31,7 @@ func reply(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 func valid(r *http.Request) bool {
-	return r.Host == "connect.wizpay.xyz" && !r.URL.IsAbs() && r.Header.Get("Forwarded") == "" && r.Header.Get("X-Forwarded-Host") == "" && r.Header.Get("X-Forwarded-Proto") == ""
+	return r.Host == "connect.wizpay.xyz" && !r.URL.IsAbs() && r.Header.Get("Forwarded") == "" && r.Header.Get("X-Forwarded-Host") == "" && r.Header.Get("X-Forwarded-Proto") == "" && oauthhttp.CleanProxyHeaders(r)
 }
 func cookie(w http.ResponseWriter, raw string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: raw, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: maxAge})

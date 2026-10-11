@@ -38,7 +38,7 @@ export function OnboardingUI() {
           </dl>
           <p className="mt-5 text-sm text-slate-600">This access does not authorize fund transfers, wallet signing, or financial approvals.</p>
           {view.state === "PENDING" && <section aria-label="Wallet authentication" className="mt-5 grid gap-4">
-            <p className="text-sm text-slate-600">Only existing reviewed external wallet bindings can authenticate. No account is created. QR pairing and contract-wallet signatures are unsupported.</p>
+            <p className="text-sm text-slate-600">Owner-staged wallets can prove control for enrollment. Only owner-approved ACTIVE bindings can authenticate. No account is created. QR pairing and contract-wallet signatures are unsupported.</p>
             {!view.authentication_available && <p role="status">Wallet authentication is unavailable in this environment.</p>}
             {wallets.length === 0 && <p>No supported injected wallet found. Use a compatible extension or wallet browser.</p>}
             <label className="grid gap-2">Wallet
@@ -57,10 +57,10 @@ export function OnboardingUI() {
             {state.account && <p className="break-all text-sm">Selected wallet: {state.account}. Required network: Arc Mainnet (5042). Connected does not mean authenticated.</p>}
             <button className={buttonStyle} disabled={disabled || !state.account || !view.authentication_available} onClick={() => void flow?.requestChallenge()}>Request authentication message</button>
             {state.challenge && <>
-              <p>Review the exact authentication message. This does not authorize transactions.</p>
+              <p>{state.challenge.purpose === "ENROLL" ? "Review the enrollment proof message. Owner approval is a separate step." : "Review the exact authentication message."} This does not authorize transactions.</p>
               <pre className="overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-4 text-sm">{state.challenge.message}</pre>
               <p className="text-sm">Expires: {state.challenge.expires_at}</p>
-              <button className={buttonStyle} disabled={disabled} onClick={() => void flow?.authenticate()}>Sign message to authenticate</button>
+              <button className={buttonStyle} disabled={disabled} onClick={() => void flow?.authenticate()}>{state.challenge.purpose === "ENROLL" ? "Sign enrollment proof" : "Sign message to authenticate"}</button>
             </>}
           </section>}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">

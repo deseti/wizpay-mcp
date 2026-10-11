@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { discover, isProvider, type Provider } from "../src/lib/wallet/provider";
 import { accounts, chain, messageHex, sign } from "../src/lib/wallet/signing";
-import { browserAPI, challenge, redirect, view, type API, type View } from "../src/lib/onboarding-api";
+import { ApiError, browserAPI, challenge, redirect, view, type API, type View } from "../src/lib/onboarding-api";
 import { Flow } from "../src/lib/onboarding-flow";
 const account = "0x" + "a".repeat(40), other = "0x" + "b".repeat(40);
 const signature = "0x" + "1".repeat(130);
@@ -123,4 +123,22 @@ test("throwing rejection getters and malformed metadata cannot restore authority
 test("malformed rejection prototype is contained",async()=>{
  const x=fixture();await ready(x);x.p.hook=async()=>{throw new Proxy({}, {getPrototypeOf(){throw new Error("prototype");}});};
  await assert.doesNotReject(x.f.authenticate());assert.equal(x.f.canGrant,false);assert.equal(x.f.state.busy,false);
+});
+
+test("verified enrollment waits for independent owner approval and never grants consent", async () => {
+ const x=fixture(); await ready(x);
+ x.api.verify=async()=>({state:"ENROLLMENT_PENDING",verification_id:c.challenge_id});
+ await x.f.authenticate();
+ assert.equal(x.f.state.phase,"enrollment"); assert.equal(x.f.state.restart,true);
+ assert.equal(x.f.canGrant,false); assert.equal(x.f.state.view,undefined);
+ assert.ok(x.f.state.message.includes(c.challenge_id));
+ assert.equal(x.calls.some(v=>v.startsWith("navigate:")),false);
+});
+
+for (const code of ["enrollment_required", "account_revoked"]) test(code+" displays an owner action without enabling consent", async () => {
+ const x=fixture(); await ready(x);
+ x.api.challenge=async()=>{throw new ApiError(403,code)};
+ await x.f.requestChallenge();
+ assert.equal(x.f.canGrant,false);
+ assert.ok(x.f.state.message.includes(code === "account_revoked" ? "revoked" : "enrollment"));
 });

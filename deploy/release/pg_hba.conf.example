@@ -1,0 +1,9 @@
+# Isolated Docker network ONLY; no PostgreSQL published ports.
+# Local migration-owner socket supports backup/initial role provisioning.
+local all wizpay_migrator peer map=migration_owner
+local all all reject
+hostnossl all all all reject
+hostssl wizpay_mcp wizpay_runtime all scram-sha-256
+hostssl wizpay_mcp wizpay_onboarding_admin all scram-sha-256
+hostssl wizpay_mcp wizpay_migrator all scram-sha-256
+host all all all reject

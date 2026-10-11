@@ -83,6 +83,9 @@ func (s *Service) Begin(ctx context.Context, r AuthorizationRequest) (Transactio
 		return Transaction{}, e
 	}
 	now := s.now().UTC()
+	if now.IsZero() {
+		return Transaction{}, ErrDenied
+	}
 	t := Transaction{ID: id, Request: r, CreatedAt: now, ExpiresAt: now.Add(TransactionLifetime)}
 	return t, s.repo.CreateOAuthTransaction(ctx, t)
 }

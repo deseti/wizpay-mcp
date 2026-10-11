@@ -39,3 +39,20 @@ test('release artifacts and frontend context remain isolated', () => {
   assert.doesNotMatch(ignore, /tls|database|signer|!.*src|!.*\.env/);
   assert.match(ignore, /frontend\/\.next\/cache\//);
 });
+
+test('activation and operator overlays preserve separation and TLS',()=>{
+ const activation=file('siwe.override.yaml'),operator=file('postgres-tls.override.yaml');
+ assert.match(activation,/WIZPAY_SIWE_ENABLED: "true"/);
+ assert.match(activation,/WIZPAY_ONBOARDING_TENANT_ID.*owner approved tenant required/);
+ assert.match(activation,/tunnel\/nginx.conf/);
+ assert.match(operator,/profiles: \[operator\]/);assert.match(operator,/ssl=on/);
+ assert.match(operator,/OPERATOR_IMAGE.*reviewed operator image digest required/);
+ assert.doesNotMatch(operator,/ports:|docker.sock|privileged:|browser-e2e/);
+ const go=operator.slice(operator.indexOf('  go:'),operator.indexOf('  onboarding-admin:'));
+ assert.doesNotMatch(go,/onboarding_database_url|migration_database_url/);
+ const image=file('Operator.Dockerfile');assert.match(image,/USER 10001:10001/);
+ assert.doesNotMatch(file('Go.Dockerfile'),/onboarding-admin|dbmigrate/);
+ assert.match(file('pg_hba.conf.example'),/hostnossl all all all reject/);
+ assert.match(file('pg_hba.conf.example'),/peer map=migration_owner/);
+ assert.match(file('pg_ident.conf'),/migration_owner postgres wizpay_migrator/);
+});

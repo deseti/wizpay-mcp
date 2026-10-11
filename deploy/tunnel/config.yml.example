@@ -1,0 +1,21 @@
+# Copy to a private host path; substitute only absolute credential/CA paths.
+# Never include credential contents or run DNS setup again.
+tunnel: 540a7a13-67fe-4787-a1cc-13e6ff2b2de5
+credentials-file: /OWNER_PRIVATE_PATH/540a7a13-67fe-4787-a1cc-13e6ff2b2de5.json
+metrics: 127.0.0.1:20241
+ingress:
+  - hostname: mcp.wizpay.xyz
+    service: https://127.0.0.1:8443
+    originRequest:
+      originServerName: mcp.wizpay.xyz
+      httpHostHeader: mcp.wizpay.xyz
+      caPool: /OWNER_PRIVATE_PATH/origin-ca.pem
+      noTLSVerify: false
+  - hostname: connect.wizpay.xyz
+    service: https://127.0.0.1:8443
+    originRequest:
+      originServerName: connect.wizpay.xyz
+      httpHostHeader: connect.wizpay.xyz
+      caPool: /OWNER_PRIVATE_PATH/origin-ca.pem
+      noTLSVerify: false
+  - service: http_status:404

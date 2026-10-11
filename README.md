@@ -93,3 +93,10 @@ Reviewed Arc Mainnet deployments are registered in the static in-process registr
 Track A adds no wallet creation, signing, live transaction broadcasting, ERC20 approval sequencing, native-value execution, autonomous spending, or treasury routing. Payroll and Swap remain disabled; their planners and domain verifiers fail closed. The Mainnet ABI encoders are typed descriptor primitives only and cannot by themselves activate execution.
 
 See docs/architecture.md and docs/persistence.md for boundaries.
+
+## Claude Custom Connector
+
+The read-only connector implementation and owner activation procedure are in
+[docs/claude-custom-connector.md](docs/claude-custom-connector.md). Production SIWE
+is disabled by default and requires server-verified enrollment plus independent
+owner approval. No public deployment or real Claude connection is claimed.

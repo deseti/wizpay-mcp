@@ -72,7 +72,7 @@ func TestOAuthModeRequiresAuthenticationAndNoLegacyKey(t *testing.T) {
 	}
 }
 
-func TestSIWEActivationIsLocalExplicitAndFailClosed(t *testing.T) {
+func TestSIWEActivationIsExplicitAndFailClosed(t *testing.T) {
 	for _, kind := range []string{"valid", "default-off", "production", "staging", "tenant", "origin", "oauth", "autonomy"} {
 		t.Run(kind, func(t *testing.T) {
 			values := map[string]string{"APP_ENV": "test", "AUTH_REQUIRED": "true", "OAUTH_ENABLED": "true", "WIZPAY_SIWE_ENABLED": "true", "WIZPAY_ONBOARDING_TENANT_ID": "reviewed-test-tenant", "WIZPAY_SIWE_ORIGIN": "https://connect.wizpay.xyz"}
@@ -81,6 +81,7 @@ func TestSIWEActivationIsLocalExplicitAndFailClosed(t *testing.T) {
 				delete(values, "WIZPAY_SIWE_ENABLED")
 			case "production", "staging":
 				values["APP_ENV"] = kind
+				values["DATABASE_MIGRATIONS_ON_START"] = "false"
 			case "tenant":
 				delete(values, "WIZPAY_ONBOARDING_TENANT_ID")
 			case "origin":
@@ -91,7 +92,7 @@ func TestSIWEActivationIsLocalExplicitAndFailClosed(t *testing.T) {
 				values["WIZPAY_AUTONOMY_ENABLED"] = "true"
 			}
 			cfg, e := LoadWithLookup(func(k string) (string, bool) { v, ok := values[k]; return v, ok })
-			if kind == "valid" || kind == "default-off" {
+			if kind == "valid" || kind == "default-off" || kind == "production" || kind == "staging" {
 				if e != nil {
 					t.Fatal(e)
 				}

@@ -3,6 +3,8 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/deseti/wizpay-mcp/internal/siwe"
 	"io"
 	"mime"
 	"net/http"
@@ -80,13 +82,24 @@ func (h *Handler) walletAction(w http.ResponseWriter, r *http.Request, raw, proo
 	if r.URL.Path == "/browser/siwe/challenge" {
 		c, e := h.service.Challenge(r.Context(), raw, proof, input["address"])
 		if e != nil {
-			reply(w, 403, map[string]string{"error": "authentication_unavailable"})
+			code := "authentication_unavailable"
+			if errors.Is(e, siwe.ErrEnrollmentRequired) {
+				code = "enrollment_required"
+			}
+			if errors.Is(e, siwe.ErrAccountRevoked) {
+				code = "account_revoked"
+			}
+			reply(w, 403, map[string]string{"error": code})
 			return
 		}
-		reply(w, 200, map[string]string{"challenge_id": c.ID, "message": c.Message, "address": c.Address, "expires_at": c.ExpiresAt.Format(time.RFC3339Nano)})
+		reply(w, 200, map[string]string{"challenge_id": c.ID, "message": c.Message, "address": c.Address, "expires_at": c.ExpiresAt.Format(time.RFC3339Nano), "purpose": c.Purpose})
 		return
 	}
 	next, e := h.service.VerifyWallet(r.Context(), raw, proof, input["challenge_id"], input["signature"])
+	if errors.Is(e, siwe.ErrEnrollmentPending) {
+		reply(w, 200, map[string]string{"state": "ENROLLMENT_PENDING", "verification_id": input["challenge_id"]})
+		return
+	}
 	if e != nil {
 		reply(w, 403, map[string]string{"error": "authentication_unavailable"})
 		return

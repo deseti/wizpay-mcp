@@ -180,3 +180,22 @@ func TestTokenMalformedBodiesOnConnection(t *testing.T) {
 		}
 	}
 }
+
+func TestProxyMetadataRejectedForDiscoveryAndMCP(t *testing.T) {
+	for _, header := range []string{"Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-For", "X-Forwarded-Port", "X-Real-IP", "X-Original-Host", "X-Forwarded-Unrecognized"} {
+		r := originRequest("GET", domain.Issuer+"/.well-known/oauth-authorization-server", nil)
+		r.Header.Set(header, "spoofed")
+		w := httptest.NewRecorder()
+		NewHandler(nil).ServeHTTP(w, r)
+		if w.Code != 400 {
+			t.Fatal("discovery trusted proxy metadata", header)
+		}
+		r.Host = "mcp.wizpay.xyz"
+		r.URL.Path = "/mcp"
+		w = httptest.NewRecorder()
+		ProtectOrigin(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("spoof reached MCP") })).ServeHTTP(w, r)
+		if w.Code != 400 {
+			t.Fatal("MCP trusted proxy metadata", header)
+		}
+	}
+}

@@ -63,6 +63,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.browser.ServeHTTP(w, r)
 		return
 	}
+	if !CleanProxyHeaders(r) {
+		protocolError(w, 400, "invalid_request")
+		return
+	}
 	// Host is the original public authority. Forwarded headers are never trusted.
 	// An edge must terminate HTTPS, preserve Host and isolate the upstream listener.
 	host := r.Host
@@ -236,7 +240,7 @@ func (h *Handler) token(w http.ResponseWriter, r *http.Request) {
 // ProtectOrigin wraps protected resource routes before bearer authentication.
 func ProtectOrigin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != "mcp.wizpay.xyz" || r.URL.IsAbs() {
+		if r.Host != "mcp.wizpay.xyz" || r.URL.IsAbs() || !CleanProxyHeaders(r) {
 			protocolError(w, 400, "invalid_request")
 			return
 		}
@@ -262,4 +266,16 @@ func Routes(protocol *Handler, next http.Handler) http.Handler {
 		}
 		ProtectOrigin(next).ServeHTTP(w, r)
 	})
+}
+
+// CleanProxyHeaders requires ingress to remove all proxy metadata. The application
+// never derives security origin, tenant or client identity from forwarding headers.
+func CleanProxyHeaders(r *http.Request) bool {
+	for name := range r.Header {
+		n := strings.ToLower(name)
+		if n == "forwarded" || strings.HasPrefix(n, "x-forwarded-") || n == "x-real-ip" || n == "x-original-host" {
+			return false
+		}
+	}
+	return true
 }

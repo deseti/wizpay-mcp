@@ -102,7 +102,10 @@ func (s *Store) CompleteOAuthAuthorization(ctx context.Context, t oauth.Transact
 			return oauth.ErrDenied
 		}
 		if d.BrowserSessionReference != "" {
-			now := s.now().UTC()
+			now := s.authenticationTimeIn(ctx, tx)
+			if now.IsZero() {
+				return oauth.ErrDenied
+			}
 			if !now.Before(bs.ExpiresAt) || !now.Before(expires) || !now.Before(sessionExpires) || !now.Before(k.ExpiresAt) || !now.Before(d.Principal.ExpiresAt()) {
 				return oauth.ErrDenied
 			}
@@ -153,7 +156,10 @@ func (s *Store) RedeemOAuthCode(ctx context.Context, r oauth.Redemption) (oauth.
 		// Sample the server-owned wall clock only after all authority row locks
 		// are held. PostgreSQL now()/CURRENT_TIMESTAMP would retain transaction
 		// start time, and the service timestamp predates any lock wait.
-		now := s.now().UTC()
+		now := s.authenticationTimeIn(ctx, tx)
+		if now.IsZero() {
+			return oauth.ErrDenied
+		}
 		if now.Before(codeIssued) || now.Before(consentCreated) || !now.Before(codeExpires) || !now.Before(consentExpires) || !now.Before(sessionExpires) {
 			return oauth.ErrDenied
 		}
@@ -199,7 +205,10 @@ func (s *Store) RevokeOAuthAuthority(ctx context.Context, r oauth.Revocation) er
 		return oauth.ErrDenied
 	}
 	return s.oauthTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
-		now := s.now().UTC()
+		now := s.authenticationTimeIn(ctx, tx)
+		if now.IsZero() {
+			return oauth.ErrDenied
+		}
 		var client, consent string
 		switch r.Kind {
 		case "consent":

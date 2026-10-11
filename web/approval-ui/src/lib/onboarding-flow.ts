@@ -32,7 +32,7 @@ export class Flow {
         try { expired = e instanceof ApiError && e.status === 401; } catch { /* Malformed rejection prototype. */ }
         const code = error.code;
         this.publish({ challenge: undefined, phase: expired ? "expired" : error.message === "wrong_network" ? "network" : code === 4001 ? "rejected" : "error",
-          message: error.message === "wrong_network" ? "Wrong network. Select Arc Mainnet (5042) manually; no network switch is requested." : code === 4001 ? "The wallet request was rejected. You may try again." : "The wallet or connection could not be verified. Check your account and network, or restart from your AI client." });
+          message: error.message === "account_revoked" ? "This wallet account or tenant has been revoked. Contact the owner; revoked bindings cannot be reactivated." : error.message === "enrollment_required" ? "Owner-approved enrollment is missing or inactive. Ask your authorized owner to stage this wallet and approve its application identity." : error.message === "wrong_network" ? "Wrong network. Select Arc Mainnet (5042) manually; no network switch is requested." : code === 4001 ? "The wallet request was rejected. You may try again." : "The wallet or connection could not be verified. An owner must stage and approve enrollment; inactive or revoked accounts cannot authenticate. Check your account and network, or restart from your AI client." });
       }
     } finally {
       if (this.changed || this.verifying) { this.changed = false; this.verifying = false; await this.reconcile(); }
@@ -100,7 +100,13 @@ export class Flow {
     this.proof = { challenge: c.challenge_id, transaction: view.transaction_id };
     this.verifying = true;
     this.publish({ phase: "verifying", message: "Verifying wallet ownership…" });
-    await this.api.verify(view.csrf, c.challenge_id, signature); this.current(g);
+    const result = await this.api.verify(view.csrf, c.challenge_id, signature); this.current(g);
+    if (result?.state === "ENROLLMENT_PENDING") {
+      this.verifying = false;
+      await this.api.logout(view.csrf); this.current(g);
+      this.publish({ view: undefined, challenge: undefined, phase: "enrollment", restart: true, message: `Wallet control verified. Ask your authorized owner to approve enrollment using verification reference ${result.verification_id}. No access was granted. After approval, restart from Claude and sign a fresh authentication message.` });
+      return;
+    }
     this.publish({ phase: "refreshing", message: "Refreshing authenticated session authority…" });
     const next = await this.api.session(); this.current(g);
     if (next.state !== "AUTHENTICATED" || next.client_id !== view.client_id || next.resource !== view.resource || next.scope !== view.scope || next.csrf === view.csrf || next.challenge_id !== c.challenge_id || next.transaction_id !== view.transaction_id) throw new Error("session_mismatch");

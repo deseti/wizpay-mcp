@@ -20,11 +20,13 @@ import (
 	browserhttp "github.com/deseti/wizpay-mcp/internal/http/browser"
 	"github.com/deseti/wizpay-mcp/internal/mcp/tools"
 	"github.com/deseti/wizpay-mcp/internal/oauth"
+	"github.com/deseti/wizpay-mcp/internal/onboarding"
 	"github.com/deseti/wizpay-mcp/internal/requestauth"
 	"github.com/deseti/wizpay-mcp/internal/services"
 	"github.com/deseti/wizpay-mcp/internal/siwe"
 	"github.com/deseti/wizpay-mcp/internal/wallet"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/jackc/pgx/v5"
 )
 
 // No socket is opened. Complete in-memory bodies use the existing handler-test
@@ -53,10 +55,11 @@ type protocolLogin struct {
 	}
 }
 
-func newProtocolFixture(t *testing.T, chain string) *protocolFixture {
+func newProtocolFixture(t *testing.T, chain string, enrolled ...bool) *protocolFixture {
 	t.Helper()
 	base := createBaseFixture(t, false)
 	// Explicit test-only review/activation, never automatic production onboarding.
+	strict := len(enrolled) > 0 && enrolled[0]
 	if _, err := integrationPool.Exec(context.Background(), `UPDATE tenants SET status='ACTIVE' WHERE tenant_id=$1`, base.scope.TenantID()); err != nil {
 		t.Fatal("activate synthetic tenant:", err)
 	}
@@ -70,21 +73,44 @@ func newProtocolFixture(t *testing.T, chain string) *protocolFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = integrationStore.CreateBinding(context.Background(), base.scope, binding); err != nil {
+	if strict {
+		admin := onboardingLogin(t, base.scope.TenantID())
+		// Grant comes from migration owner below, never the administrator.
+		var login string
+		if err = admin.QueryRow(context.Background(), "SELECT session_user").Scan(&login); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = integrationPool.Exec(context.Background(), "GRANT EXECUTE ON FUNCTION admin_activate_wallet(text,text,text,text,text,text,timestamptz) TO "+pgx.Identifier{login}.Sanitize()); err != nil {
+			t.Fatal(err)
+		}
+		r := onboarding.Request{Action: "STAGE", RequestID: unique("stage"), TenantID: base.scope.TenantID(), UserID: base.scope.ActorID(), BindingID: binding.BindingID(), Issuer: base.identity.Provider(), Subject: base.identity.ProviderSubject(), Address: address, ReviewReference: "test-owner-identity", ExpiresAt: time.Now().Add(time.Minute)}
+		if err = applyOnboarding(admin, r); err != nil {
+			t.Fatal(err)
+		}
+	} else if _, err = integrationStore.CreateBinding(context.Background(), base.scope, binding); err != nil {
 		t.Fatal(err)
 	}
 	client := oauth.Client{ID: unique("protocol-client"), Name: "Synthetic E2E client", Type: "public", AuthMethod: "none", Status: "ACTIVE", RedirectURIs: []string{"https://client.example/callback"}, Scopes: []string{oauth.ReadScope}, Resources: []string{oauth.Resource}}
+	if strict {
+		client.RedirectURIs = []string{"https://claude.ai/api/mcp/auth_callback"}
+	}
 	if err = integrationStore.RegisterOAuthClient(context.Background(), client); err != nil {
 		t.Fatal(err)
 	}
 	store := *integrationStore
+	if strict {
+		store = *newRuntimeStore(t)
+	}
 	offset := &atomic.Int64{}
-	store.now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
+	store.now = func() time.Time { return store.AuthenticationTime().Add(time.Duration(offset.Load())) }
 	flow, err := oauth.NewService(&store, store.now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	verifier, err := siwe.NewService(&store, base.scope.TenantID(), siwe.URI)
+	if strict {
+		verifier, err = siwe.NewVerifiedService(&store, base.scope.TenantID(), siwe.URI)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +118,7 @@ func newProtocolFixture(t *testing.T, chain string) *protocolFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	middleware, err := requestauth.NewOAuthMiddleware(flow, requestauth.RepositoryResolver{Repository: &store})
+	middleware, err := requestauth.NewAuditedOAuthMiddleware(flow, requestauth.RepositoryResolver{Repository: &store}, &store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +130,9 @@ func newProtocolFixture(t *testing.T, chain string) *protocolFixture {
 		t.Fatal(err)
 	}
 	cfg := config.Config{AppEnv: "test", ServerPort: 8080, LogLevel: "info", OAuthEnabled: true, SIWEEnabled: true, OnboardingTenantID: base.scope.TenantID(), SIWEOrigin: siwe.URI, Auth: config.AuthConfig{Required: true}}
+	if strict {
+		cfg.AppEnv = "production"
+	}
 	server, err := app.NewOAuthServerWithBrowserFoundation(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), &store, middleware.Wrap, approvals, flow, sessions, registry.Tools()...)
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +264,7 @@ func (f *protocolFixture) grant(t *testing.T, l protocolLogin) string {
 	}
 	protocolJSON(t, w, &response)
 	u, err := url.Parse(response.Redirect)
-	if err != nil || u.Scheme != "https" || u.Host != "client.example" || u.Path != "/callback" || u.User != nil || u.Fragment != "" || u.Query().Get("iss") != oauth.Issuer || u.Query().Get("state") != "synthetic-client-state" || u.Query().Get("code") == "" {
+	if err != nil || u.Scheme != "https" || u.Scheme+"://"+u.Host+u.Path != f.client.RedirectURIs[0] || u.User != nil || u.Fragment != "" || u.Query().Get("iss") != oauth.Issuer || u.Query().Get("state") != "synthetic-client-state" || u.Query().Get("code") == "" {
 		t.Fatal("authorization callback binding failed")
 	}
 	return u.Query().Get("code")

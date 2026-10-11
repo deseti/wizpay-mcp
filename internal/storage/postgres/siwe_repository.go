@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"time"
 
 	"github.com/deseti/wizpay-mcp/internal/browser"
@@ -29,9 +31,29 @@ func (s *Store) IssueSIWE(ctx context.Context, r siwe.Request) (siwe.Challenge, 
 		if e != nil {
 			return siwe.ErrDenied
 		}
-		var tenant string
-		if e = tx.QueryRow(ctx, `SELECT tenant_id FROM tenants WHERE tenant_id=$1 AND status='ACTIVE' FOR UPDATE`, r.TenantID).Scan(&tenant); e != nil {
-			return siwe.ErrDenied
+		var tenant, tenantStatus string
+		if e = tx.QueryRow(ctx, `SELECT tenant_id,status FROM tenants WHERE tenant_id=$1 FOR UPDATE`, r.TenantID).Scan(&tenant, &tenantStatus); e != nil {
+			return siwe.ErrEnrollmentRequired
+		}
+		if tenantStatus == "REVOKED" {
+			return siwe.ErrAccountRevoked
+		}
+		// Only an owner-staged application identity may request enrollment proof.
+		var bindingStatus, identityStatus, bindingID, userID string
+		if e = tx.QueryRow(ctx, `SELECT b.status,i.status,b.binding_id,b.user_id FROM wallet_bindings b JOIN identities i USING(tenant_id,user_id) WHERE b.tenant_id=$1 AND lower(b.address)=lower($2) AND b.provider='EXTERNAL_EVM' AND b.chain_id='5042' AND b.network='MAINNET'`, r.TenantID, r.Address).Scan(&bindingStatus, &identityStatus, &bindingID, &userID); e != nil {
+			return siwe.ErrEnrollmentRequired
+		}
+		if bindingStatus == "REVOKED" || identityStatus == "REVOKED" {
+			return siwe.ErrAccountRevoked
+		}
+		if (bindingStatus != "PENDING" && bindingStatus != "ACTIVE") || (identityStatus != "UNKNOWN" && identityStatus != "ACTIVE") {
+			return siwe.ErrEnrollmentRequired
+		}
+		if bindingStatus == "ACTIVE" && (tenantStatus != "ACTIVE" || identityStatus != "ACTIVE") {
+			return siwe.ErrEnrollmentRequired
+		}
+		if bindingStatus == "ACTIVE" && r.RequireEnrollment && !hasVerifiedEnrollment(ctx, tx, r.TenantID, userID, bindingID) {
+			return siwe.ErrEnrollmentRequired
 		}
 		var count int
 		if e = tx.QueryRow(ctx, `SELECT count(*) FROM siwe_challenges WHERE session_reference=$1`, v.Reference).Scan(&count); e != nil {
@@ -48,6 +70,10 @@ func (s *Store) IssueSIWE(ctx context.Context, r siwe.Request) (siwe.Challenge, 
 			return siwe.ErrDenied
 		}
 		c = siwe.Challenge{Address: r.Address, SessionReference: v.Reference, TransactionID: v.TransactionID, TenantID: r.TenantID, IssuedAt: now, ExpiresAt: now.Add(siwe.Lifetime)}
+		c.Purpose = "AUTHENTICATE"
+		if bindingStatus == "PENDING" {
+			c.Purpose = "ENROLL"
+		}
 		if expiry.Before(c.ExpiresAt) {
 			c.ExpiresAt = expiry
 		}
@@ -66,13 +92,14 @@ func (s *Store) IssueSIWE(ctx context.Context, r siwe.Request) (siwe.Challenge, 
 		if e = tx.QueryRow(ctx, `SELECT client_id FROM oauth_transactions WHERE transaction_id=$1`, v.TransactionID).Scan(&c.ClientID); e != nil {
 			return e
 		}
-		_, e = tx.Exec(ctx, `INSERT INTO siwe_challenges(challenge_id,nonce,message,address,tenant_id,session_reference,transaction_id,client_id,domain,uri,chain_id,issued_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'connect.wizpay.xyz','https://connect.wizpay.xyz','5042',$9,$10)`, c.ID, c.Nonce, c.Message, c.Address, c.TenantID, c.SessionReference, c.TransactionID, c.ClientID, c.IssuedAt, c.ExpiresAt)
+		_, e = tx.Exec(ctx, `INSERT INTO siwe_challenges(challenge_id,nonce,message,address,tenant_id,session_reference,transaction_id,client_id,domain,uri,chain_id,issued_at,expires_at,purpose) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'connect.wizpay.xyz','https://connect.wizpay.xyz','5042',$9,$10,$11)`, c.ID, c.Nonce, c.Message, c.Address, c.TenantID, c.SessionReference, c.TransactionID, c.ClientID, c.IssuedAt, c.ExpiresAt, c.Purpose)
 		return e
 	})
 	return c, e
 }
 func (s *Store) FinalizeSIWE(ctx context.Context, r siwe.Request, id, signature string, next siwe.Rotation) error {
-	return s.oauthTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+	enrollment := false
+	err := s.oauthTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		// Browser first matches consent/logout lock order. Challenge is locked before
 		// any consumption; no other path acquires challenge then browser.
 		v, e := s.lockBrowser(ctx, tx, "session_digest", r.SessionDigest)
@@ -80,7 +107,7 @@ func (s *Store) FinalizeSIWE(ctx context.Context, r siwe.Request, id, signature 
 			return siwe.ErrDenied
 		}
 		var c siwe.Challenge
-		e = tx.QueryRow(ctx, `SELECT challenge_id,nonce,message,address,session_reference,transaction_id,client_id,tenant_id,issued_at,expires_at FROM siwe_challenges WHERE challenge_id=$1 AND consumed_at IS NULL FOR UPDATE`, id).Scan(&c.ID, &c.Nonce, &c.Message, &c.Address, &c.SessionReference, &c.TransactionID, &c.ClientID, &c.TenantID, &c.IssuedAt, &c.ExpiresAt)
+		e = tx.QueryRow(ctx, `SELECT challenge_id,nonce,message,address,session_reference,transaction_id,client_id,tenant_id,issued_at,expires_at,purpose FROM siwe_challenges WHERE challenge_id=$1 AND consumed_at IS NULL FOR UPDATE`, id).Scan(&c.ID, &c.Nonce, &c.Message, &c.Address, &c.SessionReference, &c.TransactionID, &c.ClientID, &c.TenantID, &c.IssuedAt, &c.ExpiresAt, &c.Purpose)
 		if e != nil || c.SessionReference != v.Reference || c.TransactionID != v.TransactionID || c.TenantID != r.TenantID {
 			return siwe.ErrDenied
 		}
@@ -100,11 +127,11 @@ func (s *Store) FinalizeSIWE(ctx context.Context, r siwe.Request, id, signature 
 		if e = tx.QueryRow(ctx, `SELECT COALESCE(min(user_id),''),count(*) FROM wallet_bindings WHERE tenant_id=$1 AND lower(address)=lower($2) AND chain_id='5042' AND network='MAINNET'`, r.TenantID, c.Address).Scan(&resolvedUser, &matches); e != nil || matches != 1 {
 			return siwe.ErrDenied
 		}
-		if e = tx.QueryRow(ctx, `SELECT provider,provider_subject FROM identities WHERE tenant_id=$1 AND user_id=$2 AND status='ACTIVE' FOR UPDATE`, r.TenantID, resolvedUser).Scan(&issuer, &subject); e != nil {
+		if e = tx.QueryRow(ctx, `SELECT provider,provider_subject FROM identities WHERE tenant_id=$1 AND user_id=$2 AND (status='ACTIVE' OR ($3='ENROLL' AND status='UNKNOWN')) FOR UPDATE`, r.TenantID, resolvedUser, c.Purpose).Scan(&issuer, &subject); e != nil {
 			return siwe.ErrDenied
 		}
 		var tenant string
-		if e = tx.QueryRow(ctx, `SELECT tenant_id FROM tenants WHERE tenant_id=$1 AND status='ACTIVE' FOR UPDATE`, r.TenantID).Scan(&tenant); e != nil {
+		if e = tx.QueryRow(ctx, `SELECT tenant_id FROM tenants WHERE tenant_id=$1 AND (status='ACTIVE' OR ($2='ENROLL' AND status='INACTIVE')) FOR UPDATE`, r.TenantID, c.Purpose).Scan(&tenant); e != nil {
 			return siwe.ErrDenied
 		}
 		// Lock ALL case-equivalent matches, including inactive ones. Duplicates are
@@ -132,7 +159,7 @@ func (s *Store) FinalizeSIWE(ctx context.Context, r siwe.Request, id, signature 
 			return siwe.ErrDenied
 		}
 		var eligible bool
-		if e = tx.QueryRow(ctx, `SELECT provider='EXTERNAL_EVM' AND status='ACTIVE' AND revoked_at IS NULL AND verified_at IS NOT NULL AND verified_at<=clock_timestamp() AND verification_reference<>'' FROM wallet_bindings WHERE tenant_id=$1 AND binding_id=$2`, r.TenantID, binding).Scan(&eligible); e != nil || !eligible {
+		if e = tx.QueryRow(ctx, `SELECT provider='EXTERNAL_EVM' AND revoked_at IS NULL AND ((status='ACTIVE' AND verified_at IS NOT NULL AND verified_at<=clock_timestamp() AND verification_reference<>'') OR ($3='ENROLL' AND status='PENDING')) FROM wallet_bindings WHERE tenant_id=$1 AND binding_id=$2`, r.TenantID, binding, c.Purpose).Scan(&eligible); e != nil || !eligible {
 			return siwe.ErrDenied
 		}
 		if user != resolvedUser {
@@ -145,7 +172,15 @@ func (s *Store) FinalizeSIWE(ctx context.Context, r siwe.Request, id, signature 
 		if !siwe.ValidTime(c, now) || !now.Before(v.ExpiresAt) || !now.Before(expiry) {
 			return siwe.ErrDenied
 		}
-		// Stored bytes are the signing authority; formatter is never used here.
+		// Reconstruct the restricted EIP-4361 profile; stored tampered structure
+		// cannot change domain, URI, chain, nonce, time, address or purpose.
+		expected, formatErr := siwe.Message(c)
+		if formatErr != nil || expected != c.Message {
+			return siwe.ErrDenied
+		}
+		if c.Purpose == "AUTHENTICATE" && r.RequireEnrollment && !hasVerifiedEnrollment(ctx, tx, r.TenantID, user, binding) {
+			return siwe.ErrDenied
+		}
 		if e = siwe.Verify(c.Message, c.Address, signature); e != nil {
 			return e
 		}
@@ -162,6 +197,12 @@ func (s *Store) FinalizeSIWE(ctx context.Context, r siwe.Request, id, signature 
 		if _, e = tx.Exec(ctx, `UPDATE siwe_challenges SET consumed_at=$2 WHERE challenge_id=$1`, id, now); e != nil {
 			return e
 		}
+		if c.Purpose == "ENROLL" {
+			hash := sha256.Sum256([]byte(c.Message))
+			_, e = tx.Exec(ctx, `INSERT INTO wallet_enrollment_proofs(challenge_id,tenant_id,user_id,binding_id,binding_version,verified_at,message_digest) VALUES($1,$2,$3,$4,$5,$6,$7)`, c.ID, r.TenantID, user, binding, version, now, hex.EncodeToString(hash[:]))
+			enrollment = e == nil
+			return e
+		}
 		if e = revokeBrowser(ctx, tx, v, now); e != nil {
 			return e
 		}
@@ -172,6 +213,10 @@ func (s *Store) FinalizeSIWE(ctx context.Context, r siwe.Request, id, signature 
 		_, e = tx.Exec(ctx, `INSERT INTO siwe_authentications(session_reference,challenge_id,tenant_id,user_id,binding_id,binding_version,authenticated_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, n.Reference, id, r.TenantID, user, binding, version, now)
 		return e
 	})
+	if err == nil && enrollment {
+		return siwe.ErrEnrollmentPending
+	}
+	return err
 }
 
 var _ siwe.Repository = (*Store)(nil)
@@ -228,4 +273,10 @@ func (s *Store) FindBrowserAuthentication(ctx context.Context, expected browser.
 		return nil
 	})
 	return challenge, err
+}
+
+func hasVerifiedEnrollment(ctx context.Context, tx pgx.Tx, tenant, user, binding string) bool {
+	var verified bool
+	e := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wallet_enrollment_approvals a JOIN wallet_enrollment_proofs p USING(challenge_id) JOIN wallet_bindings b ON b.tenant_id=a.tenant_id AND b.binding_id=a.binding_id WHERE a.tenant_id=$1 AND a.user_id=$2 AND a.binding_id=$3 AND b.verification_reference='enrollment:'||p.challenge_id AND b.version=p.binding_version+1)`, tenant, user, binding).Scan(&verified)
+	return e == nil && verified
 }

@@ -13,11 +13,12 @@ import (
 )
 
 type Store struct {
-	pool         *pgxpool.Pool
-	queries      *dbsqlc.Queries
-	queryTimeout time.Duration
-	logger       *slog.Logger
-	now          func() time.Time
+	pool                        *pgxpool.Pool
+	queries                     *dbsqlc.Queries
+	queryTimeout                time.Duration
+	logger                      *slog.Logger
+	now                         func() time.Time
+	databaseAuthenticationClock bool
 }
 
 func NewStore(pool *pgxpool.Pool, queryTimeout time.Duration, logger *slog.Logger) (*Store, error) {

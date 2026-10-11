@@ -1,3 +1,7 @@
+> Historical release-candidate report. Its pending-only enrollment and SIWE
+> prohibition are superseded by migration 012 and [the current activation guide](claude-custom-connector.md).
+> The base release profile remains disabled by default; no public deployment is claimed.
+
 # WP3D-4 / WP3D-5 — private release-candidate operations
 
 2026-10-10. PUBLIC RELEASE IS NO-GO. These are reviewed operator procedures, not

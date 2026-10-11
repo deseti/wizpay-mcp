@@ -7,8 +7,7 @@ import (
 	"time"
 )
 
-// NewWalletService is an explicit assembly seam. Production bootstrap deliberately
-// continues using NewService with no verifier: this work does not activate login.
+// NewWalletService assembles the wallet verifier without a legacy login port.
 func NewWalletService(repo Repository, catalog Catalog, flow OAuth, wallet *siwe.Service, now func() time.Time) (*Service, error) {
 	s, e := NewService(repo, catalog, flow, nil, now)
 	if e != nil {

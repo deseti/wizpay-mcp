@@ -1,0 +1,45 @@
+# Owner-reviewed persistent runtime TLS; no database host port.
+services:
+  postgres:
+    command: [postgres, -c, ssl=on, -c, ssl_cert_file=/tls/server.crt, -c, ssl_key_file=/tls/server.key, -c, hba_file=/tls/pg_hba.conf, -c, ident_file=/tls/pg_ident.conf]
+    volumes:
+      - ./runtime/postgres/server.crt:/tls/server.crt:ro
+      - ./runtime/postgres/server.key:/tls/server.key:ro
+      - ./runtime/postgres/pg_hba.conf:/tls/pg_hba.conf:ro
+      - ./pg_ident.conf:/tls/pg_ident.conf:ro
+  go:
+    secrets: [database_url, database_ca]
+  onboarding-admin:
+    profiles: [operator]
+    image: ${OPERATOR_IMAGE:?reviewed operator image digest required}
+    pull_policy: never
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    entrypoint: [/usr/local/bin/onboarding-admin]
+    environment:
+      ONBOARDING_ADMIN_APPROVED: ${ONBOARDING_ADMIN_APPROVED:-no}
+      ONBOARDING_DATABASE_URL_FILE: /run/secrets/onboarding_database_url
+    secrets: [onboarding_database_url, database_ca]
+    networks: [private]
+    stdin_open: true
+  migrate:
+    profiles: [operator]
+    image: ${OPERATOR_IMAGE:?reviewed operator image digest required}
+    pull_policy: never
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    entrypoint: [/usr/local/bin/dbmigrate]
+    environment:
+      DATABASE_URL_FILE: /run/secrets/migration_database_url
+    secrets: [migration_database_url, database_ca]
+    networks: [private]
+secrets:
+  database_ca: {file: ./runtime/postgres/ca.pem}
+  onboarding_database_url: {file: ./runtime/onboarding_database_url}
+  migration_database_url: {file: ./runtime/migration_database_url}

@@ -157,6 +157,10 @@ func TestProtocolWrongSignerAndNetwork(t *testing.T) {
 				address = crypto.PubkeyToAddress(key.PublicKey).Hex()
 			}
 			w := f.browser("POST", "/browser/siwe/challenge", protocolBody(t, map[string]string{"address": address}), cookie, view.CSRF)
+			if kind != "wrong-signer" {
+				protocolStatus(t, w, 403)
+				return
+			}
 			protocolStatus(t, w, 200)
 			var c struct {
 				ID      string `json:"challenge_id"`

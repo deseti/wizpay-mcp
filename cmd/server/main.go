@@ -86,16 +86,23 @@ func run() error {
 		}
 	}
 
+	if cfg.AppEnv == "production" {
+		if err := database.CheckReadOnlyRuntimeRole(databaseContext); err != nil {
+			return err
+		}
+	}
+
 	var server *app.Server
 	if cfg.Auth.Required {
 		var middleware requestauth.Middleware
 		var oauthService *oauth.Service
 		if cfg.OAuthEnabled {
-			oauthService, err = oauth.NewService(database, time.Now)
+			database.UseDatabaseAuthenticationClock()
+			oauthService, err = oauth.NewService(database, database.AuthenticationTime)
 			if err != nil {
 				return err
 			}
-			middleware, err = requestauth.NewOAuthMiddleware(oauthService, requestauth.RepositoryResolver{Repository: database})
+			middleware, err = requestauth.NewAuditedOAuthMiddleware(oauthService, requestauth.RepositoryResolver{Repository: database}, database)
 		} else {
 			publicKeyPEM, readErr := os.ReadFile(cfg.Auth.PublicKeyFile)
 			if readErr != nil {
@@ -157,13 +164,13 @@ func run() error {
 			}
 			// OAuth's mcp:read profile has a separate registration allowlist.
 			registrations = readRegistry.Tools()
-			sessions, sessionErr := browser.NewService(database, database, oauthService, nil, time.Now)
+			sessions, sessionErr := browser.NewService(database, database, oauthService, nil, database.AuthenticationTime)
 			if sessionErr == nil && cfg.SIWEEnabled {
-				wallet, walletErr := siwe.NewService(database, cfg.OnboardingTenantID, cfg.SIWEOrigin)
+				wallet, walletErr := siwe.NewVerifiedService(database, cfg.OnboardingTenantID, cfg.SIWEOrigin)
 				if walletErr != nil {
 					return walletErr
 				}
-				sessions, sessionErr = browser.NewWalletService(database, database, oauthService, wallet, time.Now)
+				sessions, sessionErr = browser.NewWalletService(database, database, oauthService, wallet, database.AuthenticationTime)
 			}
 			if sessionErr != nil {
 				return sessionErr

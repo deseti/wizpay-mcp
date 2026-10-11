@@ -30,7 +30,7 @@ func newSIWEFixture(t *testing.T, short bool) siweFixture {
 	ctx := context.Background()
 	f := newOAuthFixture(t)
 	store := *integrationStore
-	store.now = time.Now
+	store.now = store.AuthenticationTime
 	if _, e := integrationPool.Exec(ctx, `UPDATE tenants SET status='ACTIVE' WHERE tenant_id=$1`, f.f.scope.TenantID()); e != nil {
 		t.Fatal(e)
 	}
@@ -47,7 +47,7 @@ func newSIWEFixture(t *testing.T, short bool) siweFixture {
 	if _, e = store.CreateBinding(ctx, f.f.scope, binding); e != nil {
 		t.Fatal(e)
 	}
-	flow, e := oauth.NewService(&store, time.Now)
+	flow, e := oauth.NewService(&store, store.now)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -59,7 +59,7 @@ func newSIWEFixture(t *testing.T, short bool) siweFixture {
 	if e != nil {
 		t.Fatal(e)
 	}
-	service, e := browser.NewWalletService(&store, &store, flow, verifier, time.Now)
+	service, e := browser.NewWalletService(&store, &store, flow, verifier, store.now)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -79,7 +79,7 @@ func newSIWEFixture(t *testing.T, short bool) siweFixture {
 		v.Digest = oauth.Digest(raw)
 		v.CSRFHash = oauth.Digest(oauth.Digest("wizpay-browser-csrf-v1:" + raw))
 		v.Reference = unique("short-reference")
-		v.CreatedAt = time.Now().UTC()
+		v.CreatedAt = store.AuthenticationTime()
 		v.ExpiresAt = v.CreatedAt.Add(3 * time.Second)
 		if e = store.CreateBrowserSession(ctx, v); e != nil {
 			t.Fatal(e)
@@ -325,7 +325,7 @@ func TestSIWEChallengeExpiryAfterTenantLock(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	f.c.IssuedAt = time.Now().UTC()
+	f.c.IssuedAt = f.store.AuthenticationTime()
 	f.c.ExpiresAt = f.c.IssuedAt.Add(3 * time.Second)
 	f.c.Message, e = siwe.Message(f.c)
 	if e != nil {
@@ -375,15 +375,12 @@ func TestSIWEChallengeExpiryAfterTenantLock(t *testing.T) {
 	}
 	assertSIWERollback(t, f)
 }
-func TestSIWEAmbiguousWalletRejected(t *testing.T) {
+func TestSIWEDuplicateWalletRejectedAtStorage(t *testing.T) {
 	f := newSIWEFixture(t, false)
 	ctx := context.Background()
 	_, e := integrationPool.Exec(ctx, `INSERT INTO wallet_bindings(tenant_id,binding_id,version,user_id,provider,provider_user_reference,wallet_id,address,chain_id,network,status,verification_reference,created_at,verified_at) SELECT tenant_id,$3,1,user_id,provider,provider_user_reference,$4,lower(address),chain_id,network,status,verification_reference,created_at,verified_at FROM wallet_bindings WHERE tenant_id=$1 AND binding_id=$2`, f.tenant, f.binding, unique("ambiguous-binding"), unique("ambiguous-wallet"))
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = f.service.VerifyWallet(ctx, f.raw, f.proof, f.c.ID, siweSignature(t, f.c.Message)); e == nil {
-		t.Fatal("ambiguous wallet accepted")
+	if e == nil {
+		t.Fatal("duplicate wallet accepted")
 	}
 	assertSIWERollback(t, f)
 }

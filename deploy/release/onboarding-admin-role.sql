@@ -33,6 +33,7 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"admin_role";
 REVOKE CREATE ON SCHEMA public FROM :"admin_role";
 GRANT USAGE ON SCHEMA public TO :"admin_role";
 GRANT EXECUTE ON FUNCTION admin_onboarding(text,text,text,text,text,text,text,text,text,timestamptz) TO :"admin_role";
+GRANT EXECUTE ON FUNCTION admin_activate_wallet(text,text,text,text,text,text,timestamptz) TO :"admin_role";
 -- A duplicate delegation fails; renewal/reassignment needs explicit owner review.
 INSERT INTO onboarding_administrators(login_role,tenant_id,expires_at)
  VALUES(:'admin_role',:'tenant_id',:'delegation_expires'::timestamptz);

@@ -66,8 +66,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("LOG_LEVEL must be one of debug, info, warn, or error")
 	}
 	if c.SIWEEnabled {
-		if c.AppEnv != "development" && c.AppEnv != "test" {
-			return fmt.Errorf("SIWE authentication is not approved for staging or production")
+		if (c.AppEnv == "staging" || c.AppEnv == "production") && c.MigrateOnStart {
+			return fmt.Errorf("SIWE activation requires separate migrations")
 		}
 		if !c.OAuthEnabled || !c.Auth.Required || c.AutonomousEnabled {
 			return fmt.Errorf("SIWE requires authenticated read-only OAuth and disabled autonomy")

@@ -1,0 +1,10 @@
+# Owner-authorized activation only. Enrollment evidence is enforced in code/DB.
+services:
+  go:
+    environment:
+      WIZPAY_SIWE_ENABLED: "true"
+      WIZPAY_SIWE_ORIGIN: https://connect.wizpay.xyz
+      WIZPAY_ONBOARDING_TENANT_ID: ${WIZPAY_ONBOARDING_TENANT_ID:?owner approved tenant required}
+  nginx:
+    volumes:
+      - ../tunnel/nginx.conf:/work/nginx.conf:ro

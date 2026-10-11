@@ -9,7 +9,7 @@ mkdir -p deploy/release/runtime/backups
 target="deploy/release/runtime/backups/$(date -u +%Y%m%dT%H%M%SZ).dump.gpg"
 test ! -e "$target"
 trap 'rm -f "$target.part"' EXIT
-docker compose -p wizpay-mcp-rc -f deploy/release/compose.yaml exec -T postgres \
+docker compose -p wizpay-mcp-rc -f deploy/release/compose.yaml exec -T --user postgres postgres \
   pg_dump -U wizpay_migrator -d wizpay_mcp -Fc | \
   gpg --batch --encrypt --recipient "$BACKUP_RECIPIENT" --output "$target.part"
 mv "$target.part" "$target"

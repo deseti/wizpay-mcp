@@ -1,6 +1,6 @@
 // Package onboarding defines owner-only enrollment administration. Pending
-// records confer no authentication authority. Evidence verification and activation
-// remain unavailable until the owner approves an enrollment trust policy.
+// records confer no authority. Activation consumes trusted server-verified wallet
+// proof and an independent delegated owner decision about application identity.
 package onboarding
 
 import (
@@ -12,6 +12,7 @@ import (
 )
 
 var ErrDenied = errors.New("onboarding administration denied")
+var proofIdentifier = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
 
 // References identify protected owner review records, never their contents.
@@ -26,6 +27,7 @@ type Request struct {
 	Subject         string    `json:"subject"`
 	Address         string    `json:"address"`
 	ReviewReference string    `json:"review_reference"`
+	VerificationID  string    `json:"verification_id"`
 	ExpiresAt       time.Time `json:"expires_at"`
 }
 
@@ -38,7 +40,14 @@ func (r Request) Validate(now time.Time) error {
 			return ErrDenied
 		}
 	}
+	if r.Action != "ACTIVATE" && r.VerificationID != "" {
+		return ErrDenied
+	}
 	switch r.Action {
+	case "ACTIVATE":
+		if !identifier.MatchString(r.UserID) || !identifier.MatchString(r.BindingID) || !proofIdentifier.MatchString(r.VerificationID) || r.Issuer != "" || r.Subject != "" || r.Address != "" {
+			return ErrDenied
+		}
 	case "STAGE":
 		for _, value := range []string{r.UserID, r.BindingID, r.Issuer, r.Subject} {
 			if !identifier.MatchString(value) {

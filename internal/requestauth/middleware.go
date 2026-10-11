@@ -31,6 +31,7 @@ type Middleware struct {
 	verifier auth.TokenVerifier
 	resolver IdentityResolver
 	oauth    bool
+	auditor  AccessAuditor
 }
 
 func NewMiddleware(verifier auth.TokenVerifier, resolver IdentityResolver) (Middleware, error) {
@@ -64,6 +65,12 @@ func (m Middleware) Wrap(next http.Handler) http.Handler { return m.Handler(next
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		metadata, err := serverMetadata(request)
+		if err != nil || m.audit(request, metadata.RequestID, "RECEIVED", auth.AuthenticatedPrincipal{}) != nil {
+			response.Header().Set("Cache-Control", "no-store")
+			response.WriteHeader(503)
+			return
+		}
 		if len(request.Header.Values("Authorization")) > 1 || (m.oauth && (request.Header.Get("Cookie") != "" || len(request.Header.Get("Authorization")) > 256)) {
 			m.unauthorized(response, true)
 			return
@@ -89,14 +96,14 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			m.unauthorized(response, true)
 			return
 		}
-		metadata, err := serverMetadata(request)
+		trusted, err := auth.NewTrustedRequest(principal, identity, metadata)
 		if err != nil {
 			m.unauthorized(response, true)
 			return
 		}
-		trusted, err := auth.NewTrustedRequest(principal, identity, metadata)
-		if err != nil {
-			m.unauthorized(response, true)
+		if m.audit(request, metadata.RequestID, "AUTHORIZED", principal) != nil {
+			response.Header().Set("Cache-Control", "no-store")
+			response.WriteHeader(503)
 			return
 		}
 		downstream := request.Clone(auth.WithTrustedRequest(request.Context(), trusted))

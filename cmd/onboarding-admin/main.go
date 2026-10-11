@@ -20,6 +20,28 @@ func decode(input io.Reader) (onboarding.Request, error) {
 	if err != nil || len(body) > 8192 {
 		return r, onboarding.ErrDenied
 	}
+	// Reject duplicate keys so owner review and execution cannot disagree.
+	keys := json.NewDecoder(bytes.NewReader(body))
+	token, e := keys.Token()
+	if e != nil || token != json.Delim('{') {
+		return r, onboarding.ErrDenied
+	}
+	seen := map[string]bool{}
+	for keys.More() {
+		key, e := keys.Token()
+		if e != nil {
+			return r, onboarding.ErrDenied
+		}
+		name, ok := key.(string)
+		if !ok || seen[name] {
+			return r, onboarding.ErrDenied
+		}
+		seen[name] = true
+		var value json.RawMessage
+		if keys.Decode(&value) != nil {
+			return r, onboarding.ErrDenied
+		}
+	}
 	d := json.NewDecoder(bytes.NewReader(body))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&r); err != nil {
@@ -71,7 +93,11 @@ func run() error {
 		return onboarding.ErrDenied
 	}
 	defer conn.Close(context.Background())
-	_, err = conn.Exec(ctx, `SELECT public.admin_onboarding($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, r.Action, r.RequestID, r.TenantID, r.UserID, r.BindingID, r.Issuer, r.Subject, r.Address, r.ReviewReference, r.ExpiresAt)
+	if r.Action == "ACTIVATE" {
+		_, err = conn.Exec(ctx, `SELECT public.admin_activate_wallet($1,$2,$3,$4,$5,$6,$7)`, r.RequestID, r.TenantID, r.UserID, r.BindingID, r.VerificationID, r.ReviewReference, r.ExpiresAt)
+	} else {
+		_, err = conn.Exec(ctx, `SELECT public.admin_onboarding($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, r.Action, r.RequestID, r.TenantID, r.UserID, r.BindingID, r.Issuer, r.Subject, r.Address, r.ReviewReference, r.ExpiresAt)
+	}
 	if err != nil {
 		return onboarding.ErrDenied
 	}
@@ -83,5 +109,5 @@ func main() {
 		os.Stderr.WriteString("FAIL: onboarding administration denied.\n")
 		os.Exit(1)
 	}
-	os.Stdout.WriteString("PASS: onboarding administration applied; no authentication activated.\n")
+	os.Stdout.WriteString("PASS: owner onboarding decision applied.\n")
 }

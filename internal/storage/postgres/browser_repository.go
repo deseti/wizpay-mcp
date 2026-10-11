@@ -27,7 +27,10 @@ func (s *Store) CreateBrowserSession(ctx context.Context, v browser.Session) err
 		if e != nil {
 			return e
 		}
-		now := s.now().UTC()
+		now := s.authenticationTimeIn(ctx, tx)
+		if now.IsZero() {
+			return browser.ErrDenied
+		}
 		if !now.Before(expiry) || !now.Before(v.ExpiresAt) || now.Before(v.CreatedAt) || v.ExpiresAt.After(expiry) {
 			return browser.ErrDenied
 		}
@@ -45,7 +48,7 @@ func (s *Store) FindBrowserSession(ctx context.Context, digest string) (browser.
 func (s *Store) lockBrowser(ctx context.Context, tx pgx.Tx, column, key string) (browser.Session, error) {
 	// column is selected only by internal callers, never request input.
 	v, e := scanBrowser(tx.QueryRow(ctx, `SELECT `+browserColumns+` FROM browser_sessions WHERE `+column+`=$1 FOR UPDATE`, key))
-	now := s.now().UTC()
+	now := s.authenticationTimeIn(ctx, tx)
 	if e != nil || v.Revoked || !now.Before(v.ExpiresAt) || now.Before(v.CreatedAt) {
 		return browser.Session{}, browser.ErrDenied
 	}
@@ -87,7 +90,10 @@ func (s *Store) RotateBrowserSession(ctx context.Context, digest, proof string, 
 		if e != nil {
 			return browser.ErrDenied
 		}
-		now := s.now().UTC()
+		now := s.authenticationTimeIn(ctx, tx)
+		if now.IsZero() {
+			return browser.ErrDenied
+		}
 		if !now.Before(old.ExpiresAt) || !now.Before(expiry) || !now.Before(next.ExpiresAt) || now.Before(next.CreatedAt) {
 			return browser.ErrDenied
 		}
@@ -103,7 +109,11 @@ func (s *Store) RevokeBrowserSession(ctx context.Context, digest, proof string) 
 		if e != nil || v.CSRFHash != proof {
 			return browser.ErrDenied
 		}
-		return revokeBrowser(ctx, tx, v, s.now().UTC())
+		now := s.authenticationTimeIn(ctx, tx)
+		if now.IsZero() {
+			return browser.ErrDenied
+		}
+		return revokeBrowser(ctx, tx, v, now)
 	})
 }
 func (s *Store) DenyBrowserConsent(ctx context.Context, digest, proof string) error {
@@ -116,7 +126,10 @@ func (s *Store) DenyBrowserConsent(ctx context.Context, digest, proof string) er
 		if e != nil {
 			return e
 		}
-		now := s.now().UTC()
+		now := s.authenticationTimeIn(ctx, tx)
+		if now.IsZero() {
+			return browser.ErrDenied
+		}
 		if !now.Before(v.ExpiresAt) || !now.Before(expiry) {
 			return browser.ErrDenied
 		}

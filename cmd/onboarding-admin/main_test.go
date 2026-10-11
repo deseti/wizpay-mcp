@@ -29,3 +29,9 @@ func TestAdministrationTLSCannotFallback(t *testing.T) {
 		t.Fatal("verified canonical database configuration rejected", err)
 	}
 }
+
+func TestDuplicateOwnerDecisionRejected(t *testing.T) {
+	if _, err := decode(strings.NewReader(`{"action":"STAGE","action":"ACTIVATE"}`)); err == nil {
+		t.Fatal("ambiguous owner action accepted")
+	}
+}
