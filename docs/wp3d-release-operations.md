@@ -263,6 +263,12 @@ NO-GO. No expiration-renewal workaround or alternate hosting provider is approve
 
 ## Readiness update — 2026-10-12, baseline a3395b4
 
+Subsequent owner-controlled enrollment preparation is documented in
+[owner-onboarding-readiness.md](owner-onboarding-readiness.md). It adds pending
+enrollment and terminal revocation only; production SIWE activation remains
+blocked on the enrollment trust policy. Migration 011 and operator tooling have
+not been run against any release or E2E database.
+
 The owner reports WP3D-2D real HTTPS browser E2E and final security audit passed.
 That evidence covers the isolated synthetic environment, not these new release
 images, production authentication, a real wallet or a Claude connection. This
