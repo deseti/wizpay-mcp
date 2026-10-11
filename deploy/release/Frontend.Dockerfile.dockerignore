@@ -1,0 +1,11 @@
+**
+!deploy/
+!deploy/release/
+!deploy/release/runtime/
+!deploy/release/runtime/frontend/
+!deploy/release/runtime/frontend/package.json
+!deploy/release/runtime/frontend/node_modules/
+!deploy/release/runtime/frontend/node_modules/**
+!deploy/release/runtime/frontend/.next/
+!deploy/release/runtime/frontend/.next/**
+deploy/release/runtime/frontend/.next/cache/
