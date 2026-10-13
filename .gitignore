@@ -24,3 +24,6 @@ web/approval-ui/.next/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Isolated Browser E2E artifacts, public fixtures and temporary TLS/profile data
+/tests/browser-e2e/runtime/

@@ -1,0 +1,87 @@
+# Phase B ONLY: standalone project; never merge into a production-like stack.
+name: wizpay-mcp-phaseb-${PHASE_B_RUN_ID:?set a new test run identifier}
+services:
+  phaseb-edge:
+    image: nginx:stable-alpine
+    pull_policy: never
+    user: "${WP3D_LOCAL_UID:?set nonroot owner UID}:${WP3D_LOCAL_GID:?set owner GID}"
+    entrypoint: [nginx]
+    command: ["-p", "/work/", "-c", "nginx.conf", "-g", "daemon off;"]
+    ports: ["127.0.0.1:9443:8443"]
+    volumes:
+      - ./nginx.phase-b.conf:/work/nginx.conf:ro
+      - ../../deploy/local/proxy-common.conf:/work/proxy-common.conf:ro
+      - ./runtime/${PHASE_B_RUN_ID}/tls/tls.crt:/work/runtime/tls.crt:ro
+      - ./runtime/${PHASE_B_RUN_ID}/tls/tls.key:/work/runtime/tls.key:ro
+    tmpfs: [/tmp]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on: [phaseb-backend, phaseb-ui]
+    networks: [phaseb-private, phaseb-edge]
+  phaseb-backend:
+    image: wizpay-phaseb-backend:${PHASE_B_RUN_ID}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: tests/browser-e2e/Backend.Dockerfile
+      network: none
+      args:
+        PHASE_B_RUN_ID: ${PHASE_B_RUN_ID}
+    environment:
+      APP_ENV: test
+      SERVER_PORT: "8080"
+      LOG_LEVEL: info
+      AUTH_REQUIRED: "true"
+      OAUTH_ENABLED: "true"
+      WIZPAY_SIWE_ENABLED: "true"
+      WIZPAY_SIWE_ORIGIN: https://connect.wizpay.xyz
+      WIZPAY_ONBOARDING_TENANT_ID: ${WP3D_BROWSER_TENANT_ID:?use generated public fixture tenant}
+      WIZPAY_AUTONOMY_ENABLED: "false"
+      WIZPAY_ARC_ENABLED: "false"
+      WIZPAY_CIRCLE_ENABLED: "false"
+      DATABASE_MIGRATIONS_ON_START: "true"
+      DATABASE_URL: postgres://wizpay_phaseb:${WP3D_TEST_DB_PASSWORD:?use new local-only hexadecimal password}@phaseb-db:5432/wizpay_mcp_browser_e2e?sslmode=disable
+      DATABASE_MIGRATION_URL: postgres://wizpay_phaseb:${WP3D_TEST_DB_PASSWORD}@phaseb-db:5432/wizpay_mcp_browser_e2e?sslmode=disable
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      phaseb-db:
+        condition: service_healthy
+    networks: [phaseb-private]
+  phaseb-ui:
+    image: wizpay-phaseb-ui:${PHASE_B_RUN_ID}
+    pull_policy: never
+    build:
+      context: ../../web/approval-ui
+      dockerfile: ../../deploy/local/Frontend.Dockerfile
+      network: none
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [phaseb-private]
+  phaseb-db:
+    image: postgres:16-alpine
+    pull_policy: never
+    environment:
+      POSTGRES_DB: wizpay_mcp_browser_e2e
+      POSTGRES_USER: wizpay_phaseb
+      POSTGRES_PASSWORD: ${WP3D_TEST_DB_PASSWORD}
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U wizpay_phaseb -d wizpay_mcp_browser_e2e"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [phaseb-private]
+networks:
+  phaseb-private:
+    internal: true
+  phaseb-edge:
+    driver: bridge

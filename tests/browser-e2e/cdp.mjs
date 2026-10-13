@@ -1,8 +1,19 @@
 // Dependency-free CDP client. Connect only to an owner-started loopback browser.
-export function validateBrowserArguments(args) {
+import { resolverRules } from './transport.mjs';
+export function validateBrowserArguments(args, expectedProfile) {
   if (!Array.isArray(args) || !args.includes('--enable-automation') ||
       !args.includes('--remote-debugging-address=127.0.0.1') ||
-      args.some(a => typeof a !== 'string' || /^--(?:no-sandbox|disable-setuid-sandbox|ignore-certificate-errors(?:-spki-list)?|allow-insecure-localhost|disable-web-security)(?:=|$)/.test(a))) {
+      args.filter(a => typeof a === 'string' && a.startsWith('--remote-debugging-address')).length !== 1 ||
+      !args.includes('--remote-debugging-port=9222') ||
+      args.filter(a => typeof a === 'string' && a.startsWith('--remote-debugging-port')).length !== 1 ||
+      !args.includes('--no-proxy-server') || !args.includes('--disable-extensions') ||
+      !args.includes('--disable-background-networking') || !args.includes('--disable-quic') ||
+      args.filter(a => typeof a === 'string' && a.startsWith('--host-resolver-rules=')).length !== 1 ||
+      !args.includes('--host-resolver-rules='+resolverRules) ||
+      args.filter(a => typeof a === 'string' && a.startsWith('--user-data-dir')).length !== 1 ||
+      !args.some(a => typeof a === 'string' && a.startsWith('--user-data-dir=') && a.length > '--user-data-dir='.length) ||
+      (expectedProfile !== undefined && !args.includes('--user-data-dir='+expectedProfile)) ||
+      args.some(a => typeof a !== 'string' || /^--(?:no-sandbox|disable-setuid-sandbox|ignore-certificate-errors(?:-spki-list)?|allow-insecure-localhost|disable-web-security|proxy-server|proxy-pac-url|host-rules)(?:=|$)/.test(a))) {
     throw new Error('Isolated sandboxed TLS-verifying browser required');
   }
 }

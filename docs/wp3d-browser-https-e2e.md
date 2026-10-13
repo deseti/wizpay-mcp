@@ -1,5 +1,10 @@
 # WP3D-2D — owner-run real-browser HTTPS harness
 
+Current Phase B preparation supersedes the historical owner-run commands and
+ACTIVE-binding fixture below. Use [Phase B browser validation](phase-b-browser-validation.md)
+for verified enrollment, run-specific resources, diagnostic updates and high-port
+local transport. Browser runtime validation still requires separate approval.
+
 Implemented, not browser-executed. This adds test support only: no production
 handler, manifest, migration, Compose configuration or authentication policy changes.
 Node controller tests and Go signer tests are NOT real-browser results.

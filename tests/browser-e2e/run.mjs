@@ -2,8 +2,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { request as httpsRequest } from 'node:https';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { environment, verifyRuntime } from './policy.mjs';
+import { enrollWallets, validateFixture } from './enrollment.mjs';
+import { reliability, expiryScenarios, reliabilityStages } from './reliability.mjs';
+import { localRequest, testPort } from './transport.mjs';
 import { randomBytes, createHash } from 'node:crypto';
 import { CDP, validateBrowserArguments } from './cdp.mjs';
 import { walletScript } from './wallet.mjs';
@@ -40,6 +44,7 @@ const checkpoints = new Map([
   ['INVALID_BEARER_REJECTION', new Set(['01', '02', '03'])],
   ['LOGOUT_SESSION_INVALIDATION', new Set(['01', '02', '03', '04', '05'])],
 ]);
+for (const stage of [...reliabilityStages,'SYNTHETIC_ENROLLMENT','OWNER_ACTIVATION','LOCAL_TLS_PREFLIGHT','MCP_READ_ACCESS']) checkpoints.set(stage,new Set(['01']));
 const operationIDs = new Set([
   'NONE', 'EVALUATE_01', 'EVALUATE_02', 'EVALUATE_03',
   'WAIT_01', 'WAIT_02', 'WAIT_03',
@@ -94,6 +99,7 @@ async function categorized(category, action) {
   try { return await action(); } catch { throw failure(category); }
 }
 async function cdpCall(...args) {
+  if (networkInvalid) throw failure('ASSERTION');
   return categorized('CDP', () => cdp.call(...args));
 }
 function reportFailure(error) {
@@ -110,9 +116,12 @@ function reportFailure(error) {
 
 const origin = 'https://connect.wizpay.xyz', resource = 'https://mcp.wizpay.xyz/mcp';
 if (process.env.WP3D_BROWSER_OWNER_APPROVED !== 'yes') throw new Error('Owner approval for isolated browser execution required');
-const signer = spawn('./deploy/local/runtime/browser-e2e-signer', [], {stdio:['pipe','pipe','ignore']});
+const config = environment(process.env, process.cwd());
+await verifyRuntime(config);
+const signer = spawn(join(config.runtime,'signer'), [], {stdio:['pipe','pipe','ignore']});
 const lines = createInterface({input:signer.stdout});
-const waiting = new Map(), challenges = new Map(); let signingID=0, cdp, context;
+const waiting = new Map(), challenges = new Map(); let signingID=0, cdp, context, networkInvalid=false;
+const negativeReadIDs=new Set();
 const first = new Promise((resolve,reject) => {
   const timer=setTimeout(()=>reject(failure('FIXTURE')),10000);
   lines.once('line',line=>{ clearTimeout(timer); try {resolve(JSON.parse(line));} catch {reject(failure('FIXTURE'));} });
@@ -181,6 +190,8 @@ async function tab(url,address) {
     await cdpCall('Page.enable',{},sessionId); await cdpCall('Runtime.enable',{},sessionId);
     operation = 'TAB_04';
     await cdpCall('Network.enable',{},sessionId);
+    await cdpCall('Network.setCacheDisabled',{cacheDisabled:true},sessionId);
+    await cdpCall('Network.setBypassServiceWorker',{bypass:true},sessionId);
     operation = 'TAB_05';
     await cdpCall('Runtime.addBinding',{name:'__wp3dSign'},sessionId);
     operation = 'TAB_06';
@@ -188,6 +199,13 @@ async function tab(url,address) {
     operation = 'TAB_07';
     const responses = new Set();
     cdp.on(event=> {
+      if (event.sessionId===sessionId && event.method==='Network.responseReceived') {
+        const r=event.params.response, u=new URL(r.url);
+        if (u.protocol==='https:') {
+          const negativeRead=negativeReadIDs.delete(event.params.requestId) && r.url===origin+'/browser/session';
+          if (!['connect.wizpay.xyz','mcp.wizpay.xyz'].includes(u.hostname) || (!negativeRead && (r.remoteIPAddress!=='127.0.0.1' || r.remotePort!==testPort || r.securityState!=='secure'))) networkInvalid=true;
+        }
+      }
       if(event.sessionId===sessionId&&event.method==='Network.responseReceived'&&event.params.response.url===origin+'/browser/siwe/challenge'&&event.params.response.status===200) responses.add(event.params.requestId);
       if(event.sessionId===sessionId&&event.method==='Network.loadingFinished'&&responses.delete(event.params.requestId)) {
         void cdpCall('Network.getResponseBody',{requestId:event.params.requestId},sessionId).then(r=>challenges.set(sessionId,JSON.parse(r.body))).catch(()=>{});
@@ -210,8 +228,8 @@ async function tab(url,address) {
   }
 }
 const verifier=randomBytes(32).toString('base64url'), state=randomBytes(24).toString('base64url');
-function authorize(f) {
-  return origin+'/oauth/authorize?'+new URLSearchParams({client_id:f.client_id,redirect_uri:origin+'/browser-e2e/callback',resource,scope:'mcp:read',response_type:'code',code_challenge_method:'S256',code_challenge:createHash('sha256').update(verifier).digest('base64url'),state});
+function authorize(f, credentials={verifier,state}) {
+  return origin+'/oauth/authorize?'+new URLSearchParams({client_id:f.client_id,redirect_uri:origin+'/browser-e2e/callback',resource,scope:'mcp:read',response_type:'code',code_challenge_method:'S256',code_challenge:createHash('sha256').update(credentials.verifier).digest('base64url'),state:credentials.state});
 }
 async function connect(session) {
   let operation = 'NONE';
@@ -265,11 +283,11 @@ async function authenticate(session,pending) {
     throw error;
   }
 }
-async function pendingTab(fixture,address=fixture.address) {
+async function pendingTab(fixture,address=fixture.address,credentials) {
   let operation = 'NONE';
   try {
     operation = 'PENDINGTAB_01';
-    const session=await tab(authorize(fixture),address);
+    const session=await tab(authorize(fixture,credentials),address);
     operation = 'PENDINGTAB_02';
     await wait(session,()=>location.pathname==='/onboarding'&&!!window.__wp3dWallet&&!!document.querySelector('select'));
     operation = 'PENDINGTAB_03';
@@ -292,7 +310,7 @@ async function negatives(fixture) {
   checkpoint('AUTHORIZATION_DENIAL', '02');
   await click(denied,'Deny access');
   checkpoint('AUTHORIZATION_DENIAL', '03');
-  await wait(denied,()=>document.querySelector('[role=status]')?.textContent.includes('Authorization denied'));
+  await wait(denied,()=>document.querySelector('[role=status]')?.textContent.toLowerCase().includes('authorization denied'));
   checkpoint('AUTHORIZATION_DENIAL', '04');
   assert.equal((await api(denied,'/browser/session')).body.state,'DENIED');
   checkpoint('REJECTED_WALLET_SIGNING', '01');
@@ -312,11 +330,11 @@ async function negatives(fixture) {
   checkpoint('WRONG_NETWORK', '03');
   await connect(wrongNetwork);
   checkpoint('WRONG_NETWORK', '04');
-  await wait(wrongNetwork,()=>document.querySelector('[role=status]')?.textContent.includes('Wrong network'));
+  await wait(wrongNetwork,()=>document.querySelector('[role=status]')?.textContent.toLowerCase().includes('wrong network'));
   checkpoint('WRONG_NETWORK', '05');
   await click(wrongNetwork,'Request authentication message');
   checkpoint('WRONG_NETWORK', '06');
-  await wait(wrongNetwork,()=>document.querySelector('[role=status]')?.textContent.includes('Wrong network'));
+  await wait(wrongNetwork,()=>document.querySelector('[role=status]')?.textContent.toLowerCase().includes('wrong network'));
   checkpoint('WRONG_NETWORK', '07');
   assert.equal(await evaluate(wrongNetwork,()=>!!document.querySelector('pre')),false);
   checkpoint('WRONG_NETWORK', '08');
@@ -334,7 +352,7 @@ async function negatives(fixture) {
     checkpoint('WALLET_EVENT_INVALIDATION', '05');
     await evaluate(session,event=>{if(event==='chainChanged')window.__wp3dWallet.state.chain='0x1';window.__wp3dWallet.emit(event,event==='accountsChanged'?[]:'0x1');window.__wp3dWallet.state.release();},event);
     checkpoint('WALLET_EVENT_INVALIDATION', '06');
-    await wait(session,()=>document.querySelector('[role=status]')?.textContent.includes('Restart'));
+    await wait(session,()=>document.querySelector('[role=status]')?.textContent.toLowerCase().includes('restart'));
     checkpoint('WALLET_EVENT_INVALIDATION', '07');
     assert.equal(await evaluate(session,()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent==='Grant read-only access');return !button||button.disabled;}),true);
     checkpoint('WALLET_EVENT_INVALIDATION', '08');
@@ -397,7 +415,7 @@ async function negatives(fixture) {
   checkpoint('INTERRUPTED_SIWE_TRANSPORT', '05');
   await click(interrupted,'Sign message to authenticate');
   checkpoint('INTERRUPTED_SIWE_TRANSPORT', '06');
-  await wait(interrupted,()=>document.querySelector('[role=status]')?.textContent.includes('Restart'));
+  await wait(interrupted,()=>document.querySelector('[role=status]')?.textContent.toLowerCase().includes('restart'));
   checkpoint('INTERRUPTED_SIWE_TRANSPORT', '07');
   assert.equal(committedResponse,true);
   checkpoint('INTERRUPTED_SIWE_TRANSPORT', '08');
@@ -408,17 +426,23 @@ async function negatives(fixture) {
 }
 try {
   checkpoint('FIXTURE_INITIALIZATION', '01');
-  const fixture=await first;
+  const fixture=await first; validateFixture(fixture);
   checkpoint('FIXTURE_INITIALIZATION', '02');
-  lines.on('line',line=>{ const r=JSON.parse(line), p=waiting.get(r.id); if(!p)return;waiting.delete(r.id);clearTimeout(p.timer);r.error?p.reject(failure('FIXTURE')):p.resolve(r.signature); });
+  lines.on('line',line=>{
+    try {
+      const r=JSON.parse(line), p=waiting.get(r.id); if(!p)return;
+      waiting.delete(r.id);clearTimeout(p.timer);
+      if(r.error || typeof r.signature!=='string' || !/^0x[0-9a-fA-F]{130}$/.test(r.signature)) p.reject(failure('FIXTURE')); else p.resolve(r.signature);
+    } catch { for(const p of waiting.values()){clearTimeout(p.timer);p.reject(failure('FIXTURE'));}waiting.clear(); }
+  });
   checkpoint('FIXTURE_INITIALIZATION', '03');
-  await categorized('FIXTURE', () => mkdir('deploy/local/runtime',{recursive:true,mode:0o700}));
+  await verifyRuntime(config);
   checkpoint('FIXTURE_INITIALIZATION', '04');
-  await categorized('FIXTURE', () => writeFile('deploy/local/runtime/browser-e2e-fixture.sql',fixture.sql,{mode:0o600}));
+  await categorized('FIXTURE', () => writeFile(join(config.runtime,'fixture.sql'),fixture.sql,{mode:0o600,flag:'wx'}));
   checkpoint('FIXTURE_INITIALIZATION', '05');
-  await categorized('FIXTURE', () => writeFile('deploy/local/runtime/browser-e2e-public.json',JSON.stringify({tenant_id:fixture.tenant_id,user_id:fixture.user_id,client_id:fixture.client_id,address:fixture.address}),{mode:0o600}));
+  await categorized('FIXTURE', () => writeFile(join(config.runtime,'public.json'),JSON.stringify({...fixture,sql:undefined}),{mode:0o600,flag:'wx'}));
   console.log('Public synthetic fixture prepared. Apply it ONLY to wizpay_mcp_browser_e2e and configure the test Go service with tenant_id from browser-e2e-public.json.');
-  console.log('After approved setup and trusted browser launch, enter READY. No key is stored; keep this process alive.');
+  console.log('Apply this run’s fixture.sql only to its new phaseb-db. After approved isolated setup and trusted browser launch, enter READY. No key is stored.');
   checkpoint('FIXTURE_INITIALIZATION', '06');
   const input=createInterface({input:process.stdin});
   checkpoint('FIXTURE_INITIALIZATION', '07');
@@ -427,10 +451,31 @@ try {
   cdp=await categorized('CDP', () => CDP.connect(process.env.WP3D_BROWSER_CDP));
   checkpoint('CHROME_POLICY_VALIDATION', '01');
   const browserArguments=(await cdpCall('Browser.getBrowserCommandLine')).arguments;
-  await categorized('CDP', () => validateBrowserArguments(browserArguments));
+  await categorized('CDP', () => validateBrowserArguments(browserArguments,join(config.runtime,'profile')));
   checkpoint('BROWSER_CONTEXT_INITIALIZATION', '01');
   const {browserContextId}=await cdpCall('Target.createBrowserContext');context=browserContextId;
   checkpoint('BROWSER_CONTEXT_INITIALIZATION', '02');
+  checkpoint('LOCAL_TLS_PREFLIGHT','01');
+  const tokenCA=await readFile(join(config.runtime,'tls/ca.crt'));
+  assert.equal((await localRequest(origin+'/.well-known/oauth-authorization-server',tokenCA)).status,200);
+  assert.equal((await localRequest('https://mcp.wizpay.xyz/.well-known/oauth-protected-resource/mcp',tokenCA)).status,200);
+  const challengeFor=async session => {
+    const deadline=Date.now()+20000;
+    while (!challenges.has(session) && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,25));
+    assert.ok(challenges.has(session)); return challenges.get(session);
+  };
+  const assertBlocked=async session => assert.equal(await evaluate(session,()=>{
+    const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Grant read-only access'); return !b||b.disabled;
+  }),true);
+  const h={fixture,cdp,cdpCall,checkpoint,pendingTab,tab,api,connect,authenticate,click,evaluate,wait,challengeFor,assertBlocked,negativeResponse:id=>{assert.equal(typeof id,'string');negativeReadIDs.add(id);},longExpiry:process.env.WP3D_BROWSER_LONG_EXPIRY==='yes'};
+  checkpoint('SYNTHETIC_ENROLLMENT','01');
+  const activation=await enrollWallets(h);
+  await writeFile(join(config.runtime,'activate.sql'),activation,{mode:0o600,flag:'wx'});
+  checkpoint('OWNER_ACTIVATION','01');
+  console.log('Enrollment proofs verified without access. Owner: review/apply this run’s activate.sql only to phaseb-db; enter ACTIVATED afterward.');
+  const ownerInput=createInterface({input:process.stdin});
+  assert.equal(await new Promise(resolve=>ownerInput.once('line',resolve)),'ACTIVATED');ownerInput.close();
+  await reliability(h);
   await negatives(fixture);
   checkpoint('OAUTH_AUTHORIZATION_ONBOARDING', '01');
   const a=await tab(authorize(fixture),fixture.address);
@@ -505,30 +550,12 @@ try {
   assert.ok(callback.searchParams.get('code'));
   checkpoint('PKCE_TOKEN_EXCHANGE', '01');
   const tokenForm=new URLSearchParams({grant_type:'authorization_code',client_id:fixture.client_id,redirect_uri:origin+'/browser-e2e/callback',resource,code:callback.searchParams.get('code'),code_verifier:verifier}).toString();
-  const tokenCA=await readFile('deploy/local/runtime/browser-tls/ca.crt');
-  const token=await new Promise((resolve,reject)=> {
-    // AI-client transport: no browser headers; canonical Host/SNI and verified TLS.
-    // A dedicated connection and fixed lookup prevent external DNS/agent routing.
-    const request=httpsRequest(origin+'/oauth/token',{
-      method:'POST',port:443,agent:false,ca:tokenCA,rejectUnauthorized:true,
-      servername:'connect.wizpay.xyz',family:4,
-      lookup:(_hostname,options,done)=>done(null,...(options.all?[[{address:'127.0.0.1',family:4}]]:['127.0.0.1',4])),
-      headers:{'Content-Type':'application/x-www-form-urlencoded','Content-Length':Buffer.byteLength(tokenForm)},
-    },async response=> {
-      try {
-        const chunks=[];
-        for await (const chunk of response) chunks.push(chunk);
-        resolve({status:response.statusCode,body:JSON.parse(Buffer.concat(chunks).toString('utf8'))});
-      } catch(error) {reject(error);}
-    });
-    request.on('error',reject);
-    request.setTimeout(20000,()=>request.destroy(failure('TIMEOUT')));
-    request.end(tokenForm);
-  });
+  const token=await localRequest(origin+'/oauth/token',tokenCA,tokenForm);
   checkpoint('PKCE_TOKEN_EXCHANGE', '02');
   assert.equal(token.status,200);
   checkpoint('PKCE_TOKEN_EXCHANGE', '03');
   assert.equal(token.body.scope,'mcp:read');
+  assert.equal(token.body.refresh_token,undefined);
   checkpoint('MCP_ORIGIN_COOKIE_ISOLATION', '01');
   const m=await tab('https://mcp.wizpay.xyz/.well-known/oauth-protected-resource/mcp',fixture.address);
   checkpoint('MCP_ORIGIN_COOKIE_ISOLATION', '02');
@@ -543,6 +570,11 @@ try {
   const listed=await rpc('tools/list',{});
   checkpoint('MCP_TOOL_DISCOVERY', '02');
   assert.deepEqual(listed.body.result.tools.map(t=>t.name).sort(),['wizpay.get_approval','wizpay.get_intent']);
+  checkpoint('MCP_READ_ACCESS','01');
+  for(const [name,field,code] of [['wizpay.get_intent','intent_id','intent_not_found'],['wizpay.get_approval','approval_id','approval_not_found']]) {
+    const read=await rpc('tools/call',{name,arguments:{request_id:'phase-b-read', [field]:'synthetic-missing-reference'}});
+    assert.equal(read.status,200); assert.equal(read.body.result.structuredContent.error.code,code);
+  }
   for(const name of ['wizpay.create_intent','wizpay.request_approval','wizpay.evaluate_policy','wizpay.prepare_execution','wizpay.send.preview','wizpay.send.create_intent','wizpay.send.execute','wizpay.send.status','wizpay.payroll.preview','wizpay.payroll.create_intent','wizpay.payroll.execute','wizpay.payroll.status','wizpay.swap.preview','wizpay.swap.create_intent','wizpay.swap.execute','wizpay.swap.status','wizpay.autonomy.list_schedules','wizpay.autonomy.get_schedule','wizpay.autonomy.simulate','wizpay.autonomy.create_schedule','wizpay.autonomy.control_schedule','wizpay.autonomy.emergency_stop']) {
     excludedTool = excludedToolIDs.get(name);
     checkpoint('EXCLUDED_TOOL_REJECTION', '01');
@@ -575,8 +607,25 @@ try {
   checkpoint('LOGOUT_SESSION_INVALIDATION', '04');
   assert.equal((await api(a,'/browser/session')).status,401);
   checkpoint('LOGOUT_SESSION_INVALIDATION', '05');
-  assert.equal((await cdpCall('Storage.getCookies',{browserContextId:context})).cookies.some(c=>c.name===old.name),false);
-  console.log('PASS: real-browser HTTPS continuous OAuth/SIWE/rotation/consent/PKCE/MCP/logout checks.');
+  assert.equal((await cdpCall('Storage.getCookies',{browserContextId:context})).cookies.find(c=>c.name===old.name)?.value,replacement.value);
+  // Revocation is authoritative; delayed logout must not mutate the shared cookie.
+  h.authorizedToken=async()=>{
+    const credentials={verifier:randomBytes(32).toString('base64url'),state:randomBytes(24).toString('base64url')};
+    const session=await pendingTab(fixture,fixture.address,credentials), pending=(await api(session,'/browser/session')).body;
+    await connect(session); await authenticate(session,pending); await click(session,'Grant read-only access');
+    await wait(session,()=>location.pathname==='/browser-e2e/callback');
+    const callback=new URL(await evaluate(session,()=>location.href));
+    assert.equal(callback.origin,origin); assert.equal(callback.searchParams.get('state'),credentials.state); assert.equal(callback.searchParams.get('iss'),origin);
+    const form=new URLSearchParams({grant_type:'authorization_code',client_id:fixture.client_id,redirect_uri:origin+'/browser-e2e/callback',resource,code:callback.searchParams.get('code'),code_verifier:credentials.verifier}).toString();
+    const result=await localRequest(origin+'/oauth/token',tokenCA,form); assert.equal(result.status,200); return result.body;
+  };
+  h.mcp=async(bearer,method,params)=>evaluate(m,async(bearer,method,params)=>{
+    const r=await fetch('/mcp',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream',Authorization:'Bearer '+bearer},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
+    return {status:r.status,challenge:r.headers.get('WWW-Authenticate'),body:r.status===200?await r.json():undefined};
+  },bearer,method,params);
+  await expiryScenarios(h);
+  if(networkInvalid) throw failure('ASSERTION');
+  console.log('PASS: executed real-browser synthetic enrollment, authentication reliability, read-only OAuth/MCP and logout checks.');
 } catch (error) {
   reportFailure(error);process.exitCode=1;
 } finally {

@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -24,8 +23,17 @@ func eligible(message, address string, now time.Time) bool {
 	issued, e1 := time.Parse(time.RFC3339Nano, strings.TrimPrefix(lines[9], "Issued At: "))
 	expires, e2 := time.Parse(time.RFC3339Nano, strings.TrimPrefix(lines[10], "Expiration Time: "))
 	c := siwe.Challenge{Address: address, Nonce: strings.TrimPrefix(lines[8], "Nonce: "), IssuedAt: issued, ExpiresAt: expires}
-	exact, err := siwe.Message(c)
-	return e1 == nil && e2 == nil && err == nil && exact == message && siwe.ValidTime(c, now)
+	if e1 != nil || e2 != nil || !siwe.ValidTime(c, now) {
+		return false
+	}
+	for _, purpose := range []string{"AUTHENTICATE", "ENROLL"} {
+		c.Purpose = purpose
+		exact, err := siwe.Message(c)
+		if err == nil && exact == message {
+			return true
+		}
+	}
+	return false
 }
 
 func main() {
@@ -43,19 +51,12 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
-	tenant, user, client := "wp3d-browser-"+id, "browser-user-"+id, "browser-client-"+id
-	// Public fixture metadata only. No key is serialized or persisted.
-	sql := fmt.Sprintf(`BEGIN;
-DO $$ BEGIN IF current_database() <> 'wizpay_mcp_browser_e2e' THEN RAISE EXCEPTION 'wrong test database'; END IF; END $$;
-INSERT INTO tenants(tenant_id,created_at,status) VALUES('%s',now(),'ACTIVE');
-INSERT INTO identities(tenant_id,user_id,provider,provider_subject,status,created_at,updated_at) VALUES('%s','%s','browser-e2e','%s','ACTIVE',now(),now());
-INSERT INTO wallet_bindings(tenant_id,binding_id,version,user_id,provider,provider_user_reference,wallet_id,address,chain_id,network,status,verification_reference,created_at,verified_at) VALUES('%s','binding-%s',1,'%s','EXTERNAL_EVM','synthetic-owner','wallet-%s','%s','5042','MAINNET','ACTIVE','test-only-owner-review',now(),now());
-INSERT INTO oauth_clients(client_id,name,client_type,auth_method,status,redirect_uris,scopes,resources) VALUES('%s','Synthetic Browser Client','public','none','ACTIVE',ARRAY['https://connect.wizpay.xyz/browser-e2e/callback'],ARRAY['mcp:read'],ARRAY['https://mcp.wizpay.xyz/mcp']);
-COMMIT;`, tenant, tenant, user, user, tenant, id, user, id, address, client)
-	otherSQL := fmt.Sprintf("INSERT INTO identities(tenant_id,user_id,provider,provider_subject,status,created_at,updated_at) VALUES('%s','other-%s','browser-e2e','other-%s','ACTIVE',now(),now());\nINSERT INTO wallet_bindings(tenant_id,binding_id,version,user_id,provider,provider_user_reference,wallet_id,address,chain_id,network,status,verification_reference,created_at,verified_at) VALUES('%s','other-binding-%s',1,'other-%s','EXTERNAL_EVM','synthetic-owner','other-wallet-%s','%s','5042','MAINNET','ACTIVE','test-only-owner-review',now(),now());\n", tenant, user, user, tenant, id, user, id, otherAddress)
-	sql = strings.Replace(sql, "COMMIT;", otherSQL+"COMMIT;", 1)
+	fixture, err := newFixture(id, address, otherAddress)
+	if err != nil {
+		os.Exit(1)
+	}
 	out := json.NewEncoder(os.Stdout)
-	if out.Encode(map[string]string{"address": address, "other_address": otherAddress, "other_user_id": "other-" + user, "tenant_id": tenant, "user_id": user, "client_id": client, "sql": sql}) != nil {
+	if out.Encode(fixture) != nil {
 		os.Exit(1)
 	}
 	scanner := bufio.NewScanner(os.Stdin)
