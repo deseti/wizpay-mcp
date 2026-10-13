@@ -14,6 +14,7 @@ import (
 	"github.com/deseti/wizpay-mcp/internal/browser"
 	"github.com/deseti/wizpay-mcp/internal/config"
 	approvalhttp "github.com/deseti/wizpay-mcp/internal/http/approval"
+	"github.com/deseti/wizpay-mcp/internal/http/authdiagnostics"
 	browserhttp "github.com/deseti/wizpay-mcp/internal/http/browser"
 	oauthhttp "github.com/deseti/wizpay-mcp/internal/http/oauth"
 	"github.com/deseti/wizpay-mcp/internal/http/security"
@@ -91,6 +92,7 @@ func NewOAuthServerWithApproval(cfg config.Config, logger *slog.Logger, readines
 	}
 	server.httpServer.Handler = oauthhttp.Routes(oauthhttp.NewHandler(service), server.httpServer.Handler)
 	if cfg.AppEnv == "production" { server.httpServer.Handler = security.New(time.Now).Wrap(server.httpServer.Handler) }
+	server.httpServer.Handler = authdiagnostics.Wrap(logger, server.httpServer.Handler)
 	return server, nil
 }
 
@@ -106,6 +108,7 @@ func NewOAuthServerWithBrowserFoundation(cfg config.Config, logger *slog.Logger,
 	}
 	server.httpServer.Handler = oauthhttp.Routes(oauthhttp.NewHandlerWithBrowser(service, browserhttp.NewHandler(sessions)), server.httpServer.Handler)
 	if cfg.AppEnv == "production" { server.httpServer.Handler = security.New(time.Now).Wrap(server.httpServer.Handler) }
+	server.httpServer.Handler = authdiagnostics.Wrap(logger, server.httpServer.Handler)
 	return server, nil
 }
 

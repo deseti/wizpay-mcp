@@ -3,7 +3,10 @@ package browser
 import (
 	"context"
 	domain "github.com/deseti/wizpay-mcp/internal/browser"
+	"github.com/deseti/wizpay-mcp/internal/http/authdiagnostics"
 	"github.com/deseti/wizpay-mcp/internal/oauth"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,7 +27,10 @@ func (r *testRepo) CreateBrowserSession(_ context.Context, s domain.Session) err
 	r.session = s
 	return nil
 }
-func (r *testRepo) FindBrowserSession(context.Context, string) (domain.Session, error) {
+func (r *testRepo) FindBrowserSession(_ context.Context, digest string) (domain.Session, error) {
+	if r.session.Digest != digest {
+		return domain.Session{}, domain.ErrDenied
+	}
 	return r.session, nil
 }
 func (r *testRepo) FindOAuthTransaction(context.Context, string) (oauth.Transaction, error) {
@@ -123,10 +129,11 @@ func TestBrowserHTTPAuthorityBoundaries(t *testing.T) {
 				want = 401
 			}
 			w := httptest.NewRecorder()
+			instrumented := authdiagnostics.Wrap(slog.New(slog.NewJSONHandler(io.Discard, nil)), h)
 			if kind == "unsupported-deadline" {
-				h.ServeHTTP(w, r)
+				instrumented.ServeHTTP(w, r)
 			} else {
-				h.ServeHTTP(deadlineRecorder{w}, r)
+				instrumented.ServeHTTP(deadlineRecorder{w}, r)
 			}
 			if w.Code != want {
 				t.Fatalf("status=%d want=%d", w.Code, want)
@@ -153,11 +160,64 @@ func TestBrowserDenyLogoutAndCookieIsolation(t *testing.T) {
 				t.Fatal(w.Code)
 			}
 			if path == "/browser/logout" {
-				c := w.Result().Cookies()[0]
-				if c.MaxAge != -1 || c.Domain != "" || !c.Secure || !c.HttpOnly {
-					t.Fatal("logout cookie")
+				if len(w.Result().Cookies()) != 0 {
+					t.Fatal("logout must not erase a newer authorization cookie")
+				}
+				if _, err := h.service.View(context.Background(), raw); err == nil {
+					t.Fatal("revoked cookie remains usable")
 				}
 			}
 		})
+	}
+}
+
+func TestStaleLogoutCannotRevokeNewAuthorization(t *testing.T) {
+	h, oldCookie, oldCSRF := setup(t)
+	// Prepare through the public handler replaces the browser's shared cookie.
+	w := httptest.NewRecorder()
+	h.Prepare(w, request("GET", "/oauth/authorize", ""), oauth.Transaction{ID: "tx", Request: oauth.AuthorizationRequest{ClientID: "client", RedirectURI: "https://client.example/callback", Scope: oauth.ReadScope, Resource: oauth.Resource}})
+	if w.Code != 303 {
+		t.Fatal("new authorization failed", w.Code)
+	}
+	newCookie := w.Result().Cookies()[0].Value
+	for _, value := range []string{oldCookie, newCookie} {
+		r := request("POST", "/browser/logout", "")
+		r.Header.Set("Origin", oauth.Issuer)
+		r.Header.Set("X-CSRF-Token", oldCSRF)
+		r.AddCookie(&http.Cookie{Name: CookieName, Value: value})
+		out := deadlineRecorder{httptest.NewRecorder()}
+		h.ServeHTTP(out, r)
+		if out.Code != 403 || len(out.Result().Cookies()) != 0 {
+			t.Fatal("stale logout affected new authorization")
+		}
+	}
+	if _, err := h.service.View(context.Background(), newCookie); err != nil {
+		t.Fatal("new session revoked")
+	}
+}
+
+func TestCompletedLogoutResponseCannotDeleteSubsequentAuthorizationCookie(t *testing.T) {
+	h, raw, csrf := setup(t)
+	r := request("POST", "/browser/logout", "")
+	r.Header.Set("Origin", oauth.Issuer)
+	r.Header.Set("X-CSRF-Token", csrf)
+	r.AddCookie(&http.Cookie{Name: CookieName, Value: raw})
+	oldResponse := deadlineRecorder{httptest.NewRecorder()}
+	h.ServeHTTP(oldResponse, r)
+	if oldResponse.Code != 200 {
+		t.Fatal("logout failed")
+	}
+	newResponse := httptest.NewRecorder()
+	h.Prepare(newResponse, request("GET", "/oauth/authorize", ""), oauth.Transaction{ID: "tx", Request: oauth.AuthorizationRequest{ClientID: "client", RedirectURI: "https://client.example/callback", Scope: oauth.ReadScope, Resource: oauth.Resource}})
+	if newResponse.Code != 303 {
+		t.Fatal("new authorization failed")
+	}
+	// Even if delivered after Prepare's response, the old response cannot alter
+	// the cookie jar. Its server-side revocation targeted only the original session.
+	if len(oldResponse.Result().Cookies()) != 0 {
+		t.Fatal("late response mutates shared cookie")
+	}
+	if _, err := h.service.View(context.Background(), newResponse.Result().Cookies()[0].Value); err != nil {
+		t.Fatal("new authority unavailable")
 	}
 }

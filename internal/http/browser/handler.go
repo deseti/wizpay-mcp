@@ -119,9 +119,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = h.service.Logout(r.Context(), raw, proof)
-		if err == nil {
-			cookie(w, "", -1)
-		}
+		// Revocation is authoritative. Do not delete the shared cookie: a delayed
+		// logout response could erase a newer authorization's cookie. The revoked
+		// credential is unusable and is replaced by the next OAuth authorization.
 	} else {
 		mediaType, _, mediaErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if mediaErr != nil || mediaType != "application/json" {

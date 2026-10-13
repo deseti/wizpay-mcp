@@ -2,6 +2,9 @@ export type View = { transaction_id?: string; challenge_id?: string; state: "PEN
 export type Verification = { state: "AUTHENTICATED" | "ENROLLMENT_PENDING"; verification_id?: string };
 export type Challenge = { purpose?: "AUTHENTICATE" | "ENROLL"; challenge_id: string; message: string; address: string; expires_at: string };
 export class ApiError extends Error { constructor(public status: number, code?: string) { super(code === "enrollment_required" || code === "account_revoked" ? code : "The request could not be completed."); } }
+export class TransportError extends Error {
+  constructor(public kind: "network_interrupted" | "timeout") { super(kind); }
+}
 export function view(value: unknown): View {
   const v = value as View;
   if (!v || !["PENDING", "AUTHENTICATED", "DENIED"].includes(v.state) || !/^[A-Za-z0-9_-]{43}$/.test(v.csrf) ||
@@ -24,16 +27,22 @@ export function redirect(value: unknown): string {
   if (u.protocol !== "https:" || u.username || u.password || u.hash) throw new Error("invalid_redirect");
   return u.href;
 }
-export interface API { session(): Promise<View>; challenge(csrf: string, address: string): Promise<Challenge>; verify(csrf: string, id: string, signature: string): Promise<Verification | void>; consent(csrf: string, decision: "grant" | "deny"): Promise<string | void>; logout(csrf: string): Promise<void> }
+export interface API { session(): Promise<View>; challenge(csrf: string, address: string): Promise<Challenge>; verify(csrf: string, id: string, signature: string): Promise<Verification>; consent(csrf: string, decision: "grant" | "deny"): Promise<string | void>; logout(csrf: string): Promise<void> }
 export function browserAPI(): API {
   async function request(path: string, csrf?: string, body?: object): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const response = await fetch(path, { method: csrf ? "POST" : "GET", credentials: "same-origin", redirect: "error", cache: "no-store", signal: controller.signal,
-        headers: csrf ? { "X-CSRF-Token": csrf, ...(body ? { "Content-Type": "application/json" } : {}) } : {}, body: body ? JSON.stringify(body) : undefined });
+      let response: Response;
+      try {
+        response = await fetch(path, { method: csrf ? "POST" : "GET", credentials: "same-origin", redirect: "error", cache: "no-store", signal: controller.signal,
+          headers: csrf ? { "X-CSRF-Token": csrf, ...(body ? { "Content-Type": "application/json" } : {}) } : {}, body: body ? JSON.stringify(body) : undefined });
+      } catch { throw new TransportError(controller.signal.aborted ? "timeout" : "network_interrupted"); }
       if (!response.ok) { let code: string | undefined; try { const value = await response.json() as { error?: unknown }; if (typeof value?.error === "string") code = value.error; } catch {} throw new ApiError(response.status, code); }
-      return await response.json();
+      let text: string;
+      try { text = await response.text(); }
+      catch { throw new TransportError(controller.signal.aborted ? "timeout" : "network_interrupted"); }
+      try { return JSON.parse(text); } catch { throw new Error("invalid_response"); }
     } finally { clearTimeout(timer); }
   }
   return {

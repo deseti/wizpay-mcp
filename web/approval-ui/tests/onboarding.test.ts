@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { discover, isProvider, type Provider } from "../src/lib/wallet/provider";
 import { accounts, chain, messageHex, sign } from "../src/lib/wallet/signing";
-import { ApiError, browserAPI, challenge, redirect, view, type API, type View } from "../src/lib/onboarding-api";
+import { ApiError, TransportError, browserAPI, challenge, redirect, view, type API, type View } from "../src/lib/onboarding-api";
 import { Flow } from "../src/lib/onboarding-flow";
 const account = "0x" + "a".repeat(40), other = "0x" + "b".repeat(40);
 const signature = "0x" + "1".repeat(130);
@@ -21,7 +21,7 @@ class Mock implements Provider {
 }
 function fixture() {
   const p=new Mock(); let current=pending; const calls:string[]=[];
-  const api:API={session:async()=>current,challenge:async()=>c,verify:async()=>{calls.push("verify");current=authenticated;},consent:async(csrf,d)=>{calls.push(d+":"+csrf);return d==="grant"?"https://client.example/callback?code=x":undefined;},logout:async csrf=>{calls.push("logout:"+csrf);current=pending;}};
+  const api:API={session:async()=>current,challenge:async()=>c,verify:async()=>{calls.push("verify");current=authenticated;return {state:"AUTHENTICATED"};},consent:async(csrf,d)=>{calls.push(d+":"+csrf);return d==="grant"?"https://client.example/callback?code=x":undefined;},logout:async csrf=>{calls.push("logout:"+csrf);current=pending;}};
   const f=new Flow(api,()=>{},u=>calls.push("navigate:"+u));
   return {p,api,f,calls,set:(v:View)=>{current=v;}};
 }
@@ -56,7 +56,7 @@ for(const event of ["accountsChanged","chainChanged","disconnect"]) test(event+"
  const x=fixture();await ready(x);const d=deferred<unknown>();x.p.hook=async m=>m==="personal_sign"?d.promise:m==="eth_chainId"?"0x13b2":[account];const work=x.f.authenticate();await new Promise<void>(r=>setImmediate(r));x.p.emit(event);d.resolve(signature);await work;assert.equal(x.calls.includes("verify"),false);assert.equal(x.f.canGrant,false);assert.equal(x.f.state.restart,true);
 });
 test("provider change while verification commits reconciles fresh cookie/CSRF and logs out",async()=>{
- const x=fixture();await ready(x);const d=deferred<void>();x.api.verify=async()=>{await d.promise;x.set(authenticated);};const work=x.f.authenticate();await new Promise<void>(r=>setImmediate(r));x.f.select({id:"other",name:"Other",provider:new Mock()});assert.equal(x.f.canGrant,false);d.resolve();await work;assert.ok(x.calls.includes("logout:"+authenticated.csrf));assert.equal(x.f.state.restart,true);
+ const x=fixture();await ready(x);const d=deferred<void>();x.api.verify=async()=>{await d.promise;x.set(authenticated);return {state:"AUTHENTICATED"};};const work=x.f.authenticate();await new Promise<void>(r=>setImmediate(r));x.f.select({id:"other",name:"Other",provider:new Mock()});assert.equal(x.f.canGrant,false);d.resolve();await work;assert.ok(x.calls.includes("logout:"+authenticated.csrf));assert.equal(x.f.state.restart,true);
 });
 test("lost verification response and failed session refresh never enable consent",async()=>{
  const x=fixture();await ready(x);x.api.verify=async()=>{x.set(authenticated);throw new Error("response_lost");};await x.f.authenticate();assert.ok(x.calls.includes("logout:"+authenticated.csrf));assert.equal(x.f.canGrant,false);
@@ -82,8 +82,8 @@ test("signature rejection and challenge expiry cannot authenticate",async()=>{
  const x=fixture();await ready(x);x.p.hook=async m=>{if(m==="personal_sign")throw {code:4001};return m==="eth_chainId"?"0x13b2":[account];};await x.f.authenticate();assert.equal(x.f.state.phase,"rejected");assert.equal(x.calls.includes("verify"),false);
  const y=fixture();await ready(y);y.api.challenge=async()=>({...c,expires_at:"2000-01-01T00:00:00Z"});await y.f.requestChallenge();assert.equal(y.f.state.challenge,undefined);
 });
-test("stale CSRF refresh and cross-client refresh require guarded cleanup",async()=>{
- for(const next of [{...authenticated,csrf:pending.csrf},{...authenticated,client_id:"other"}]){const x=fixture();await ready(x);x.api.verify=async()=>x.set(next);await x.f.authenticate();assert.equal(x.f.canGrant,false);assert.ok(x.calls.some(c=>c.startsWith("logout:")));}
+test("stale CSRF refresh and cross-client refresh cannot authorize cleanup",async()=>{
+ for(const next of [{...authenticated,csrf:pending.csrf},{...authenticated,client_id:"other"}]){const x=fixture();await ready(x);x.api.verify=async()=>{x.set(next);return {state:"AUTHENTICATED"};};await x.f.authenticate();assert.equal(x.f.canGrant,false);assert.equal(x.calls.some(c=>c.startsWith("logout:")),false);}
 });
 test("late consent after wallet change never navigates",async()=>{
  const x=fixture();await ready(x);await x.f.authenticate();const d=deferred<string>();x.api.consent=async()=>d.promise;const work=x.f.decide("grant");await new Promise<void>(r=>setImmediate(r));x.p.emit("accountsChanged");d.resolve("https://client.example/callback?code=x");await work;assert.equal(x.calls.some(c=>c.startsWith("navigate:")),false);assert.equal(x.f.canGrant,false);
@@ -97,7 +97,7 @@ for (const method of ["eth_accounts","eth_chainId"]) for (const event of ["accou
  assert.equal(x.p.calls.filter(c=>c.method==="personal_sign").length,0);assert.equal(x.calls.includes("verify"),false);
 });
 for(const substitute of [{...authenticated,challenge_id:"b".repeat(64),user_id:"other"},{...authenticated,transaction_id:"transaction-B"},{...authenticated,challenge_id:undefined}]) test("substituted or missing evidence never grants or logs out another flow",async()=>{
- const x=fixture();await ready(x);x.api.verify=async()=>x.set(substitute);await x.f.authenticate();assert.equal(x.f.canGrant,false);assert.equal(x.f.state.restart,true);assert.equal(x.calls.some(c=>c.startsWith("logout:")),false);
+ const x=fixture();await ready(x);x.api.verify=async()=>{x.set(substitute);return {state:"AUTHENTICATED"};};await x.f.authenticate();assert.equal(x.f.canGrant,false);assert.equal(x.f.state.restart,true);assert.equal(x.calls.some(c=>c.startsWith("logout:")),false);
 });
 test("provider exceptions and malformed rejections remain contained",async()=>{
  assert.equal(isProvider(Object.defineProperty({},"request",{get(){throw new Error("getter");}})),false);
@@ -141,4 +141,192 @@ for (const code of ["enrollment_required", "account_revoked"]) test(code+" displ
  await x.f.requestChallenge();
  assert.equal(x.f.canGrant,false);
  assert.ok(x.f.state.message.includes(code === "account_revoked" ? "revoked" : "enrollment"));
+});
+
+const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+
+test("disposal during acknowledged verification prevents reads, logout and state updates", async () => {
+  const x = fixture(); await ready(x);
+  const done = deferred<void>(); let reads = 0;
+  x.api.verify = async () => { await done.promise; return { state: "AUTHENTICATED" }; };
+  x.api.session = async () => { reads++; return authenticated; };
+  const work = x.f.authenticate(); await tick();
+  x.f.dispose(); const before = x.f.state; done.resolve(); await work;
+  assert.equal(x.f.state, before); assert.equal(x.f.canGrant, false);
+  assert.equal(reads, 0); assert.equal(x.calls.length, 0);
+});
+
+test("disposal during reconciliation prevents a late owned session from initiating logout", async () => {
+  const x = fixture(); await ready(x); const read = deferred<View>();
+  x.api.verify = async () => { throw new TransportError("network_interrupted"); };
+  x.api.session = async () => read.promise;
+  const work = x.f.authenticate(); await tick();
+  x.f.dispose(); const before = x.f.state; read.resolve(authenticated); await work;
+  assert.equal(x.f.state, before); assert.equal(x.calls.length, 0);
+});
+
+test("disposal during consent cannot publish or navigate a late callback", async () => {
+  const x = fixture(); await ready(x); await x.f.authenticate(); const result = deferred<string>();
+  x.api.consent = async () => result.promise;
+  const work = x.f.decide("grant"); await tick(); x.f.dispose(); const before = x.f.state;
+  result.resolve("https://client.example/callback?code=synthetic"); await work;
+  assert.equal(x.f.state, before); assert.equal(x.calls.some(c => c.startsWith("navigate:")), false);
+});
+
+for (const state of ["PENDING", "AUTHENTICATED"] as const) test(`stale tab cannot clean up newer ${state} authority`, async () => {
+  const x = fixture(); await ready(x);
+  x.api.verify = async () => { throw new ApiError(403); };
+  x.set({ ...authenticated, state, transaction_id: "transaction-B" });
+  await x.f.authenticate();
+  assert.equal(x.f.state.failure, "authorization_superseded");
+  assert.match(x.f.state.message, /newest authorization tab/);
+  assert.equal(x.f.canGrant, false); assert.equal(x.calls.length, 0);
+});
+
+for (const kind of ["network_interrupted", "timeout"] as const) test(`acknowledged verification recovers with exactly one extra GET after ${kind}`, async () => {
+  const x = fixture(); await ready(x); let reads = 0;
+  x.api.session = async () => { if (++reads === 1) throw new TransportError(kind); return authenticated; };
+  await x.f.authenticate();
+  assert.equal(reads, 2); assert.deepEqual(x.calls, ["verify"]); assert.equal(x.f.canGrant, true);
+  await x.f.decide("grant"); assert.ok(x.calls.includes("grant:" + authenticated.csrf));
+});
+
+test("two failed session reads remain ambiguous without a third cleanup read or mutation replay", async () => {
+  const x = fixture(); await ready(x); let reads = 0;
+  x.api.session = async () => { reads++; throw new TransportError("timeout"); };
+  await x.f.authenticate(); await x.f.authenticate(); await x.f.decide("grant");
+  assert.equal(reads, 2); assert.deepEqual(x.calls, ["verify"]);
+  assert.equal(x.f.state.failure, "timeout"); assert.match(x.f.state.message, /SIWE verification result could not be confirmed/);
+  assert.equal(x.f.canGrant, false); assert.equal(x.f.state.restart, true);
+});
+
+for (const change of ["accountsChanged", "chainChanged", "disconnect", "dispose"]) test(`session recovery stops after ${change}`, async () => {
+  const x = fixture(); await ready(x); const read = deferred<View>(); let reads = 0;
+  x.api.session = async () => { reads++; return read.promise; };
+  const work = x.f.authenticate(); await tick();
+  if (change === "dispose") x.f.dispose(); else x.p.emit(change);
+  // The successful late read must not enable consent. Cleanup may read only to
+  // revoke the exact old authority after a wallet event, never after disposal.
+  read.resolve(authenticated); await work;
+  assert.equal(x.f.canGrant, false);
+  if (change === "dispose") { assert.equal(reads, 1); assert.deepEqual(x.calls, ["verify"]); }
+  else assert.ok(reads <= 2);
+});
+
+for (const next of [
+  { ...authenticated, transaction_id: "other-transaction" },
+  { ...authenticated, challenge_id: "b".repeat(64) },
+  { ...authenticated, csrf: pending.csrf },
+  { ...authenticated, client_id: "other-client" },
+  { ...authenticated, resource: "https://other.example/mcp" },
+  { ...authenticated, scope: "write" },
+]) test("bounded recovery never accepts or logs out mismatched authority", async () => {
+  const x = fixture(); await ready(x); let reads = 0;
+  x.api.session = async () => { if (++reads === 1) throw new TransportError("network_interrupted"); return next; };
+  await x.f.authenticate();
+  assert.equal(reads, 2); assert.deepEqual(x.calls, ["verify"]); assert.equal(x.f.canGrant, false);
+  assert.equal(x.f.state.failure, next.transaction_id !== pending.transaction_id ? "authorization_superseded" : "session_mismatch");
+});
+
+test("HTTP denial after verification is never recovered into consent", async () => {
+  const x = fixture(); await ready(x); let reads = 0;
+  x.api.session = async () => { if (++reads === 1) throw new ApiError(401); return authenticated; };
+  await x.f.authenticate();
+  assert.equal(x.f.canGrant, false); assert.equal(x.f.state.failure, "expired");
+  assert.equal(x.calls.filter(c => c === "verify").length, 1);
+});
+
+for (const kind of ["network_interrupted", "timeout"] as const) test(`unacknowledged verification remains ambiguous after ${kind}`, async () => {
+  const x = fixture(); await ready(x); let attempts = 0;
+  x.api.verify = async () => { attempts++; x.set(authenticated); throw new TransportError(kind); };
+  await x.f.authenticate(); await x.f.authenticate();
+  assert.equal(attempts, 1); assert.equal(x.f.state.failure, kind); assert.equal(x.f.canGrant, false);
+  assert.match(x.f.state.message, /SIWE verification result could not be confirmed/);
+});
+
+for (const [event, reason, text] of [
+  ["accountsChanged", "account_changed", /Wallet account changed/],
+  ["chainChanged", "chain_changed", /Wallet network changed/],
+  ["disconnect", "disconnected", /Wallet disconnected/],
+] as const) test(`wallet diagnostic: ${reason}`, async () => {
+  const x = fixture(); await ready(x); x.p.emit(event); await tick();
+  assert.equal(x.f.state.failure, reason); assert.match(x.f.state.message, text); assert.equal(x.f.canGrant, false);
+});
+
+for (const [error, reason, text] of [
+  [new ApiError(403, "sensitive-server-detail"), "http_rejected", /server rejected/],
+  [new ApiError(401), "expired", /expired/],
+  [new TransportError("network_interrupted"), "network_interrupted", /connection was interrupted/],
+  [new TransportError("timeout"), "timeout", /timed out/],
+  [new Error("sensitive-wallet-detail"), "unknown", /could not be completed/],
+] as const) test(`request diagnostic: ${reason}`, async () => {
+  const x = fixture(); await ready(x); x.api.challenge = async () => { throw error; };
+  await x.f.requestChallenge();
+  assert.equal(x.f.state.failure, reason); assert.match(x.f.state.message, text);
+  assert.doesNotMatch(x.f.state.message, /sensitive-/); assert.equal(x.f.canGrant, false);
+});
+
+test("expired challenge has its own diagnostic and never signs", async () => {
+  const x = fixture(); await ready(x);
+  x.f.state.challenge = { ...c, expires_at: "2000-01-01T00:00:00Z" };
+  await x.f.authenticate(); assert.equal(x.f.state.failure, "expired");
+  assert.equal(x.p.calls.some(c => c.method === "personal_sign"), false);
+});
+
+test("API contains network exception details", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError("synthetic-secret-url"); };
+  try { await assert.rejects(browserAPI().session(), e => e instanceof TransportError && e.kind === "network_interrupted" && !e.message.includes("secret")); }
+  finally { globalThis.fetch = original; }
+});
+
+test("API classifies its actual abort deadline as timeout", async t => {
+  const original = globalThis.fetch;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  globalThis.fetch = async (_path, init) => new Promise<Response>((_resolve, reject) => {
+    init!.signal!.addEventListener("abort", () => reject(new Error("synthetic-sensitive-error")));
+  });
+  try {
+    const request = browserAPI().session(); t.mock.timers.tick(15000);
+    await assert.rejects(request, e => e instanceof TransportError && e.kind === "timeout");
+  } finally { globalThis.fetch = original; t.mock.timers.reset(); }
+});
+
+for (const event of ["accountsChanged", "dispose"]) test(`late recovery response after ${event} cannot grant or initiate extra cleanup reads`, async () => {
+  const x = fixture(); await ready(x); let reads = 0; const recovery = deferred<View>();
+  x.api.session = async () => { if (++reads === 1) throw new TransportError("network_interrupted"); return recovery.promise; };
+  const work = x.f.authenticate(); await tick(); assert.equal(reads, 2);
+  if (event === "dispose") x.f.dispose(); else x.p.emit(event);
+  recovery.resolve(authenticated); await work;
+  assert.equal(reads, 2); assert.equal(x.f.canGrant, false); assert.deepEqual(x.calls, ["verify"]);
+});
+
+test("wallet change without an event during recovery fails the final authority check", async () => {
+  const x = fixture(); await ready(x); let reads = 0;
+  x.api.session = async () => {
+    if (++reads === 1) throw new TransportError("network_interrupted");
+    x.p.list = [other]; return authenticated;
+  };
+  await x.f.authenticate();
+  assert.equal(reads, 2); assert.equal(x.f.canGrant, false); assert.equal(x.f.state.failure, "account_changed");
+  assert.equal(x.calls.filter(c => c === "verify").length, 1);
+});
+
+test("repeated wallet events serialize cleanup and never replay logout", async () => {
+  const x = fixture(); await ready(x); let reads = 0; let logouts = 0; const read = deferred<View>();
+  x.api.session = async () => { reads++; return read.promise; };
+  x.api.logout = async () => { logouts++; throw new TransportError("timeout"); };
+  x.p.emit("accountsChanged"); x.p.emit("chainChanged"); read.resolve(pending); await tick();
+  assert.equal(reads, 1); assert.equal(logouts, 1); assert.equal(x.f.canGrant, false);
+  x.p.emit("disconnect"); await tick(); assert.equal(logouts, 1);
+});
+
+test("API distinguishes interrupted body delivery from malformed successful JSON", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(new ReadableStream({ start(controller) { controller.error(new Error("synthetic-body-secret")); } }));
+    await assert.rejects(browserAPI().session(), e => e instanceof TransportError && e.kind === "network_interrupted");
+    globalThis.fetch = async () => new Response("synthetic-invalid-json-secret");
+    await assert.rejects(browserAPI().session(), e => e instanceof Error && !(e instanceof TransportError) && e.message === "invalid_response");
+  } finally { globalThis.fetch = original; }
 });

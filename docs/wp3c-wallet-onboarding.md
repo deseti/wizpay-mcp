@@ -50,7 +50,10 @@ SameSite=Lax. No cookie/token/signature localStorage or sessionStorage is used.
 Signatures are transient function values, not application state or logs. Fetches
 are same-origin, no-store, reject redirects and have a 15-second client deadline.
 Backend authority and shorter transport/work deadlines remain authoritative.
-Logout uses POST /browser/logout with CSRF and an empty body.
+Logout uses POST /browser/logout with CSRF and an empty body. Server revocation
+invalidates the credential; logout does not send cookie deletion. This prevents a
+delayed logout response from clearing a newer authorization's shared cookie. The
+revoked cookie remains unusable until it expires or a fresh authorization replaces it.
 
 ## Authentication correlation and pre-sign cancellation
 
@@ -67,13 +70,17 @@ The frontend retains the pending transaction ID and issued challenge ID. After
 verification, both must match the refreshed authenticated view in addition to
 client/resource/scope and changed CSRF. Same-client wallet or transaction replacement
 therefore requires restart. Reconciliation only logs out an authenticated session
-whose challenge AND transaction match this flow, or a pending session with the
-original CSRF and transaction. Unrelated tab authority is never intentionally
+whose challenge AND transaction match this flow, with matching client/resource/scope
+and rotated CSRF, or a pending session with the original CSRF and authorization
+context. Unrelated tab authority is never intentionally
 adopted or revoked; a later cookie change causes server CSRF rejection.
 
 The signing helper checks generation after each asynchronous account/network read
 and immediately before personal_sign, with no intervening asynchronous boundary.
 Disposal invalidates generation. Late provider responses cannot initiate signing.
+Disposed controllers cannot publish state, navigate, or initiate cleanup reads or
+logout. Cleanup rechecks controller generation after its session read. Mutations
+already sent cannot be recalled; server CSRF validation still binds their target.
 Throwing provider getters, listener registration/cleanup and malformed rejection
 values are contained without granting authority.
 
@@ -86,9 +93,18 @@ returned accounts are then cross-checked through eth_accounts. Later changes alw
 invalidate the flow, including manual network correction events: restart OAuth.
 
 Late signatures are discarded. A wallet popup cannot be cancelled by AbortController.
-HTTP timeout/unmount is not proof of server rollback. Verification failures, wallet
-changes during verification, or failed post-verification refresh trigger fresh session
-lookup and correlation-guarded, CSRF-guarded logout if possible, then require OAuth restart. Pending-session
+HTTP timeout/unmount is not proof of server rollback. Only an acknowledged
+AUTHENTICATED verification followed by a transport failure of the session GET
+permits one additional GET, after another account/network check. The returned view
+must pass all correlation checks and a final wallet check before explicit consent
+is enabled. Verification, consent and token exchange are never automatically replayed.
+HTTP rejection or malformed responses cannot recover into consent.
+
+Other verification failures and wallet changes trigger correlation-guarded,
+CSRF-guarded cleanup if possible, then require OAuth restart. Recovery and cleanup
+share a maximum of two post-verification session reads; exhausted recovery does
+not trigger a third GET. A transaction mismatch marks the controller superseded
+and prohibits logout. Pending-session
 logout also invalidates a racing finalizer through backend locking/revocation.
 If cleanup itself fails, consent stays unavailable; server authority may remain until
 expiry/revocation. No unconditional claim of successful logout is made.
@@ -97,6 +113,18 @@ Lost grant responses are never blindly replayed. Restart from the AI client. Mul
 tabs can rotate the shared host cookie: stale CSRF must fail; automatic account
 substitution is not supported. Reloaded authenticated sessions display the server's
 user identity, not an invented wallet address. Provider state is not login authority.
+
+Failure messages distinguish wallet events, mismatched or superseded sessions,
+expired/unavailable authorization, HTTP rejection, transport interruption, timeout,
+and ambiguous verification. They never include raw provider errors or response bodies.
+
+Authentication outcome telemetry emits one `authentication_request` record per
+allowlisted OAuth/browser request: server-generated request ID (also returned as
+`X-Request-ID`), route identifier, HTTP status, duration, and bounded category.
+It does not inspect/log request or response bodies, headers, query strings, wallet
+addresses, SIWE evidence, credentials, codes, or callback locations. Discovery,
+health checks, MCP streams, and unknown routes are excluded. These transport logs
+do not replace immutable authorization audit records or prove browser delivery.
 
 ## Required local HTTPS routing (not deployed by this phase)
 
